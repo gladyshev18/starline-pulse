@@ -4,6 +4,7 @@ import type { Database } from '../../db/client'
 import { telegramRecipients } from '../../db/schema'
 import { config, normalizeTelegramUsername } from '../config'
 import { registerCommands } from './commands'
+import { mainKeyboard } from './keyboard'
 import { createTelegramProxyFetch } from './proxy'
 
 let bot: Bot | null = null
@@ -45,6 +46,7 @@ export async function notifyAllowedChats(text: string, html = false) {
   const recipients = await botRecipients()
   const results = await Promise.allSettled(recipients.map(recipient => bot!.api.sendMessage(recipient.chatId, text, {
     disable_notification: true,
+    reply_markup: mainKeyboard,
     ...(html ? { parse_mode: 'HTML' as const } : {})
   })))
   results.forEach((result, index) => {

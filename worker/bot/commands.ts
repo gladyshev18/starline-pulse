@@ -3,6 +3,7 @@ import type { Bot, Context } from 'grammy'
 import type { Database } from '../../db/client'
 import { telegramRecipients, trips, vehicleSnapshots } from '../../db/schema'
 import { config, normalizeTelegramUsername } from '../config'
+import { buttonLabels, mainKeyboard } from './keyboard'
 import { buildReport, type ReportPeriod } from './reports'
 
 const decimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -24,8 +25,8 @@ function engineState(online: boolean | null, ignition: boolean | null) {
   return 'состояние неизвестно'
 }
 
-async function reply(context: Context, text: string) {
-  return context.reply(text, replyOptions)
+async function reply(context: Context, text: string, keyboard = true) {
+  return context.reply(text, keyboard ? { ...replyOptions, reply_markup: mainKeyboard } : replyOptions)
 }
 
 async function report(context: Context, database: Database, period: ReportPeriod) {
@@ -35,8 +36,8 @@ async function report(context: Context, database: Database, period: ReportPeriod
 export function registerCommands(bot: Bot, database: Database) {
   bot.command('start', async (context: Context) => {
     const username = normalizeTelegramUsername(context.from?.username)
-    if (!username) return reply(context, 'Чтобы подключить уведомления, задайте публичный username в Telegram и снова отправьте /start.')
-    if (!config.telegramAllowedUsernames.has(username)) return reply(context, `Для ${escapeHtml(username)} доступ к уведомлениям не настроен.`)
+    if (!username) return reply(context, 'Чтобы подключить уведомления, задайте публичный username в Telegram и снова отправьте /start.', false)
+    if (!config.telegramAllowedUsernames.has(username)) return reply(context, `Для ${escapeHtml(username)} доступ к уведомлениям не настроен.`, false)
 
     const chatId = context.chat?.id.toString()
     if (!chatId) return
@@ -54,11 +55,11 @@ export function registerCommands(bot: Bot, database: Database) {
       'Chat ID определён и сохранён автоматически.',
       '',
       'Все автоматические сообщения приходят без звука.',
-      'Команды: /status, /last, /day, /week, /month'
+      'Выберите нужное действие на клавиатуре ниже.'
     ].join('\n'))
   })
 
-  bot.command('status', async (context: Context) => {
+  const showStatus = async (context: Context) => {
     const vehicle = await database.query.vehicles.findFirst()
     if (!vehicle) return reply(context, 'Данных об автомобиле пока нет.')
     const snapshot = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, vehicle.id), orderBy: desc(vehicleSnapshots.ts) })
@@ -71,9 +72,9 @@ export function registerCommands(bot: Bot, database: Database) {
       `АКБ: ${number(snapshot.battery, snapshot.batteryType === 'percent' ? '%' : 'В')}`,
       `Последняя связь: ${date.format(snapshot.activityTs || snapshot.ts)}`
     ].join('\n'))
-  })
+  }
 
-  bot.command('last', async (context: Context) => {
+  const showLastTrips = async (context: Context) => {
     const vehicle = await database.query.vehicles.findFirst()
     if (!vehicle) return reply(context, 'Поездок пока нет.')
     const items = await database.select().from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false))).orderBy(desc(trips.startedAt)).limit(5)
@@ -83,9 +84,18 @@ export function registerCommands(bot: Bot, database: Database) {
       '',
       ...items.map(item => `• ${date.format(item.startedAt)} — ${number(item.distance, 'км')}, ${number(item.fuelUsed, 'л')}`)
     ].join('\n'))
-  })
+  }
+
+  bot.command('status', showStatus)
+  bot.command('last', showLastTrips)
 
   bot.command('day', context => report(context, database, 'daily'))
   bot.command('week', context => report(context, database, 'weekly'))
   bot.command('month', context => report(context, database, 'monthly'))
+
+  bot.hears(buttonLabels.status, showStatus)
+  bot.hears(buttonLabels.last, showLastTrips)
+  bot.hears(buttonLabels.day, context => report(context, database, 'daily'))
+  bot.hears(buttonLabels.week, context => report(context, database, 'weekly'))
+  bot.hears(buttonLabels.month, context => report(context, database, 'monthly'))
 }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" role="img" aria-labelledby="title">
+  <title id="title">Chery Pulse</title>
+  <rect width="56" height="56" rx="16" fill="#10A976"/>
+  <path d="M11 29h9l3.6-8 7 16L35 26l3 3h7" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="28" cy="28" r="20" fill="none" stroke="#fff" stroke-opacity=".22"/>
+</svg>
