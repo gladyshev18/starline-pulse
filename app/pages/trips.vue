@@ -16,7 +16,15 @@ const commentError = ref('')
 function number(value: number | null, digits = 1) { return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value) }
 function date(value: string | Date) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function day(value: string) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long' }).format(new Date(`${value}T00:00:00+03:00`)) }
-function consumption(distance: number | null, fuel: number | null) { return distance && fuel != null ? fuel / distance * 100 : null }
+function duration(value: number | null) {
+  if (value == null) return '—'
+  const minutes = Math.max(0, Math.round(value))
+  if (minutes < 1) return '< 1 мин'
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (!hours) return `${rest} мин`
+  return rest ? `${hours} ч ${rest} мин` : `${hours} ч`
+}
 function pageLink(targetPage: number) {
   return { query: { page: targetPage, ...(selectedDay.value ? { day: selectedDay.value } : {}) } }
 }
@@ -70,13 +78,16 @@ async function saveComment() {
       <div v-else-if="!data?.items.length" class="muted">{{ selectedDay ? 'За выбранный день завершённых поездок нет.' : 'Завершённых поездок пока нет.' }}</div>
       <div v-else class="table-wrap">
         <table>
-          <thead><tr><th>Дата</th><th>Расстояние</th><th>Топливо</th><th>Расход</th><th>Комментарий</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Дальность</th><th>Длительность</th><th>Расход топлива</th><th>Комментарий</th></tr></thead>
           <tbody>
             <tr v-for="trip in data.items" :key="trip.id">
               <td>{{ date(trip.startedAt) }}</td>
               <td>{{ number(trip.distance) }} км</td>
-              <td>{{ number(trip.fuelUsed) }} л</td>
-              <td>{{ number(consumption(trip.distance, trip.fuelUsed)) }} л/100 км</td>
+              <td>{{ duration(trip.durationMinutes) }}</td>
+              <td>
+                {{ number(trip.fuelUsed) }} л
+                <span class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
+              </td>
               <td class="trip-comment-cell">
                 <button
                   class="trip-comment-button"

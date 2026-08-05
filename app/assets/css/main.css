@@ -272,6 +272,7 @@ tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
+.trip-consumption { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
 .trip-comment-cell { width: 34%; min-width: 240px; white-space: normal; }
 .trip-comment-button { max-width: 360px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
 .trip-comment-button:hover { color: var(--accent-ink); }

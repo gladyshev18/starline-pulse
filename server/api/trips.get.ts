@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gte, lt } from 'drizzle-orm'
 import { trips } from '../../db/schema'
+import { calculateTripMetrics } from '../../shared/trip-metrics'
 import { moscowDayRange } from '../utils/moscow-day'
 
 export default defineEventHandler(async (event) => {
@@ -16,7 +17,8 @@ export default defineEventHandler(async (event) => {
     ...(dayRange ? [gte(trips.startedAt, dayRange.start), lt(trips.startedAt, dayRange.end)] : [])
   )
   const [result] = await database.select({ total: count() }).from(trips).where(where)
-  const items = await database.select().from(trips).where(where).orderBy(desc(trips.startedAt)).limit(pageSize).offset((page - 1) * pageSize)
+  const rows = await database.select().from(trips).where(where).orderBy(desc(trips.startedAt)).limit(pageSize).offset((page - 1) * pageSize)
+  const items = rows.map(trip => ({ ...trip, ...calculateTripMetrics(trip) }))
   const total = Number(result?.total || 0)
   return { items, page, pageSize, total, pages: Math.ceil(total / pageSize), day: dayRange?.day || null }
 })
