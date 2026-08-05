@@ -22,13 +22,14 @@ FROM node:22-bookworm-slim AS tasks
 
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY deploy/tasks/package.json deploy/tasks/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
 COPY --chown=node:node db ./db
 COPY --chown=node:node worker ./worker
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node fixtures ./fixtures
+COPY --chown=node:node compose.yaml ./release/compose.yaml
+COPY --chown=node:node deploy/Caddyfile deploy/production-deploy.sh ./release/deploy/
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 CMD ["npm", "run", "worker:start"]
-

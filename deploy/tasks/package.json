@@ -1,0 +1,20 @@
+{
+  "name": "chery-pulse-tasks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "worker:start": "tsx worker/index.ts",
+    "worker:once": "tsx worker/index.ts --once",
+    "starline:probe": "tsx scripts/starline-probe.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "0.17.4",
+    "argon2": "0.44.0",
+    "dotenv": "17.4.2",
+    "drizzle-orm": "0.45.2",
+    "grammy": "1.45.1",
+    "tsx": "4.23.7"
+  }
+}

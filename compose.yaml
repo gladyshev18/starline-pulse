@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: tasks
-    image: chery-pulse-tasks:local
+    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
     command: ["npm", "run", "db:migrate"]
     env_file: .env.production
     environment:
@@ -22,7 +22,7 @@ services:
     restart: "no"
 
   seed:
-    image: chery-pulse-tasks:local
+    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
     command: ["npm", "run", "seed"]
     profiles: ["tools"]
     env_file: .env.production
@@ -46,7 +46,7 @@ services:
     build:
       context: .
       target: web
-    image: chery-pulse-web:local
+    image: ${WEB_IMAGE:-chery-pulse-web:local}
     env_file: .env.production
     environment:
       DATABASE_URL: file:/app/data/app.db
@@ -80,7 +80,7 @@ services:
         max-file: "3"
 
   worker:
-    image: chery-pulse-tasks:local
+    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
     command: ["npm", "run", "worker:start"]
     env_file: .env.production
     environment:
@@ -141,4 +141,3 @@ volumes:
   app-data:
   caddy-data:
   caddy-config:
-
