@@ -1,0 +1,10 @@
+node_modules/
+.nuxt/
+.output/
+.idea/
+.tmp-fonts/
+.env
+data/
+fixtures/starline-device.json
+*.log
+.DS_Store

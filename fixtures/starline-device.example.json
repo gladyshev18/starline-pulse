@@ -1,0 +1,13 @@
+{
+  "data": {
+    "alias": "Chery Tiggo",
+    "device_id": 357976061290482,
+    "activity_ts": 1785913200,
+    "position": { "x": 55.7558, "y": 37.6176, "ts": 1785913200 },
+    "common": { "gsm_lvl": 21, "battery": 12.6, "ctemp": 24, "etemp": 67, "ts": 1785913200 },
+    "obd": { "fuel_litres": 38.4, "fuel_percent": 64, "mileage": 18452.3, "ts": 1785913200 },
+    "state": { "ign": false, "run": false, "ts": 1785913200 }
+  },
+  "codestring": "OK",
+  "code": 200
+}

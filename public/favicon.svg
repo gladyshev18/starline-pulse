@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Chery Pulse</title>
+  <defs>
+    <linearGradient id="emerald" x1="8" y1="5" x2="58" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2BD49B"/>
+      <stop offset="1" stop-color="#07845B"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#emerald)"/>
+  <circle cx="32" cy="32" r="22" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.5"/>
+  <path d="M12 33h12l4-9 8 19 5-13 4 3h7" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

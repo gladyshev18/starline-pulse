@@ -1,0 +1,42 @@
+{
+  "name": "chery-pulse",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "nuxt dev --port 3000",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "worker": "tsx watch worker/index.ts",
+    "worker:once": "tsx worker/index.ts --once",
+    "starline:probe": "tsx scripts/starline-probe.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "nuxt typecheck && tsc -p tsconfig.worker.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@libsql/client": "0.17.4",
+    "argon2": "^0.44.0",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "0.45.2",
+    "grammy": "1.45.1",
+    "nuxt": "4.5.1",
+    "nuxt-auth-utils": "0.5.30"
+  },
+  "devDependencies": {
+    "@nuxt/test-utils": "^3.21.0",
+    "@types/node": "^24.10.0",
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "vue-router": "5.2.0",
+    "vue-tsc": "^3.1.6"
+  }
+}

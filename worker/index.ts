@@ -1,0 +1,24 @@
+import { setTimeout as delay } from 'node:timers/promises'
+import { createDatabase } from '../db/client'
+import { createTelegramBot } from './bot'
+import { config } from './config'
+import { initializeQueue, processNextJob } from './queue'
+
+const database = createDatabase(config.databaseUrl)
+await initializeQueue(database)
+
+if (process.argv.includes('--once')) {
+  await processNextJob(database)
+  process.exit(0)
+}
+
+const bot = createTelegramBot(database)
+if (bot) void bot.start({ onStart: info => console.log(`Telegram bot @${info.username} started`) })
+console.log(`Worker started in ${config.starlineMode} mode`)
+
+let running = true
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { running = false; bot?.stop() })
+while (running) {
+  while (await processNextJob(database)) { /* drain ready jobs */ }
+  await delay(10_000)
+}
