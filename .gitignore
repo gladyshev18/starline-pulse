@@ -4,6 +4,7 @@ node_modules/
 .idea/
 .tmp-fonts/
 .env
+.env.production
 data/
 fixtures/starline-device.json
 *.log

@@ -1,15 +1,16 @@
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { dirname, isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, resolve } from 'node:path'
 import * as schema from './schema'
 
 function normalizeUrl(url: string) {
   if (!url.startsWith('file:')) return url
   const value = url.slice(5)
   if (isAbsolute(value)) return `file:${value.replaceAll('\\', '/')}`
-  const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  const path = resolve(projectRoot, value)
+  // import.meta.url points inside .output after bundling. The application and
+  // worker both start from the project root, so relative database URLs must be
+  // anchored to the process working directory instead.
+  const path = resolve(value)
   return `file:${path.replaceAll('\\', '/')}`
 }
 

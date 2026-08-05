@@ -29,6 +29,9 @@ importers:
       nuxt-auth-utils:
         specifier: 0.5.30
         version: 0.5.30(argon2@0.44.0)(magic-string@1.1.0)(magicast@0.5.4)(rolldown@1.2.2)(unplugin@3.3.0(esbuild@0.28.1)(rolldown@1.2.2)(rollup@4.62.4)(vite@8.2.0(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0)))
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.5
     devDependencies:
       '@nuxt/test-utils':
         specifier: ^3.21.0
@@ -39,9 +42,6 @@ importers:
       drizzle-kit:
         specifier: ^0.31.8
         version: 0.31.10
-      tsx:
-        specifier: ^4.21.0
-        version: 4.23.5
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

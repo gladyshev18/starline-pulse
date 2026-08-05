@@ -14,6 +14,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed.ts",
     "worker": "tsx watch worker/index.ts",
+    "worker:start": "tsx worker/index.ts",
     "worker:once": "tsx worker/index.ts --once",
     "starline:probe": "tsx scripts/starline-probe.ts",
     "smoke": "node scripts/smoke.mjs",
@@ -27,13 +28,13 @@
     "drizzle-orm": "0.45.2",
     "grammy": "1.45.1",
     "nuxt": "4.5.1",
-    "nuxt-auth-utils": "0.5.30"
+    "nuxt-auth-utils": "0.5.30",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@nuxt/test-utils": "^3.21.0",
     "@types/node": "^24.10.0",
     "drizzle-kit": "^0.31.8",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",
     "vue-router": "5.2.0",

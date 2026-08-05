@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.nuxt
+.output
+.tmp-fonts
+node_modules
+data
+*.log
+.env
+.env.*
+!.env.example
+!.env.production.example
+README.md
+tests
+

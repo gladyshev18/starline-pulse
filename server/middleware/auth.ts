@@ -1,6 +1,6 @@
 export default defineEventHandler(async (event) => {
   const path = getRequestURL(event).pathname
-  const isPublic = path === '/login' || path === '/api/login' || path.startsWith('/api/_auth/') || path.startsWith('/_nuxt/') || path === '/favicon.ico'
+  const isPublic = path === '/login' || path === '/api/login' || path === '/api/health' || path.startsWith('/api/_auth/') || path.startsWith('/_nuxt/') || path === '/favicon.ico'
   if (isPublic) return
 
   const isProtected = path.startsWith('/api/') || (!path.includes('.') && !path.startsWith('/__'))

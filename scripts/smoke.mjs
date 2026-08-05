@@ -26,6 +26,8 @@ try {
   }
   if (!ready) throw new Error(`Server did not become ready: ${stderr}`)
 
+  const health = await fetch('http://localhost:3000/api/health')
+  if (health.status !== 200) throw new Error(`Health status was ${health.status}: ${await health.text()}\n${stderr}`)
   const anonymous = await fetch('http://localhost:3000/api/dashboard')
   if (anonymous.status !== 401) throw new Error(`Anonymous API status was ${anonymous.status}`)
   const login = await fetch('http://localhost:3000/api/login', {
@@ -33,11 +35,11 @@ try {
     body: JSON.stringify({ login: process.env.SEED_USER_1_LOGIN, password: process.env.SEED_USER_1_PASSWORD })
   })
   const cookie = login.headers.get('set-cookie')?.split(';', 1)[0]
-  if (login.status !== 200 || !cookie) throw new Error(`Login status was ${login.status}`)
+  if (login.status !== 200 || !cookie) throw new Error(`Login status was ${login.status}: ${await login.text()}\n${stderr}`)
   const dashboard = await fetch('http://localhost:3000/api/dashboard', { headers: { cookie } })
   if (dashboard.status !== 200) throw new Error(`Authenticated dashboard status was ${dashboard.status}`)
   const data = await dashboard.json()
-  console.log(JSON.stringify({ anonymous: anonymous.status, login: login.status, dashboard: dashboard.status, vehicle: data.vehicle?.alias }))
+  console.log(JSON.stringify({ health: health.status, anonymous: anonymous.status, login: login.status, dashboard: dashboard.status, vehicle: data.vehicle?.alias }))
 } finally {
   if (server.exitCode == null) {
     server.kill('SIGTERM')
