@@ -68,11 +68,18 @@ async function sync() {
       <section class="card card--wide activity-card">
         <div class="card__top"><div><p class="metric-label">Пробег за 14 дней</p><p class="muted">{{ number(data?.daily.reduce((sum, item) => sum + item.distance, 0), 1) }} км · {{ number(data?.daily.reduce((sum, item) => sum + item.trips, 0)) }} поездок</p></div></div>
         <div class="daily-chart" aria-label="Дневной пробег за последние 14 дней">
-          <div v-for="item in data?.daily" :key="item.day" class="daily-chart__item" :title="`${shortDay(item.day)}: ${number(item.distance, 1)} км, ${item.trips} поездок`">
+          <NuxtLink
+            v-for="item in data?.daily"
+            :key="item.day"
+            class="daily-chart__item"
+            :to="{ path: '/trips', query: { day: item.day } }"
+            :title="`${shortDay(item.day)}: ${number(item.distance, 1)} км, ${item.trips} поездок`"
+            :aria-label="`Открыть поездки за ${shortDay(item.day)}: ${number(item.distance, 1)} км, ${item.trips} поездок`"
+          >
             <span class="daily-chart__value">{{ item.distance > 0 ? number(item.distance, 0) : '—' }}</span>
             <span class="daily-chart__track"><span class="daily-chart__bar" :style="{ height: dailyBarHeight(item.distance) }" /></span>
             <span class="daily-chart__day">{{ shortDay(item.day) }}</span>
-          </div>
+          </NuxtLink>
         </div>
       </section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">За месяц</p></div><p class="metric">{{ number(data?.month.distance, 1) }} <small>км</small></p><p class="muted">{{ number(data?.month.trips) }} поездок · {{ number(data?.month.fuelUsed, 1) }} л · {{ number(data?.month.consumption, 1) }} л/100 км</p></section>

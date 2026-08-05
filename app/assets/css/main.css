@@ -249,10 +249,14 @@ button { color: inherit; }
 .activity-card, .battery-card { min-height: 0; }
 .activity-card .card__top .muted, .battery-card .card__top .muted { margin: 5px 0 0; font-size: .75rem; }
 .daily-chart { display: grid; height: 180px; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 7px; margin-top: 25px; }
-.daily-chart__item { display: grid; min-width: 0; grid-template-rows: 20px 1fr 19px; gap: 5px; text-align: center; }
+.daily-chart__item { display: grid; min-width: 0; grid-template-rows: 20px 1fr 19px; gap: 5px; border-radius: 8px; outline: none; text-align: center; transition: transform .16s ease; }
 .daily-chart__value, .daily-chart__day { overflow: hidden; color: var(--muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
-.daily-chart__track { display: flex; min-height: 0; align-items: end; overflow: hidden; border-radius: 7px; background: var(--surface-subtle); }
-.daily-chart__bar { display: block; width: 100%; min-height: 2px; border-radius: 7px 7px 4px 4px; background: var(--accent); }
+.daily-chart__track { display: flex; min-height: 0; align-items: end; overflow: hidden; border-radius: 7px; background: var(--surface-subtle); transition: background-color .16s ease, box-shadow .16s ease; }
+.daily-chart__bar { display: block; width: 100%; min-height: 2px; border-radius: 7px 7px 4px 4px; background: var(--accent); transition: background-color .16s ease; }
+.daily-chart__item:hover { transform: translateY(-2px); }
+.daily-chart__item:is(:hover, :focus-visible) .daily-chart__track { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.daily-chart__item:is(:hover, :focus-visible) .daily-chart__bar { background: var(--accent-hover); }
+.daily-chart__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .battery-trend { display: grid; gap: 1px; margin-top: 23px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--line); }
 .battery-trend__row { display: grid; grid-template-columns: 70px repeat(3, 1fr); gap: 18px; padding: 11px 14px; background: var(--surface); font-size: .75rem; }
 .battery-trend__row strong { color: var(--accent-ink); font-weight: 700; }
@@ -267,6 +271,7 @@ td { font-size: .86rem; }
 tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
+.trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
 
 .refuels-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .refuels-heading__note { max-width: 310px; margin: 0 0 5px; color: var(--muted); font-size: .78rem; text-align: right; }
