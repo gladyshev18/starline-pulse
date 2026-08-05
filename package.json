@@ -27,11 +27,13 @@
     "argon2": "^0.44.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "0.45.2",
+    "echarts": "^6.1.0",
     "grammy": "1.45.1",
     "nuxt": "4.5.1",
     "nuxt-auth-utils": "0.5.30",
     "tsx": "^4.21.0",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "vue-echarts": "^8.0.1"
   },
   "devDependencies": {
     "@nuxt/test-utils": "^3.21.0",

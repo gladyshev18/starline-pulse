@@ -13,14 +13,18 @@ function moscowDayStart(daysAgo: number, now = new Date()) {
   return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate() - daysAgo) - MOSCOW_OFFSET_MS)
 }
 
-function daySeries(days: number, rows: Array<{ day: string, distance: unknown, trips: unknown }>) {
-  const values = new Map(rows.map(row => [row.day, { distance: Number(row.distance || 0), trips: Number(row.trips || 0) }]))
+function daySeries(days: number, rows: Array<{ day: string, distance: unknown, fuelUsed: unknown, trips: unknown }>) {
+  const values = new Map(rows.map(row => [row.day, {
+    distance: Number(row.distance || 0),
+    fuelUsed: Number(row.fuelUsed || 0),
+    trips: Number(row.trips || 0)
+  }]))
   const today = new Date(Date.now() + MOSCOW_OFFSET_MS)
   return Array.from({ length: days }, (_, index) => {
     const day = new Date(today)
     day.setUTCDate(today.getUTCDate() - (days - index - 1))
     const key = day.toISOString().slice(0, 10)
-    return { day: key, ...(values.get(key) || { distance: 0, trips: 0 }) }
+    return { day: key, ...(values.get(key) || { distance: 0, fuelUsed: 0, trips: 0 }) }
   })
 }
 
@@ -31,7 +35,7 @@ export default defineEventHandler(async () => {
     vehicle: null,
     snapshot: null,
     month: { distance: 0, fuelUsed: 0, consumption: null, trips: 0 },
-    daily: [], engine: { stationaryMinutes: 0, warmupMinutes: 0, sessions: 0 },
+    daily: [], today: { distance: 0, fuelUsed: 0 }, engine: { stationaryMinutes: 0, warmupMinutes: 0, sessions: 0 },
     refuels: { count: 0, litres: 0, recent: [] }, batteryTrend: [], api: { used: 0, remaining: 1000 }
   }
 
@@ -51,6 +55,7 @@ export default defineEventHandler(async () => {
   const dailyRows = await database.select({
     day: tripDay,
     distance: sql<number>`coalesce(sum(${trips.distance}), 0)`,
+    fuelUsed: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
     trips: count()
   }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), gte(trips.startedAt, dailyStart)))
     .groupBy(tripDay).orderBy(tripDay)
@@ -85,11 +90,14 @@ export default defineEventHandler(async () => {
   const [api] = await database.select({ used: sql<number>`count(*)` }).from(apiCalls).where(eq(apiCalls.day, today))
   const distance = Number(month?.distance || 0)
   const fuelUsed = Number(month?.fuelUsed || 0)
+  const daily = daySeries(14, dailyRows)
+  const todayMetrics = daily.at(-1) || { distance: 0, fuelUsed: 0 }
   return {
     vehicle,
     snapshot,
     month: { distance, fuelUsed, consumption: distance > 0 ? fuelUsed / distance * 100 : null, trips: Number(month?.trips || 0) },
-    daily: daySeries(14, dailyRows),
+    daily,
+    today: { distance: todayMetrics.distance, fuelUsed: todayMetrics.fuelUsed },
     engine: {
       sessions: Number(engine?.sessions || 0),
       stationaryMinutes: Number(engine?.stationaryMinutes || 0),

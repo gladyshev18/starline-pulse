@@ -224,6 +224,20 @@ button { color: inherit; }
 .card__top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .card__top .eyebrow { margin: 0; }
 .metric-label { margin: 0; color: var(--muted); font-size: .8rem; font-weight: 620; }
+.metric-badge {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: .68rem;
+  font-weight: 720;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
 .metric-card { display: flex; flex-direction: column; justify-content: space-between; }
 .metric { margin: 28px 0 0; font-size: clamp(2.2rem, 4vw, 3.45rem); font-weight: 330; line-height: .95; letter-spacing: -.055em; }
 .metric--compact { font-size: clamp(1.8rem, 3.5vw, 2.75rem); }
