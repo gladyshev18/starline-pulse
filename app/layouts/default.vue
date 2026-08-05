@@ -15,6 +15,7 @@ async function logout() {
       </NuxtLink>
       <nav class="nav" aria-label="Основная навигация">
         <NuxtLink to="/">Обзор</NuxtLink>
+        <NuxtLink to="/history">История</NuxtLink>
         <NuxtLink to="/trips">Поездки</NuxtLink>
         <NuxtLink to="/refuels">Чеки</NuxtLink>
         <NuxtLink to="/api-logs">API</NuxtLink>
