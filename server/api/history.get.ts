@@ -1,5 +1,5 @@
-import { and, count, eq, gte, lt, sql } from 'drizzle-orm'
-import { trips } from '../../db/schema'
+import { and, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
+import { trips, vehicleSnapshots } from '../../db/schema'
 import { currentMoscowMonth, moscowMonthRange } from '../utils/moscow-month'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
@@ -30,6 +30,7 @@ export default defineEventHandler(async (event) => {
     month: range.month,
     currentMonth: currentMoscowMonth(),
     daily: fillMonth(range.month, range.days, []),
+    odometer: [],
     totals: { distance: 0, fuelUsed: 0, trips: 0, consumption: null }
   }
 
@@ -46,6 +47,36 @@ export default defineEventHandler(async (event) => {
     lt(trips.startedAt, range.end)
   )).groupBy(tripDay).orderBy(tripDay)
 
+  const mileageDay = sql<string>`strftime('%Y-%m-%d', ${vehicleSnapshots.ts} / 1000, 'unixepoch', '+3 hours')`
+  const mileageRows = await database.select({
+    day: mileageDay,
+    first: sql<number>`min(${vehicleSnapshots.mileage})`,
+    last: sql<number>`max(${vehicleSnapshots.mileage})`
+  }).from(vehicleSnapshots).where(and(
+    eq(vehicleSnapshots.vehicleId, vehicle.id),
+    isNotNull(vehicleSnapshots.mileage),
+    gte(vehicleSnapshots.ts, range.start),
+    lt(vehicleSnapshots.ts, range.end)
+  )).groupBy(mileageDay).orderBy(mileageDay)
+
+  const previousMileage = await database.query.vehicleSnapshots.findFirst({
+    columns: { mileage: true },
+    where: and(
+      eq(vehicleSnapshots.vehicleId, vehicle.id),
+      isNotNull(vehicleSnapshots.mileage),
+      lt(vehicleSnapshots.ts, range.start)
+    ),
+    orderBy: desc(vehicleSnapshots.ts)
+  })
+
+  const firstMileage = previousMileage?.mileage ?? (mileageRows[0] ? Number(mileageRows[0].first) : null)
+  const odometer = firstMileage == null
+    ? []
+    : [
+        { day: `${range.month}-01`, mileage: Number(firstMileage), edge: 'start' as const },
+        ...mileageRows.map(row => ({ day: row.day, mileage: Number(row.last), edge: 'end' as const }))
+      ]
+
   const daily = fillMonth(range.month, range.days, rows)
   const totals = daily.reduce((result, item) => ({
     distance: result.distance + item.distance,
@@ -57,6 +88,7 @@ export default defineEventHandler(async (event) => {
     month: range.month,
     currentMonth: currentMoscowMonth(),
     daily,
+    odometer,
     totals: {
       ...totals,
       consumption: totals.distance > 0 ? totals.fuelUsed / totals.distance * 100 : null

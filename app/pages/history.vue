@@ -20,8 +20,16 @@ function shiftMonth(value: string, amount: number) {
 
 const month = computed(() => validMonth(route.query.month) || currentMonth())
 const { data, status } = await useFetch('/api/history', { query: computed(() => ({ month: month.value })) })
+const chartMode = ref<'daily' | 'odometer'>('daily')
 const canGoNext = computed(() => month.value < (data.value?.currentMonth || currentMonth()))
 const hasData = computed(() => Boolean(data.value?.daily.some(item => item.distance > 0 || item.fuelUsed > 0)))
+const hasOdometerData = computed(() => (data.value?.odometer.length || 0) > 1)
+const odometerStart = computed(() => data.value?.odometer[0]?.mileage)
+const odometerEnd = computed(() => data.value?.odometer.at(-1)?.mileage)
+const odometerDistance = computed(() => {
+  if (odometerStart.value == null || odometerEnd.value == null) return null
+  return Math.max(0, odometerEnd.value - odometerStart.value)
+})
 
 const monthTitle = computed(() => {
   const [year, monthNumber] = month.value.split('-').map(Number)
@@ -87,12 +95,44 @@ useHead({ title: computed(() => `История — ${monthTitle.value} — Cher
       <section class="card card--wide history-chart-card">
         <div class="card__top">
           <div>
-            <p class="metric-label">Пробег и топливо по дням</p>
-            <p class="muted">Столбцы — километры, линия — израсходованные литры</p>
+            <p class="metric-label">{{ chartMode === 'daily' ? 'Пробег и топливо по дням' : 'Общий пробег за месяц' }}</p>
+            <p v-if="chartMode === 'daily'" class="muted">Столбцы — километры, линия — израсходованные литры</p>
+            <p v-else class="muted">
+              Показания одометра: {{ number(odometerStart) }} → {{ number(odometerEnd) }} км
+              <span v-if="odometerDistance != null"> · +{{ number(odometerDistance) }} км</span>
+            </p>
+          </div>
+          <div class="chart-switcher" role="tablist" aria-label="Вид графика">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="chartMode === 'daily'"
+              :class="{ 'chart-switcher__button--active': chartMode === 'daily' }"
+              class="chart-switcher__button"
+              @click="chartMode = 'daily'"
+            >
+              По дням
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="chartMode === 'odometer'"
+              :class="{ 'chart-switcher__button--active': chartMode === 'odometer' }"
+              class="chart-switcher__button"
+              @click="chartMode = 'odometer'"
+            >
+              Одометр
+            </button>
           </div>
         </div>
-        <HistoryChart v-if="data?.daily.length" :items="data.daily" />
-        <p v-if="!hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
+        <HistoryChart
+          v-if="data?.daily.length && (chartMode === 'daily' || hasOdometerData)"
+          :items="data.daily"
+          :mode="chartMode"
+          :odometer="data.odometer"
+        />
+        <p v-if="chartMode === 'daily' && !hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
+        <p v-if="chartMode === 'odometer' && !hasOdometerData" class="muted history-empty">За этот месяц недостаточно показаний одометра.</p>
       </section>
     </div>
   </div>

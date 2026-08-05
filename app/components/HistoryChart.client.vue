@@ -9,6 +9,8 @@ use([BarChart, LineChart, AriaComponent, GridComponent, LegendComponent, Tooltip
 
 const props = defineProps<{
   items: Array<{ day: string, distance: number, fuelUsed: number }>
+  mode?: 'daily' | 'odometer'
+  odometer?: Array<{ day: string, mileage: number, edge: 'start' | 'end' }>
 }>()
 const { theme } = useTheme()
 
@@ -19,6 +21,59 @@ const option = computed(() => {
   const line = dark ? '#24352d' : '#dfe9e4'
   const accent = dark ? '#38d39c' : '#10a976'
   const fuel = dark ? '#f5bd68' : '#d58718'
+
+  if (props.mode === 'odometer') {
+    const odometer = props.odometer || []
+
+    return {
+      animationDuration: 450,
+      aria: {
+        enabled: true,
+        description: 'График изменения общего пробега автомобиля от начального до конечного показания одометра за выбранный месяц.'
+      },
+      color: [accent],
+      grid: { top: 30, right: 28, bottom: 42, left: 76, containLabel: false },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: dark ? '#17241e' : '#ffffff',
+        borderColor: line,
+        textStyle: { color: ink, fontFamily: 'ManropeLocal, sans-serif', fontSize: 12 },
+        valueFormatter: (value: unknown) => `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(Number(value))} км`
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: odometer.map((item, index) => index === 0 ? `${Number(item.day.slice(-2))} · начало` : String(Number(item.day.slice(-2)))),
+        axisLine: { lineStyle: { color: line } },
+        axisTick: { show: false },
+        axisLabel: { color: muted, fontFamily: 'ManropeLocal, sans-serif', fontSize: 10, interval: 2 }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'км',
+        scale: true,
+        minInterval: 1,
+        nameTextStyle: { color: muted, fontSize: 10, padding: [0, 0, 0, -45] },
+        axisLabel: {
+          color: muted,
+          fontSize: 10,
+          formatter: (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value)
+        },
+        splitLine: { lineStyle: { color: line } }
+      },
+      series: [{
+        name: 'Общий пробег',
+        type: 'line',
+        data: odometer.map(item => Number(item.mileage.toFixed(2))),
+        smooth: 0.18,
+        symbol: 'circle',
+        symbolSize: (_value: unknown, params: { dataIndex: number }) => params.dataIndex === 0 || params.dataIndex === odometer.length - 1 ? 7 : 3,
+        lineStyle: { width: 3 },
+        itemStyle: { borderWidth: 2, borderColor: dark ? '#17241e' : '#ffffff' },
+        areaStyle: { opacity: 0.1 }
+      }]
+    }
+  }
 
   return {
     animationDuration: 450,
