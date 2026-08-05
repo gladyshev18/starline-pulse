@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Database } from '../../db/client'
 import { telegramRecipients, trips, vehicleSnapshots } from '../../db/schema'
+import { FUEL_TANK_CAPACITY_LITRES, fuelToFull } from '../../shared/fuel'
 import { config, normalizeTelegramUsername } from '../config'
 import { buttonLabels, mainKeyboard } from './keyboard'
 import { buildReport, type ReportPeriod } from './reports'
@@ -86,7 +87,23 @@ export function registerCommands(bot: Bot, database: Database) {
     ].join('\n'))
   }
 
+  const showFuelToFull = async (context: Context) => {
+    const vehicle = await database.query.vehicles.findFirst()
+    if (!vehicle) return reply(context, 'Данных об автомобиле пока нет.')
+    const snapshot = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, vehicle.id), orderBy: desc(vehicleSnapshots.ts) })
+    const toFull = fuelToFull(snapshot?.fuel)
+    if (toFull == null) return reply(context, 'Уровень топлива пока неизвестен.')
+    return reply(context, [
+      '⛽ <b>Заправка до полного бака</b>',
+      '',
+      `Сейчас в баке: ${number(snapshot?.fuel, 'л')}`,
+      `Нужно заправить: <b>${number(toFull, 'л')}</b>`,
+      `Объём бака: ${number(FUEL_TANK_CAPACITY_LITRES, 'л')}`
+    ].join('\n'))
+  }
+
   bot.command('status', showStatus)
+  bot.command('fuel', showFuelToFull)
   bot.command('last', showLastTrips)
 
   bot.command('day', context => report(context, database, 'daily'))
@@ -94,6 +111,7 @@ export function registerCommands(bot: Bot, database: Database) {
   bot.command('month', context => report(context, database, 'monthly'))
 
   bot.hears(buttonLabels.status, showStatus)
+  bot.hears(buttonLabels.fuel, showFuelToFull)
   bot.hears(buttonLabels.last, showLastTrips)
   bot.hears(buttonLabels.day, context => report(context, database, 'daily'))
   bot.hears(buttonLabels.week, context => report(context, database, 'weekly'))

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { fuelToFull } from '~~/shared/fuel'
+
 const { data, refresh, status } = await useFetch('/api/dashboard')
 const syncPending = ref(false)
 
@@ -32,6 +34,7 @@ const vehicleState = computed(() => {
   if (snapshot.ignition == null) return 'Состояние двигателя неизвестно'
   return snapshot.ignition ? 'Двигатель работает' : 'Автомобиль в покое'
 })
+const litresToFull = computed(() => fuelToFull(data.value?.snapshot?.fuel))
 const maxDailyDistance = computed(() => Math.max(1, ...(data.value?.daily || []).map(item => item.distance)))
 function dailyBarHeight(distance: number) {
   return `${distance > 0 ? Math.max(6, distance / maxDailyDistance.value * 100) : 2}%`
@@ -67,7 +70,7 @@ async function sync() {
         </div>
       </section>
       <section class="card metric-card"><div class="card__top"><p class="metric-label">Пробег</p><span class="metric-badge">{{ dailyChange(data?.today.distance, '+', 'км') }}</span></div><p class="metric">{{ number(data?.snapshot?.mileage, 1) }} <small>км</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.mileageTs) }">{{ updated(data?.snapshot?.mileageTs) }}</p></section>
-      <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></section>
+      <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
       <section class="card metric-card"><div class="card__top"><p class="metric-label">Аккумулятор</p></div><p class="metric">{{ number(data?.snapshot?.battery, 1) }} <small>{{ batteryUnit(data?.snapshot?.batteryType) }}</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.commonTs) }">{{ updated(data?.snapshot?.commonTs) }}</p></section>
       <section class="card card--wide activity-card">
         <div class="card__top"><div><p class="metric-label">Пробег за 14 дней</p><p class="muted">{{ number(data?.daily.reduce((sum, item) => sum + item.distance, 0), 1) }} км · {{ number(data?.daily.reduce((sum, item) => sum + item.trips, 0)) }} поездок</p></div></div>

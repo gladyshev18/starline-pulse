@@ -17,6 +17,7 @@ const bot = createTelegramBot(database)
 if (bot) void bot.start({ onStart: async info => {
   await bot.api.setMyCommands([
     { command: 'status', description: 'Текущее состояние автомобиля' },
+    { command: 'fuel', description: 'Сколько заправить до полного бака' },
     { command: 'last', description: 'Последние пять поездок' },
     { command: 'day', description: 'Отчёт за вчера' },
     { command: 'week', description: 'Отчёт за прошлую неделю' },

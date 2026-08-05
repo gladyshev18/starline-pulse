@@ -243,6 +243,9 @@ button { color: inherit; }
 .metric--compact { font-size: clamp(1.8rem, 3.5vw, 2.75rem); }
 .metric small { color: var(--muted); font-size: .26em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 .metric-meta { margin: 17px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.metric-card__footer { margin-top: 17px; }
+.metric-card__footer .metric-meta { margin-top: 0; }
+.metric-card__footer .metric-meta--primary { margin-bottom: 4px; color: var(--text); font-weight: 650; }
 .metric-meta--stale { color: var(--danger); }
 .card > .muted { margin-bottom: 0; font-size: .82rem; }
 
