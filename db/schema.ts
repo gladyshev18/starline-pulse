@@ -137,5 +137,20 @@ export const refuelEvents = sqliteTable('refuel_events', {
   uniqueIndex('refuel_events_vehicle_detected_unique').on(table.vehicleId, table.detectedAt)
 ])
 
+export const refuelReceipts = sqliteTable('refuel_receipts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refuelEventId: integer('refuel_event_id').notNull().references(() => refuelEvents.id),
+  source: text('source', { enum: ['manual', 'imap'] }).notNull().default('manual'),
+  originalName: text('original_name').notNull(),
+  storedName: text('stored_name').notNull(),
+  mimeType: text('mime_type').notNull(),
+  size: integer('size').notNull(),
+  externalMessageId: text('external_message_id'),
+  createdAt: timestamps.createdAt
+}, table => [
+  index('refuel_receipts_refuel_event_idx').on(table.refuelEventId),
+  uniqueIndex('refuel_receipts_stored_name_unique').on(table.storedName)
+])
+
 export type Job = typeof jobs.$inferSelect
 export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect

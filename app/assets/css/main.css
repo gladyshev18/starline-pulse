@@ -268,6 +268,36 @@ tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 
+.refuels-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.refuels-heading__note { max-width: 310px; margin: 0 0 5px; color: var(--muted); font-size: .78rem; text-align: right; }
+.refuels-empty { display: block; }
+.refuel-list { display: grid; gap: 14px; }
+.refuel-card { display: grid; min-height: 0; grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr); gap: 30px; padding: 28px; }
+.refuel-card__summary { display: flex; flex-direction: column; justify-content: space-between; gap: 30px; }
+.refuel-card__amount { margin: 15px 0 0; font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 340; line-height: .95; letter-spacing: -.055em; }
+.refuel-card__amount small { color: var(--muted); font-size: .32em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
+.refuel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }
+.refuel-meta div { min-width: 0; }
+.refuel-meta dt { color: var(--muted); font-size: .65rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.refuel-meta dd { margin: 4px 0 0; font-size: .78rem; white-space: nowrap; }
+.receipt-panel { min-width: 0; padding: 20px; border-radius: 15px; background: var(--surface-subtle); }
+.receipt-panel__top { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.receipt-panel__hint { margin: 4px 0 0; color: var(--muted); font-size: .68rem; }
+.receipt-upload { position: relative; min-height: 40px; flex: 0 0 auto; padding-inline: 14px; overflow: hidden; font-size: .75rem; }
+.receipt-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.receipt-upload--busy { cursor: wait; opacity: .55; pointer-events: none; }
+.receipt-panel > .error { margin: 14px 0 0; }
+.receipt-empty { margin: 24px 0 3px; font-size: .76rem; }
+.receipt-list { display: grid; gap: 7px; margin: 17px 0 0; padding: 0; list-style: none; }
+.receipt-file { display: grid; min-width: 0; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); transition: border-color .16s ease, transform .16s ease; }
+.receipt-file:hover { border-color: var(--accent); transform: translateY(-1px); }
+.receipt-file__type { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); font-size: .58rem; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
+.receipt-file__copy { min-width: 0; }
+.receipt-file__copy strong, .receipt-file__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.receipt-file__copy strong { font-size: .76rem; font-weight: 650; }
+.receipt-file__copy small { margin-top: 2px; color: var(--muted); font-size: .63rem; }
+.receipt-file__action { color: var(--accent-ink); font-size: .68rem; font-weight: 700; }
+
 .api-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .log-filters { display: grid; grid-template-columns: minmax(240px, 1fr) 190px 180px; gap: 12px; margin-bottom: 22px; }
 .log-filters .field > span { color: var(--muted); font-size: .78rem; font-weight: 620; }
@@ -344,12 +374,13 @@ tbody tr:hover { background: var(--surface-subtle); }
   .daily-chart__item { grid-template-rows: 1fr 19px; }
   .battery-trend__row { grid-template-columns: 54px 1fr 1fr; gap: 8px; }
   .battery-trend__row span:last-child { display: none; }
+  .refuel-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   .app-header { top: 8px; min-height: 60px; margin-top: 8px; padding: 9px; border-radius: 16px; }
   .brand-logo--compact .brand-logo__copy { display: none; }
   .nav__separator { margin-inline: 2px; }
-  .nav a, .nav__logout { min-height: 38px; padding-inline: 9px; font-size: .76rem; }
+  .nav a, .nav__logout { min-height: 38px; padding-inline: 7px; font-size: .73rem; }
   .nav .icon-button { width: 38px; height: 38px; flex-basis: 38px; }
   .page-heading { margin-bottom: 25px; }
   .page-title { font-size: clamp(2.7rem, 14vw, 4rem); }
@@ -366,6 +397,19 @@ tbody tr:hover { background: var(--surface-subtle); }
   .api-heading .btn { align-self: start; }
   .log-filters, .log-meta { grid-template-columns: 1fr; }
   .log-filters .field:first-child, .log-meta__url { grid-column: auto; }
+  .refuels-heading { align-items: start; flex-direction: column; }
+  .refuels-heading__note { text-align: left; }
+  .refuel-card { gap: 22px; padding: 20px; }
+  .refuel-meta { gap: 8px; }
+  .receipt-panel { padding: 15px; }
+  .receipt-panel__top { align-items: stretch; flex-direction: column; }
+  .receipt-upload { width: 100%; }
+  .receipt-file { grid-template-columns: 50px minmax(0, 1fr); }
+  .receipt-file__action { display: none; }
+}
+@media (max-width: 380px) {
+  .app-header .brand { display: none; }
+  .app-header { justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
