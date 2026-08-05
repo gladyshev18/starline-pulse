@@ -40,11 +40,20 @@ jobs:
       - name: Check types
         run: npm run typecheck
 
-  deploy:
-    name: Build and deploy
+  build:
+    name: Build ${{ matrix.image }} image
     needs: validate
     runs-on: ubuntu-latest
-    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tasks
+            target: tasks
+            repository: ghcr.io/gladyshev18/chery-pulse-tasks
+          - image: web
+            target: web
+            repository: ghcr.io/gladyshev18/chery-pulse-web
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -59,32 +68,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish tasks image
+      - name: Build and publish ${{ matrix.image }} image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
-          target: tasks
+          target: ${{ matrix.target }}
           push: true
           tags: |
-            ${{ env.TASKS_IMAGE }}:${{ github.sha }}
-            ${{ env.TASKS_IMAGE }}:latest
-          cache-from: type=gha,scope=tasks
-          cache-to: type=gha,mode=max,scope=tasks
+            ${{ matrix.repository }}:${{ github.sha }}
+            ${{ matrix.repository }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
-      - name: Build and publish web image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          target: web
-          push: true
-          tags: |
-            ${{ env.WEB_IMAGE }}:${{ github.sha }}
-            ${{ env.WEB_IMAGE }}:latest
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
-
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}

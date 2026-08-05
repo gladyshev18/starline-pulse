@@ -27,10 +27,10 @@ export function normalizeTelegramProxyUrl(value: string | null | undefined) {
   } catch {
     throw new Error('TELEGRAM_PROXY_URL must be a valid proxy URL')
   }
-  if (!['http:', 'https:', 'socks:', 'socks5:'].includes(url.protocol) || !url.hostname) {
-    throw new Error('TELEGRAM_PROXY_URL must use http, https, socks or socks5 protocol')
+  if (!['http:', 'https:', 'socks:', 'socks5:', 'socks5h:'].includes(url.protocol) || !url.hostname) {
+    throw new Error('TELEGRAM_PROXY_URL must use http, https, socks, socks5 or socks5h protocol')
   }
-  return candidate
+  return url.protocol === 'socks5h:' ? candidate.replace(/^socks5h:/i, 'socks5:') : candidate
 }
 
 export const config = {

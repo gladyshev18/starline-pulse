@@ -1,10 +1,16 @@
 import { createServer } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { closeTelegramProxy, createTelegramProxyFetch } from '../worker/bot/proxy'
+import { normalizeTelegramProxyUrl } from '../worker/config'
 
 afterEach(() => closeTelegramProxy())
 
 describe('Telegram proxy transport', () => {
+  it('normalizes socks5h URLs for the undici SOCKS5 transport', () => {
+    expect(normalizeTelegramProxyUrl(' socks5h://user:pass@proxy.example:1080 '))
+      .toBe('socks5://user:pass@proxy.example:1080')
+  })
+
   it('routes Bot API HTTP requests through the configured proxy', async () => {
     let requestedUrl = ''
     const proxy = createServer((request, response) => {
