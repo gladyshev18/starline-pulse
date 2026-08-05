@@ -6,7 +6,7 @@ import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { pollVehicle } from './starline/poll'
-import { closeTrip, handleMileageProgress } from './starline/trips'
+import { closeTrip, handleMileageProgress, reconcileTripsWithEngineSessions } from './starline/trips'
 
 const MAX_ATTEMPTS = 5
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
@@ -113,6 +113,7 @@ export async function processNextJob(database: Database) {
 
 export async function initializeQueue(database: Database) {
   await database.update(jobs).set({ status: 'pending', updatedAt: new Date() }).where(eq(jobs.status, 'running'))
+  await reconcileTripsWithEngineSessions(database)
   const poll = await database.query.jobs.findFirst({ where: and(eq(jobs.type, 'starline:poll'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running'))) })
   if (!poll) await database.insert(jobs).values({ type: 'starline:poll', payload: '{}' })
   for (const period of REPORT_PERIODS) await scheduleReport(database, period)
