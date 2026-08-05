@@ -17,7 +17,7 @@
 5. Запустите в двух терминалах `npm run dev` и `npm run worker`.
 6. Откройте `http://localhost:3000`.
 
-По умолчанию `STARLINE_MODE=fixture`: сеть StarLine не используется, данные читаются из безопасного примера `fixtures/starline-device.example.json`. Реальные реквизиты нужны только для `STARLINE_MODE=live` или одноразового `npm run starline:probe`. Probe выполняет официальную цепочку авторизации и сохраняет сырой ответ в игнорируемый Git файл `fixtures/starline-device.json`; после этого укажите этот путь в `STARLINE_FIXTURE_PATH`.
+По умолчанию `STARLINE_MODE=fixture`: сеть StarLine не используется, данные читаются из безопасного примера `fixtures/starline-device.example.json`. Для `STARLINE_MODE=live` заполните реквизиты без `STARLINE_DEVICE_ID` и выполните `npm run starline:setup`. Команда интерактивно обрабатывает CAPTCHA или SMS-код, сохраняет токен пользователя в SQLite и выводит доступные `STARLINE_DEVICE_ID`. Одноразовый `npm run starline:probe` проверяет уже настроенное устройство и сохраняет сырой ответ в игнорируемый Git файл `fixtures/starline-device.json`; после этого этот файл можно использовать как `STARLINE_FIXTURE_PATH`.
 
 ## Команды
 
@@ -27,6 +27,7 @@
 - `npm run worker` — worker и Telegram long polling в watch-режиме.
 - `npm run worker:start` — worker без watch-режима для production.
 - `npm run worker:once` — обработать одну готовую задачу (удобно для smoke-проверки).
+- `npm run starline:setup` — пройти интерактивную авторизацию StarLine, включая CAPTCHA/2FA, и получить `device_id`.
 - `npm test` — модульные тесты парсера.
 - `npm run typecheck` — проверка Nuxt и worker TypeScript.
 - `npm run build` — production-сборка Nuxt.
@@ -54,6 +55,17 @@ docker compose up -d
 ```
 
 Секрет сессии можно создать командой `openssl rand -base64 48`. Не используйте значения-заглушки из примера. Команда `seed` обновляет пароли существующих пользователей, поэтому запускайте её повторно только при намеренной ротации учётных данных.
+
+Если StarLine запрашивает CAPTCHA или `STARLINE_DEVICE_ID` ещё неизвестен, остановите worker и запустите интерактивную настройку с подключённым production volume:
+
+```bash
+docker compose stop worker
+docker compose run --rm --no-deps worker npm run starline:setup
+# Скопируйте выведенный STARLINE_DEVICE_ID в .env.production.
+docker compose up -d --force-recreate worker
+```
+
+При автоматическом деплое добавляйте к каждой команде Compose `--env-file .env.deploy`, чтобы использовался опубликованный tasks-образ. Токен пользователя сохраняется в SQLite; пароль и токены в терминал не выводятся.
 
 Проверка состояния и просмотр логов:
 

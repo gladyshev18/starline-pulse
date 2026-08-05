@@ -8,6 +8,32 @@ import { assertBudget, recordCall } from './budget'
 type TokenKind = 'app_code' | 'app_token' | 'user_token' | 'slnet'
 let refreshPromise: Promise<string> | null = null
 
+export type StarLineUserLoginResult =
+  | { status: 'success', userToken: string, userId: string }
+  | { status: 'captcha', captchaSid: string, captchaImg: string }
+  | { status: 'sms', phone: string | null, ttl: number | null }
+  | { status: 'error', message: string }
+
+interface StarLineUserLoginOptions {
+  captchaSid?: string
+  captchaCode?: string
+  smsCode?: string
+  userIp?: string
+}
+
+interface StarLineUserLoginPayload {
+  state?: number
+  desc?: {
+    id?: string | number
+    user_token?: string
+    message?: string
+    captchaSid?: string
+    captchaImg?: string
+    phone?: string
+    TTL?: number
+  }
+}
+
 function digest(algorithm: 'md5' | 'sha1', value: string) {
   return createHash(algorithm).update(value).digest('hex')
 }
@@ -61,15 +87,53 @@ async function getAppToken(database: Database) {
   return save(database, 'app_token', payload.desc.token, 4 * 60 * 60 * 1000)
 }
 
+export function parseStarLineUserLogin(payload: StarLineUserLoginPayload): StarLineUserLoginResult {
+  const description = payload.desc || {}
+  if (payload.state === 1 && description.user_token) {
+    const userId = description.id == null ? description.user_token.split(':').at(-1) : String(description.id)
+    if (!userId) return { status: 'error', message: 'StarLine user id is missing' }
+    return { status: 'success', userToken: description.user_token, userId }
+  }
+
+  const message = description.message || 'unknown error'
+  if (message.startsWith('Captcha needed') && description.captchaSid && description.captchaImg) {
+    return { status: 'captcha', captchaSid: description.captchaSid, captchaImg: description.captchaImg }
+  }
+  if (message.startsWith('Need confirmation')) {
+    return { status: 'sms', phone: description.phone || null, ttl: description.TTL ?? null }
+  }
+  return { status: 'error', message }
+}
+
+export async function loginStarLineUser(database: Database, options: StarLineUserLoginOptions = {}) {
+  const appToken = await getAppToken(database)
+  const body = new URLSearchParams({ login: config.starlineLogin, pass: digest('sha1', config.starlinePassword) })
+  if (options.userIp) body.set('user_ip', options.userIp)
+  if (options.captchaSid) body.set('captchaSid', options.captchaSid)
+  if (options.captchaCode) body.set('captchaCode', options.captchaCode)
+  if (options.smsCode) body.set('smsCode', options.smsCode)
+
+  const response = await request(database, 'https://id.starline.ru/apiV3/user/login', {
+    method: 'POST', headers: { token: appToken, 'content-type': 'application/x-www-form-urlencoded' }, body
+  })
+  const result = parseStarLineUserLogin(await response.json() as StarLineUserLoginPayload)
+  if (result.status === 'success') {
+    await save(database, 'user_token', result.userToken)
+    await database.delete(starlineTokens).where(eq(starlineTokens.kind, 'slnet'))
+  }
+  return result
+}
+
 async function getUserToken(database: Database) {
   const existing = await cached(database, 'user_token')
   if (existing) return existing
-  const appToken = await getAppToken(database)
-  const body = new URLSearchParams({ login: config.starlineLogin, pass: digest('sha1', config.starlinePassword) })
-  const response = await request(database, 'https://id.starline.ru/apiV3/user/login', { method: 'POST', headers: { token: appToken, 'content-type': 'application/x-www-form-urlencoded' }, body })
-  const payload = await response.json() as any
-  if (payload.state !== 1 || !payload.desc?.user_token) throw new Error(`StarLine user login: ${payload.desc?.message || 'unknown error'}`)
-  return save(database, 'user_token', payload.desc.user_token)
+  const result = await loginStarLineUser(database)
+  if (result.status === 'success') return result.userToken
+  if (result.status === 'captcha') {
+    throw new Error(`StarLine user login requires CAPTCHA. Run npm run starline:setup. CAPTCHA: ${result.captchaImg}`)
+  }
+  if (result.status === 'sms') throw new Error('StarLine user login requires an SMS code. Run npm run starline:setup')
+  throw new Error(`StarLine user login: ${result.message}`)
 }
 
 async function refreshSlnet(database: Database) {

@@ -16,6 +16,7 @@
     "worker": "tsx watch worker/index.ts",
     "worker:start": "tsx worker/index.ts",
     "worker:once": "tsx worker/index.ts --once",
+    "starline:setup": "tsx scripts/starline-setup.ts",
     "starline:probe": "tsx scripts/starline-probe.ts",
     "smoke": "node scripts/smoke.mjs",
     "typecheck": "nuxt typecheck && tsc -p tsconfig.worker.json --noEmit",
