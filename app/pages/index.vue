@@ -29,9 +29,9 @@ function updated(value: string | Date | null | undefined) {
 const vehicleState = computed(() => {
   const snapshot = data.value?.snapshot
   if (!snapshot || snapshot.online == null) return 'Состояние неизвестно'
-  if (!snapshot.online) return 'Устройство не в сети'
+  if (!snapshot.online) return 'Не на связи'
   if (snapshot.ignition == null) return 'Состояние двигателя неизвестно'
-  return snapshot.ignition ? 'Двигатель работает' : 'Автомобиль в покое'
+  return snapshot.ignition ? 'Заведена' : 'Припаркована'
 })
 const litresToFull = computed(() => fuelToFull(data.value?.snapshot?.fuel))
 const maxDailyDistance = computed(() => Math.max(1, ...(data.value?.daily || []).map(item => item.distance)))
