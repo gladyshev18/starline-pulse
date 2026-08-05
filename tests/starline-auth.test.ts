@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { parseStarLineUserLogin } from '../worker/starline/auth'
+import { isSuccessfulStarLineCode, parseStarLineUserLogin } from '../worker/starline/auth'
+
+describe('isSuccessfulStarLineCode', () => {
+  it('accepts numeric and string success codes returned by different StarLine endpoints', () => {
+    expect(isSuccessfulStarLineCode(200)).toBe(true)
+    expect(isSuccessfulStarLineCode('200')).toBe(true)
+    expect(isSuccessfulStarLineCode(401)).toBe(false)
+  })
+})
 
 describe('parseStarLineUserLogin', () => {
   it('extracts a successful user token and id', () => {

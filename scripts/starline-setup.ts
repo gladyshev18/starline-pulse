@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createDatabase } from '../db/client'
-import { loginStarLineUser, getSlnet, starlineRequest } from '../worker/starline/auth'
+import { getStoredStarLineUser, loginStarLineUser, getSlnet, isSuccessfulStarLineCode, starlineRequest } from '../worker/starline/auth'
 import { config } from '../worker/config'
 
 interface DeviceListPayload {
@@ -27,9 +27,11 @@ const terminal = createInterface({ input, output })
 
 try {
   let continuation: { captchaSid?: string, captchaCode?: string, smsCode?: string } = {}
-  let userId = ''
+  const storedUser = await getStoredStarLineUser(database)
+  let userId = storedUser?.userId || ''
+  if (storedUser) console.log('Используется сохранённый токен пользователя StarLine')
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; !userId && attempt <= 5; attempt++) {
     const result = await loginStarLineUser(database, continuation)
     if (result.status === 'success') {
       userId = result.userId
@@ -59,7 +61,7 @@ try {
   const url = `https://developer.starline.ru/json/v1/user/${encodeURIComponent(userId)}/deviceList?alias=true&status=true`
   const response = await starlineRequest(database, url, { headers: { cookie: `slnet=${slnet}` } })
   const payload = await response.json() as DeviceListPayload
-  if (payload.code !== 200) throw new Error(`StarLine device list: ${payload.codestring || payload.code || response.status}`)
+  if (!isSuccessfulStarLineCode(payload.code)) throw new Error(`StarLine device list: ${payload.codestring || payload.code || response.status}`)
 
   const devices = payload.data?.devices?.filter(device => device.device_id != null) || []
   if (!devices.length) {

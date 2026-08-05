@@ -58,6 +58,17 @@ async function cached(database: Database, kind: TokenKind) {
   return token.value
 }
 
+export async function getStoredStarLineUser(database: Database) {
+  const userToken = await cached(database, 'user_token')
+  if (!userToken) return null
+  const userId = userToken.split(':').at(-1)
+  return userId ? { userToken, userId } : null
+}
+
+export function isSuccessfulStarLineCode(value: unknown) {
+  return Number(value) === 200
+}
+
 async function save(database: Database, kind: TokenKind, value: string, ttlMs?: number) {
   await database.insert(starlineTokens).values({ kind, value, expiresAt: ttlMs ? new Date(Date.now() + ttlMs) : null })
     .onConflictDoUpdate({ target: starlineTokens.kind, set: { value, expiresAt: ttlMs ? new Date(Date.now() + ttlMs) : null, updatedAt: new Date() } })
@@ -125,8 +136,8 @@ export async function loginStarLineUser(database: Database, options: StarLineUse
 }
 
 async function getUserToken(database: Database) {
-  const existing = await cached(database, 'user_token')
-  if (existing) return existing
+  const existing = await getStoredStarLineUser(database)
+  if (existing) return existing.userToken
   const result = await loginStarLineUser(database)
   if (result.status === 'success') return result.userToken
   if (result.status === 'captcha') {
@@ -143,7 +154,7 @@ async function refreshSlnet(database: Database) {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slid_token: userToken })
   })
   const payload = await response.json() as any
-  if (payload.code !== 200) {
+  if (!isSuccessfulStarLineCode(payload.code)) {
     await database.delete(starlineTokens).where(eq(starlineTokens.kind, 'user_token'))
     throw new Error(`StarLine slnet auth: ${payload.codestring || payload.code}`)
   }
