@@ -41,14 +41,28 @@ function digest(algorithm: 'md5' | 'sha1', value: string) {
 
 async function request(database: Database, url: string, init?: RequestInit) {
   await assertBudget(database)
+  const startedAt = performance.now()
   let response: Response
   try {
     response = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) })
   } catch (error) {
-    await recordCall(database, new URL(url).pathname, 0)
+    await recordCall(database, {
+      url, method: init?.method || 'GET', status: 0, durationMs: Math.round(performance.now() - startedAt),
+      requestHeaders: init?.headers, requestBody: init?.body, error: error instanceof Error ? error.message : String(error)
+    })
     throw error
   }
-  await recordCall(database, new URL(url).pathname, response.status)
+  let responseBody: string | null = null
+  let logError: string | null = null
+  try {
+    responseBody = await response.clone().text()
+  } catch (error) {
+    logError = `Не удалось прочитать тело ответа для журнала: ${error instanceof Error ? error.message : String(error)}`
+  }
+  await recordCall(database, {
+    url, method: init?.method || 'GET', status: response.status, durationMs: Math.round(performance.now() - startedAt),
+    requestHeaders: init?.headers, requestBody: init?.body, responseHeaders: response.headers, responseBody, error: logError
+  })
   return response
 }
 

@@ -16,6 +16,7 @@ async function logout() {
       <nav class="nav" aria-label="Основная навигация">
         <NuxtLink to="/">Обзор</NuxtLink>
         <NuxtLink to="/trips">Поездки</NuxtLink>
+        <NuxtLink to="/api-logs">API</NuxtLink>
         <span class="nav__separator" aria-hidden="true" />
         <ThemeToggle />
         <button class="nav__logout" type="button" :title="`Выйти: ${user?.displayName ?? ''}`" @click="logout">Выйти</button>

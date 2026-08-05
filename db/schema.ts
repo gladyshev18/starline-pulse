@@ -37,9 +37,21 @@ export const apiCalls = sqliteTable('api_calls', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   day: text('day').notNull(),
   endpoint: text('endpoint').notNull(),
+  method: text('method').notNull().default('GET'),
+  url: text('url'),
   status: integer('status').notNull(),
+  durationMs: integer('duration_ms'),
+  requestHeaders: text('request_headers'),
+  requestBody: text('request_body'),
+  responseHeaders: text('response_headers'),
+  responseBody: text('response_body'),
+  error: text('error'),
   createdAt: timestamps.createdAt
-}, table => [index('api_calls_day_idx').on(table.day)])
+}, table => [
+  index('api_calls_day_idx').on(table.day),
+  index('api_calls_created_at_idx').on(table.createdAt),
+  index('api_calls_status_idx').on(table.status)
+])
 
 export const vehicles = sqliteTable('vehicles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
