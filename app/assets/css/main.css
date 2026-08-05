@@ -272,6 +272,19 @@ tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
+.trip-comment-cell { width: 34%; min-width: 240px; white-space: normal; }
+.trip-comment-button { max-width: 360px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+.trip-comment-button:hover { color: var(--accent-ink); }
+.trip-comment-button:focus-visible { border-radius: 4px; outline: 2px solid var(--accent); outline-offset: 4px; }
+.trip-comment-button--empty { color: var(--accent-ink); font-weight: 650; }
+.trip-comment-form { display: grid; gap: 8px; }
+.trip-comment-form label { color: var(--muted); font-size: .78rem; font-weight: 620; }
+.trip-comment-form textarea { width: 100%; min-height: 140px; padding: 13px 15px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 12px; outline: none; background: var(--surface); color: var(--ink); font: inherit; line-height: 1.5; transition: border-color .16s ease, box-shadow .16s ease; }
+.trip-comment-form textarea:hover { border-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.trip-comment-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.trip-comment-form textarea:disabled { opacity: .65; }
+.trip-comment-counter { color: var(--muted); font-size: .7rem; text-align: right; }
+.trip-comment-form .error { margin: 8px 0 0; }
 
 .refuels-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .refuels-heading__note { max-width: 310px; margin: 0 0 5px; color: var(--muted); font-size: .78rem; text-align: right; }
