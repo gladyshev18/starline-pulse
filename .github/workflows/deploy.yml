@@ -42,7 +42,6 @@ jobs:
 
   build:
     name: Build ${{ matrix.image }} image
-    needs: validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,7 +82,7 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: build
+    needs: [validate, build]
     runs-on: ubuntu-latest
     environment: production
     steps:
