@@ -38,6 +38,9 @@ export function calculateTripMetrics(trip: TripMetricSource) {
     distance,
     durationMinutes,
     fuelUsed,
-    consumption: distance != null && distance > 0 && fuelUsed != null ? fuelUsed / distance * 100 : null
+    consumption: distance != null && distance > 0 && fuelUsed != null ? fuelUsed / distance * 100 : null,
+    averageSpeed: distance != null && durationMinutes != null && durationMinutes > 0
+      ? distance / (durationMinutes / 60)
+      : null
   }
 }

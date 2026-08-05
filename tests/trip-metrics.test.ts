@@ -12,7 +12,7 @@ describe('trip metrics', () => {
       fuelStart: 30,
       fuelEnd: 28.5,
       fuelUsed: 1.5
-    })).toEqual({ distance: 12.5, durationMinutes: 75, fuelUsed: 1.5, consumption: 12 })
+    })).toEqual({ distance: 12.5, durationMinutes: 75, fuelUsed: 1.5, consumption: 12, averageSpeed: 10 })
   })
 
   it('uses odometer and fuel readings when stored totals are missing', () => {
@@ -30,6 +30,7 @@ describe('trip metrics', () => {
     expect(metrics).toMatchObject({ distance: 10, durationMinutes: 30 })
     expect(metrics.fuelUsed).toBeCloseTo(0.8)
     expect(metrics.consumption).toBeCloseTo(8)
+    expect(metrics.averageSpeed).toBeCloseTo(20)
   })
 
   it('does not calculate metrics from incomplete or decreasing readings', () => {
@@ -42,6 +43,19 @@ describe('trip metrics', () => {
       fuelStart: 20,
       fuelEnd: 21,
       fuelUsed: null
-    })).toEqual({ distance: null, durationMinutes: null, fuelUsed: null, consumption: null })
+    })).toEqual({ distance: null, durationMinutes: null, fuelUsed: null, consumption: null, averageSpeed: null })
+  })
+
+  it('does not calculate average speed for a trip with zero duration', () => {
+    expect(calculateTripMetrics({
+      startedAt: '2026-08-05T10:00:00.000Z',
+      endedAt: '2026-08-05T10:00:00.000Z',
+      mileageStart: null,
+      mileageEnd: null,
+      distance: 1,
+      fuelStart: null,
+      fuelEnd: null,
+      fuelUsed: null
+    }).averageSpeed).toBeNull()
   })
 })

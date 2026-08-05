@@ -78,12 +78,13 @@ async function saveComment() {
       <div v-else-if="!data?.items.length" class="muted">{{ selectedDay ? 'За выбранный день завершённых поездок нет.' : 'Завершённых поездок пока нет.' }}</div>
       <div v-else class="table-wrap">
         <table>
-          <thead><tr><th>Дата</th><th>Дальность</th><th>Длительность</th><th>Расход топлива</th><th>Комментарий</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Дальность</th><th>Длительность</th><th>Ср. скорость</th><th>Расход топлива</th><th>Комментарий</th></tr></thead>
           <tbody>
             <tr v-for="trip in data.items" :key="trip.id">
               <td>{{ date(trip.startedAt) }}</td>
               <td>{{ number(trip.distance) }} км</td>
               <td>{{ duration(trip.durationMinutes) }}</td>
+              <td>{{ number(trip.averageSpeed) }} км/ч</td>
               <td>
                 {{ number(trip.fuelUsed) }} л
                 <span class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
