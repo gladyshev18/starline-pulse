@@ -249,13 +249,23 @@ button { color: inherit; }
 .metric-meta--stale { color: var(--danger); }
 .card > .muted { margin-bottom: 0; font-size: .82rem; }
 
+.status-overview {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(280px, 1.3fr) repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.status-overview .card { min-height: 154px; padding: 19px; }
+.status-overview .metric { margin-top: 19px; font-size: clamp(2rem, 3.2vw, 2.8rem); }
+.status-overview .metric-card > .metric-meta, .status-overview .metric-card__footer { margin-top: 12px; }
+
 .state-card {
   overflow: hidden;
   background:
     radial-gradient(circle at 96% 8%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 19rem),
     var(--surface);
 }
-.state-card__body { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-top: 48px; }
+.state-card__body { margin-top: 25px; }
 .state-card h2 { margin: 0 0 7px; font-size: clamp(1.6rem, 3.5vw, 2.35rem); font-weight: 390; line-height: 1.1; letter-spacing: -.04em; }
 .state-card .muted { margin: 0; font-size: .8rem; }
 .status-dot { display: inline-block; width: 9px; height: 9px; margin-right: 12px; border-radius: 50%; background: var(--muted); vertical-align: .16em; }
@@ -436,6 +446,8 @@ tbody tr:hover { background: var(--surface-subtle); }
   .page { padding-top: 52px; }
   .card { grid-column: span 6; }
   .card--wide, .card--table { grid-column: 1 / -1; }
+  .status-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .status-overview .state-card { grid-column: 1 / -1; }
   .log-filters { grid-template-columns: 1fr 1fr; }
   .log-filters .field:first-child { grid-column: 1 / -1; }
   .payload-grid { grid-template-columns: 1fr; }
@@ -458,9 +470,9 @@ tbody tr:hover { background: var(--surface-subtle); }
   .page-title { font-size: clamp(2.7rem, 14vw, 4rem); }
   .grid { gap: 11px; }
   .card, .card--wide, .card--half { grid-column: 1 / -1; min-height: 150px; padding: 20px; border-radius: 17px; }
-  .state-card { min-height: 240px; }
-  .state-card__body { align-items: stretch; flex-direction: column; margin-top: 40px; }
-  .state-card__body .btn { width: 100%; }
+  .status-overview { grid-template-columns: 1fr; gap: 11px; }
+  .status-overview .card, .status-overview .state-card { grid-column: 1 / -1; min-height: 0; padding: 18px; }
+  .state-card__body { margin-top: 24px; }
   .login-shell { width: min(100% - 24px, 1120px); padding-top: 90px; }
   .login-header { top: 18px; }
   .login-card { padding: 28px 22px; border-radius: 18px; }

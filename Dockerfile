@@ -25,6 +25,7 @@ WORKDIR /app
 COPY deploy/tasks/package.json deploy/tasks/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY --chown=node:node db ./db
+COPY --chown=node:node shared ./shared
 COPY --chown=node:node worker ./worker
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node fixtures ./fixtures

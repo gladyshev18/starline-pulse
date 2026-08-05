@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { fuelToFull } from '~~/shared/fuel'
 
-const { data, refresh, status } = await useFetch('/api/dashboard')
-const syncPending = ref(false)
+const { data, status } = await useFetch('/api/dashboard')
 
 function number(value: number | null | undefined, digits = 0) {
   if (value == null) return '—'
@@ -49,10 +48,6 @@ function duration(minutes: number | null | undefined) {
   const rest = rounded % 60
   return hours ? `${hours} ч ${rest} мин` : `${rest} мин`
 }
-async function sync() {
-  syncPending.value = true
-  try { await $fetch('/api/sync', { method: 'POST' }) } finally { syncPending.value = false }
-}
 </script>
 
 <template>
@@ -62,16 +57,17 @@ async function sync() {
     </header>
     <div v-if="status === 'pending'" class="card skeleton">Загрузка…</div>
     <div v-else class="grid">
-      <section class="card card--wide state-card">
-        <div class="card__top"><p class="eyebrow">Состояние</p></div>
-        <div class="state-card__body">
-          <div><h2><span class="status-dot" :class="{ 'status-dot--on': data?.snapshot?.online && data?.snapshot?.ignition, 'status-dot--offline': data?.snapshot?.online === false }" />{{ vehicleState }}</h2><p class="muted">Последняя связь: {{ date(data?.snapshot?.activityTs) }}</p></div>
-          <button class="btn btn--secondary" :disabled="syncPending" @click="sync">{{ syncPending ? 'Обновляем…' : 'Обновить' }}</button>
-        </div>
-      </section>
-      <section class="card metric-card"><div class="card__top"><p class="metric-label">Пробег</p><span class="metric-badge">{{ dailyChange(data?.today.distance, '+', 'км') }}</span></div><p class="metric">{{ number(data?.snapshot?.mileage, 1) }} <small>км</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.mileageTs) }">{{ updated(data?.snapshot?.mileageTs) }}</p></section>
-      <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
-      <section class="card metric-card"><div class="card__top"><p class="metric-label">Аккумулятор</p></div><p class="metric">{{ number(data?.snapshot?.battery, 1) }} <small>{{ batteryUnit(data?.snapshot?.batteryType) }}</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.commonTs) }">{{ updated(data?.snapshot?.commonTs) }}</p></section>
+      <div class="status-overview" aria-label="Состояние автомобиля">
+        <section class="card state-card">
+          <div class="card__top"><p class="eyebrow">Состояние</p></div>
+          <div class="state-card__body">
+            <div><h2><span class="status-dot" :class="{ 'status-dot--on': data?.snapshot?.online && data?.snapshot?.ignition, 'status-dot--offline': data?.snapshot?.online === false }" />{{ vehicleState }}</h2><p class="muted">Последняя связь: {{ date(data?.snapshot?.activityTs) }}</p></div>
+          </div>
+        </section>
+        <section class="card metric-card"><div class="card__top"><p class="metric-label">Пробег</p><span class="metric-badge">{{ dailyChange(data?.today.distance, '+', 'км') }}</span></div><p class="metric">{{ number(data?.snapshot?.mileage, 1) }} <small>км</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.mileageTs) }">{{ updated(data?.snapshot?.mileageTs) }}</p></section>
+        <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
+        <section class="card metric-card"><div class="card__top"><p class="metric-label">Аккумулятор</p></div><p class="metric">{{ number(data?.snapshot?.battery, 1) }} <small>{{ batteryUnit(data?.snapshot?.batteryType) }}</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.commonTs) }">{{ updated(data?.snapshot?.commonTs) }}</p></section>
+      </div>
       <section class="card card--wide activity-card">
         <div class="card__top"><div><p class="metric-label">Пробег за 14 дней</p><p class="muted">{{ number(data?.daily.reduce((sum, item) => sum + item.distance, 0), 1) }} км · {{ number(data?.daily.reduce((sum, item) => sum + item.trips, 0)) }} поездок</p></div></div>
         <div class="daily-chart" aria-label="Дневной пробег за последние 14 дней">
