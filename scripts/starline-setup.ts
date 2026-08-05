@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createDatabase } from '../db/client'
-import { getStoredStarLineUser, loginStarLineUser, getSlnet, isSuccessfulStarLineCode, starlineRequest } from '../worker/starline/auth'
+import { getStoredStarLineUser, loginStarLineUser, getSlnetSession, isSuccessfulStarLineCode, starlineRequest } from '../worker/starline/auth'
 import { config } from '../worker/config'
 
 interface DeviceListPayload {
@@ -57,9 +57,9 @@ try {
 
   if (!userId) throw new Error('Не удалось завершить авторизацию StarLine за 5 попыток')
 
-  const slnet = await getSlnet(database)
-  const url = `https://developer.starline.ru/json/v1/user/${encodeURIComponent(userId)}/deviceList?alias=true&status=true`
-  const response = await starlineRequest(database, url, { headers: { cookie: `slnet=${slnet}` } })
+  const slnet = await getSlnetSession(database)
+  const url = `https://developer.starline.ru/json/v1/user/${encodeURIComponent(slnet.userId)}/deviceList?alias=true&status=true`
+  const response = await starlineRequest(database, url, { headers: { cookie: `slnet=${slnet.token}` } })
   const payload = await response.json() as DeviceListPayload
   if (!isSuccessfulStarLineCode(payload.code)) throw new Error(`StarLine device list: ${payload.codestring || payload.code || response.status}`)
 

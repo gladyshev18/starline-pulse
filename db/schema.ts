@@ -27,7 +27,7 @@ export const jobs = sqliteTable('jobs', {
 
 export const starlineTokens = sqliteTable('starline_tokens', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  kind: text('kind', { enum: ['app_code', 'app_token', 'user_token', 'slnet'] }).notNull(),
+  kind: text('kind', { enum: ['app_code', 'app_token', 'user_token', 'slnet', 'slnet_user_id'] }).notNull(),
   value: text('value').notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
   updatedAt: timestamps.updatedAt

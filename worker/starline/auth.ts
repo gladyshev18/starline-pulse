@@ -5,8 +5,9 @@ import { starlineTokens } from '../../db/schema'
 import { config } from '../config'
 import { assertBudget, recordCall } from './budget'
 
-type TokenKind = 'app_code' | 'app_token' | 'user_token' | 'slnet'
-let refreshPromise: Promise<string> | null = null
+type TokenKind = 'app_code' | 'app_token' | 'user_token' | 'slnet' | 'slnet_user_id'
+type SlnetSession = { token: string, userId: string }
+let refreshPromise: Promise<SlnetSession> | null = null
 
 export type StarLineUserLoginResult =
   | { status: 'success', userToken: string, userId: string }
@@ -131,6 +132,7 @@ export async function loginStarLineUser(database: Database, options: StarLineUse
   if (result.status === 'success') {
     await save(database, 'user_token', result.userToken)
     await database.delete(starlineTokens).where(eq(starlineTokens.kind, 'slnet'))
+    await database.delete(starlineTokens).where(eq(starlineTokens.kind, 'slnet_user_id'))
   }
   return result
 }
@@ -153,22 +155,31 @@ async function refreshSlnet(database: Database) {
   const response = await request(database, 'https://developer.starline.ru/json/v2/auth.slid', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slid_token: userToken })
   })
-  const payload = await response.json() as any
+  const payload = await response.json() as { code?: unknown, codestring?: string, user_id?: string | number }
   if (!isSuccessfulStarLineCode(payload.code)) {
     await database.delete(starlineTokens).where(eq(starlineTokens.kind, 'user_token'))
     throw new Error(`StarLine slnet auth: ${payload.codestring || payload.code}`)
   }
+  if (payload.user_id == null) throw new Error('StarLine slnet auth: user_id is missing')
   const cookie = response.headers.get('set-cookie') || ''
   const token = /(?:^|;\s*)slnet=([^;]+)/i.exec(cookie)?.[1]
   if (!token) throw new Error('StarLine slnet cookie missing in response')
-  return save(database, 'slnet', token, 24 * 60 * 60 * 1000)
+  const ttl = 24 * 60 * 60 * 1000
+  await save(database, 'slnet', token, ttl)
+  await save(database, 'slnet_user_id', String(payload.user_id), ttl)
+  return { token, userId: String(payload.user_id) }
+}
+
+export async function getSlnetSession(database: Database) {
+  const token = await cached(database, 'slnet')
+  const userId = await cached(database, 'slnet_user_id')
+  if (token && userId) return { token, userId }
+  if (!refreshPromise) refreshPromise = refreshSlnet(database).finally(() => { refreshPromise = null })
+  return refreshPromise
 }
 
 export async function getSlnet(database: Database) {
-  const existing = await cached(database, 'slnet')
-  if (existing) return existing
-  if (!refreshPromise) refreshPromise = refreshSlnet(database).finally(() => { refreshPromise = null })
-  return refreshPromise
+  return (await getSlnetSession(database)).token
 }
 
 export { request as starlineRequest }
