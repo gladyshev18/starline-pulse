@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { createDatabase } from '../db/client'
 import { createTelegramBot } from './bot'
+import { closeTelegramProxy } from './bot/proxy'
 import { config } from './config'
 import { initializeQueue, processNextJob } from './queue'
 
@@ -26,7 +27,11 @@ if (bot) void bot.start({ onStart: async info => {
 console.log(`Worker started in ${config.starlineMode} mode`)
 
 let running = true
-for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { running = false; bot?.stop() })
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {
+  running = false
+  bot?.stop()
+  void closeTelegramProxy()
+})
 while (running) {
   while (await processNextJob(database)) { /* drain ready jobs */ }
   await delay(10_000)

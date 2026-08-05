@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeTelegramUsername } from '../worker/config'
+import { normalizeTelegramProxyUrl, normalizeTelegramUsername } from '../worker/config'
 import { completedReportRange, nextReportRun } from '../worker/bot/reports'
 
 describe('Telegram username normalization', () => {
@@ -13,6 +13,25 @@ describe('Telegram username normalization', () => {
 
   it.each(['@a', '@bad-name', '@привет', '', undefined])('rejects invalid username %s', (value) => {
     expect(normalizeTelegramUsername(value)).toBeNull()
+  })
+})
+
+describe('Telegram proxy URL', () => {
+  it.each([
+    'http://127.0.0.1:8080',
+    'https://user:password@proxy.example.com:8443',
+    'socks://127.0.0.1:1080',
+    'socks5://user:password@127.0.0.1:1080'
+  ])('accepts %s', (value) => {
+    expect(normalizeTelegramProxyUrl(value)).toBe(value)
+  })
+
+  it.each(['ftp://proxy.example.com', 'proxy.example.com:8080', 'not a url'])('rejects %s', (value) => {
+    expect(() => normalizeTelegramProxyUrl(value)).toThrow('TELEGRAM_PROXY_URL')
+  })
+
+  it('allows proxy to be disabled', () => {
+    expect(normalizeTelegramProxyUrl('  ')).toBe('')
   })
 })
 

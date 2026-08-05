@@ -30,7 +30,8 @@
     "grammy": "1.45.1",
     "nuxt": "4.5.1",
     "nuxt-auth-utils": "0.5.30",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "undici": "^7.29.0"
   },
   "devDependencies": {
     "@nuxt/test-utils": "^3.21.0",

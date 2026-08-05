@@ -4,6 +4,7 @@ import type { Database } from '../../db/client'
 import { telegramRecipients } from '../../db/schema'
 import { config, normalizeTelegramUsername } from '../config'
 import { registerCommands } from './commands'
+import { createTelegramProxyFetch } from './proxy'
 
 let bot: Bot | null = null
 let botDatabase: Database | null = null
@@ -15,7 +16,9 @@ function isStartCommand(text: string | undefined) {
 export function createTelegramBot(database: Database) {
   if (!config.telegramBotToken) return null
   botDatabase = database
-  bot = new Bot(config.telegramBotToken)
+  bot = new Bot(config.telegramBotToken, config.telegramProxyUrl ? {
+    client: { fetch: createTelegramProxyFetch(config.telegramProxyUrl) }
+  } : undefined)
   bot.use(async (context, next) => {
     if (context.chat?.type !== 'private') return
     if (isStartCommand(context.message?.text)) return next()

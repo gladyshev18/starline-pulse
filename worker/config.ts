@@ -18,6 +18,21 @@ function telegramUsernames(value: string | undefined) {
   return new Set((value || '').split(',').map(normalizeTelegramUsername).filter((username): username is string => Boolean(username)))
 }
 
+export function normalizeTelegramProxyUrl(value: string | null | undefined) {
+  const candidate = value?.trim()
+  if (!candidate) return ''
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    throw new Error('TELEGRAM_PROXY_URL must be a valid proxy URL')
+  }
+  if (!['http:', 'https:', 'socks:', 'socks5:'].includes(url.protocol) || !url.hostname) {
+    throw new Error('TELEGRAM_PROXY_URL must use http, https, socks or socks5 protocol')
+  }
+  return candidate
+}
+
 export const config = {
   databaseUrl: process.env.DATABASE_URL || `file:${resolve(projectRoot, 'data', 'app.db')}`,
   starlineMode: process.env.STARLINE_MODE === 'live' ? 'live' as const : 'fixture' as const,
@@ -28,5 +43,6 @@ export const config = {
   starlinePassword: process.env.STARLINE_PASSWORD || '',
   starlineDeviceId: process.env.STARLINE_DEVICE_ID || '',
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  telegramProxyUrl: normalizeTelegramProxyUrl(process.env.TELEGRAM_PROXY_URL),
   telegramAllowedUsernames: telegramUsernames(process.env.TELEGRAM_ALLOWED_USERNAMES)
 }
