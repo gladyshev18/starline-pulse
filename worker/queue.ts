@@ -2,6 +2,7 @@ import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { jobs } from '../db/schema'
 import { notifyAllowedChats } from './bot'
+import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
@@ -11,7 +12,7 @@ import { closeTrip, handleMileageProgress, reconcileTripsWithEngineSessions } fr
 const MAX_ATTEMPTS = 5
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
 
-type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod }
+type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean }
 
 function parseJobPayload(value: string) {
   try {
@@ -40,10 +41,30 @@ async function schedulePoll(database: Database, delayMs: number) {
 
 async function scheduleReport(database: Database, period: ReportPeriod, now = new Date()) {
   const payload = JSON.stringify({ period })
+  const runAt = nextReportRun(period, now)
   const existing = await database.query.jobs.findFirst({
     where: and(eq(jobs.type, 'telegram:report'), eq(jobs.payload, payload), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
   })
-  if (!existing) await database.insert(jobs).values({ type: 'telegram:report', payload, runAt: nextReportRun(period, now) })
+  if (!existing) {
+    await database.insert(jobs).values({ type: 'telegram:report', payload, runAt })
+  } else if (existing.status === 'pending' && existing.attempts === 0 && existing.runAt > now && existing.runAt.getTime() !== runAt.getTime()) {
+    await database.update(jobs).set({ runAt, updatedAt: now }).where(eq(jobs.id, existing.id))
+  }
+}
+
+async function scheduleFuelReminder(database: Database, now = new Date()) {
+  const runAt = nextFuelReminderRun(now)
+  const existing = await database.query.jobs.findFirst({
+    where: and(eq(jobs.type, 'telegram:fuel_reminder'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
+  })
+  if (!existing) await database.insert(jobs).values({
+    type: 'telegram:fuel_reminder',
+    payload: '{}',
+    runAt
+  })
+  else if (existing.status === 'pending' && existing.attempts === 0 && existing.runAt > now && existing.runAt.getTime() !== runAt.getTime()) {
+    await database.update(jobs).set({ runAt, updatedAt: now }).where(eq(jobs.id, existing.id))
+  }
 }
 
 async function execute(database: Database, job: typeof jobs.$inferSelect): Promise<ExecuteResult> {
@@ -66,12 +87,17 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     if (!Number.isInteger(vehicleId) || !Number.isInteger(tripId)) throw new Error('INVALID_CLOSE_TRIP_PAYLOAD')
     await closeTrip(database, { vehicleId, tripId })
   }
-  if (job.type === 'telegram:notify') await notifyAllowedChats(String(payload.text || 'Уведомление'), payload.html === true)
+  if (job.type === 'telegram:notify') await notifyAllowedChats(String(payload.text || 'Уведомление'), { html: payload.html === true })
   if (job.type === 'telegram:report') {
     const period = reportPeriod(payload.period)
     if (!period) throw new Error('UNKNOWN_TELEGRAM_REPORT_PERIOD')
-    await notifyAllowedChats(await buildReport(database, period), true)
+    await notifyAllowedChats(await buildReport(database, period), { html: true })
     return { nextReport: period }
+  }
+  if (job.type === 'telegram:fuel_reminder') {
+    const reminder = await buildFuelReminder(database)
+    if (reminder) await notifyAllowedChats(reminder, { html: true, sound: true })
+    return { nextFuelReminder: true }
   }
   return {}
 }
@@ -83,6 +109,7 @@ export async function processNextJob(database: Database) {
     const result = await execute(database, job)
     await database.update(jobs).set({ status: 'done', updatedAt: new Date(), lastError: null }).where(eq(jobs.id, job.id))
     if (result.nextPollAt) await schedulePoll(database, result.nextPollAt.getTime() - Date.now())
+    if (result.nextFuelReminder) await scheduleFuelReminder(database)
     if (result.nextReport) {
       try {
         await scheduleReport(database, result.nextReport)
@@ -106,6 +133,7 @@ export async function processNextJob(database: Database) {
     if (failed && failedReportPeriod) {
       await scheduleReport(database, failedReportPeriod)
     }
+    if (failed && job.type === 'telegram:fuel_reminder') await scheduleFuelReminder(database)
     console.error(`Job ${job.id} (${job.type}) failed`, error)
   }
   return true
@@ -117,4 +145,5 @@ export async function initializeQueue(database: Database) {
   const poll = await database.query.jobs.findFirst({ where: and(eq(jobs.type, 'starline:poll'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running'))) })
   if (!poll) await database.insert(jobs).values({ type: 'starline:poll', payload: '{}' })
   for (const period of REPORT_PERIODS) await scheduleReport(database, period)
+  await scheduleFuelReminder(database)
 }

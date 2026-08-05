@@ -6,7 +6,7 @@ export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
 const DAY_MS = 24 * 60 * 60_000
-const REPORT_HOUR = 9
+const REPORT_HOUR = 15
 
 const periodTitle: Record<ReportPeriod, string> = {
   daily: 'Ежедневный отчёт',

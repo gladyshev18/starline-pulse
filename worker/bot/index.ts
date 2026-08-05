@@ -37,7 +37,12 @@ export function createTelegramBot(database: Database) {
   return bot
 }
 
-export async function notifyAllowedChats(text: string, html = false) {
+type NotificationOptions = {
+  html?: boolean
+  sound?: boolean
+}
+
+export async function notifyAllowedChats(text: string, options: NotificationOptions = {}) {
   if (!bot) {
     if (config.telegramBotToken) throw new Error('Telegram bot is not running')
     console.log(`[telegram disabled] ${text}`)
@@ -45,9 +50,9 @@ export async function notifyAllowedChats(text: string, html = false) {
   }
   const recipients = await botRecipients()
   const results = await Promise.allSettled(recipients.map(recipient => bot!.api.sendMessage(recipient.chatId, text, {
-    disable_notification: true,
+    disable_notification: options.sound !== true,
     reply_markup: mainKeyboard,
-    ...(html ? { parse_mode: 'HTML' as const } : {})
+    ...(options.html ? { parse_mode: 'HTML' as const } : {})
   })))
   results.forEach((result, index) => {
     if (result.status === 'rejected') console.error(`Telegram notification to ${recipients[index]?.username} failed`, result.reason)
