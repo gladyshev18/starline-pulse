@@ -5,6 +5,12 @@ import { trips, vehicleSnapshots } from '../../db/schema'
 
 const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(1)
 const date = (value: Date) => new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow' }).format(value)
+const engineState = (online: boolean | null, ignition: boolean | null) => {
+  if (online == null) return 'состояние неизвестно'
+  if (!online) return 'устройство не в сети'
+  if (ignition == null) return 'состояние двигателя неизвестно'
+  return ignition ? 'двигатель работает' : 'двигатель выключен'
+}
 
 export function registerCommands(bot: import('grammy').Bot, database: Database) {
   bot.command('status', async (context: Context) => {
@@ -12,7 +18,7 @@ export function registerCommands(bot: import('grammy').Bot, database: Database) 
     if (!vehicle) return context.reply('Данных об автомобиле пока нет.')
     const snapshot = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, vehicle.id), orderBy: desc(vehicleSnapshots.ts) })
     if (!snapshot) return context.reply('Снимков состояния пока нет.')
-    return context.reply(`${vehicle.alias}\nЗажигание: ${snapshot.ignition ? 'включено' : 'выключено'}\nПробег: ${number(snapshot.mileage)} км\nТопливо: ${number(snapshot.fuel)} л\nПоследняя связь: ${date(snapshot.activityTs || snapshot.ts)}`)
+    return context.reply(`${vehicle.alias}\nСостояние: ${engineState(snapshot.online, snapshot.ignition)}\nПробег: ${number(snapshot.mileage)} км\nТопливо: ${number(snapshot.fuel)} л\nПоследняя связь: ${date(snapshot.activityTs || snapshot.ts)}`)
   })
 
   bot.command('last', async (context: Context) => {

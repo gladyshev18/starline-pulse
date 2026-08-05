@@ -1,19 +1,37 @@
-import { and, asc, desc, eq, gte, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, isNotNull, or } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { jobs, trips, vehicleSnapshots } from '../../db/schema'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
 
-export async function handleIgnitionTransition(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
-  if (current.ignition == null || current.ignition === previous?.ignition) return
-  const openTrip = await database.query.trips.findFirst({ where: and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, true)), orderBy: desc(trips.startedAt) })
-  if (previous?.ignition !== true && current.ignition) {
-    if (!openTrip) await database.insert(trips).values({ vehicleId, startedAt: current.ts, mileageStart: current.mileage, fuelStart: current.fuel, latStart: current.lat, lonStart: current.lon })
-    return
+export function hasMileageIncreased(previous: number | null | undefined, current: number | null | undefined) {
+  return previous != null && current != null && current > previous
+}
+
+export async function handleMileageProgress(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
+  let openTrip = await database.query.trips.findFirst({ where: and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, true)), orderBy: desc(trips.startedAt) })
+  const mileageIncreased = hasMileageIncreased(previous?.mileage, current.mileage)
+
+  if (mileageIncreased && !openTrip && previous) {
+    [openTrip] = await database.insert(trips).values({
+      vehicleId,
+      startedAt: previous.ts,
+      mileageStart: previous.mileage,
+      fuelStart: previous.fuel,
+      latStart: previous.lat,
+      lonStart: previous.lon
+    }).returning()
   }
-  if (previous?.ignition === true && !current.ignition && openTrip) {
+
+  if (!openTrip) return
+  if (current.ignition === false) {
+    const payload = JSON.stringify({ vehicleId, tripId: openTrip.id })
+    const pendingClose = await database.query.jobs.findFirst({
+      where: and(eq(jobs.type, 'starline:close_trip'), eq(jobs.payload, payload), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
+    })
+    if (pendingClose) return
     await database.insert(jobs).values({
-      type: 'starline:close_trip', payload: JSON.stringify({ vehicleId, tripId: openTrip.id }), runAt: new Date(Date.now() + 3 * 60_000)
+      type: 'starline:close_trip', payload, runAt: new Date(Date.now() + 3 * 60_000)
     })
   }
 }

@@ -12,23 +12,70 @@ function finite(value: unknown): number | null {
   return typeof number === 'number' && Number.isFinite(number) ? number : null
 }
 
+function timestamp(value: unknown): Date | null {
+  const seconds = finite(value)
+  return seconds && seconds > 0 ? new Date(seconds * 1000) : null
+}
+
+function diagnosticJson(raw: StarLineDataResponse) {
+  const data = raw.data
+  if (!data) return JSON.stringify({ code: raw.code, codestring: raw.codestring })
+  const position = data.position && {
+    dir: data.position.dir,
+    s: data.position.s,
+    sat_qty: data.position.sat_qty,
+    ts: data.position.ts,
+    r: data.position.r,
+    rpm: data.position.rpm,
+    is_move: data.position.is_move
+  }
+  return JSON.stringify({
+    code: raw.code,
+    codestring: raw.codestring,
+    data: {
+      type: data.type,
+      status: data.status,
+      activity_ts: data.activity_ts ?? data.ts_activity,
+      firmware_version: data.firmware_version,
+      functions: data.functions,
+      battery_type: data.battery_type,
+      position,
+      common: data.common,
+      obd: data.obd,
+      state: data.state,
+      alarm_state: data.alarm_state,
+      event: data.event,
+      r_start: data.r_start,
+      sys_extra_state: data.sys_extra_state,
+      electric_status: data.electric_status
+    }
+  })
+}
+
 export function normalizeDeviceResponse(raw: StarLineDataResponse): NormalizedSnapshot {
   if (raw.code !== 200 || !raw.data) throw new Error(`StarLine data: ${raw.codestring || raw.code}`)
   const data: StarLineDeviceData = raw.data
-  const activity = finite(data.activity_ts ?? data.ts_activity)
   const ignition = typeof data.state?.ign === 'boolean' ? data.state.ign : typeof data.state?.run === 'boolean' ? data.state.run : null
+  const fuelLitres = finite(data.obd?.fuel_litres)
+  const fuelConverted = finite(data.obd?.fuel_converted)
+  const batteryType = data.common?.battery_type ?? data.battery_type
   return {
-    deviceId: String(data.device_id), alias: data.alias || 'Chery', ts: new Date(), activityTs: activity ? new Date(activity * 1000) : null,
-    ignition, mileage: finite(data.obd?.mileage), fuel: finite(data.obd?.fuel_litres), battery: finite(data.common?.battery),
-    engineTemp: finite(data.common?.etemp), cabinTemp: finite(data.common?.ctemp), lat: finite(data.position?.x), lon: finite(data.position?.y),
-    gsmLevel: finite(data.common?.gsm_lvl), rawJson: JSON.stringify(raw)
+    deviceId: String(data.device_id), alias: data.alias || 'Chery', ts: new Date(), activityTs: timestamp(data.activity_ts ?? data.ts_activity),
+    online: data.status === 1 ? true : data.status === 2 ? false : null,
+    ignition, mileage: finite(data.obd?.mileage), mileageTs: timestamp(data.obd?.mileage_ts ?? data.obd?.ts),
+    fuel: fuelLitres ?? fuelConverted, fuelPercent: finite(data.obd?.fuel_percent), fuelTs: timestamp(data.obd?.fuel_ts ?? data.obd?.ts),
+    fuelSource: fuelLitres != null ? 'litres' : fuelConverted != null ? 'converted' : null,
+    battery: finite(data.common?.battery), batteryType: batteryType === 'volt' || batteryType === 'percent' ? batteryType : null,
+    commonTs: timestamp(data.common?.ts), engineTemp: finite(data.common?.etemp), cabinTemp: finite(data.common?.ctemp),
+    lat: finite(data.position?.y), lon: finite(data.position?.x), positionTs: timestamp(data.position?.ts),
+    gsmLevel: finite(data.common?.gsm_lvl), rawJson: diagnosticJson(raw)
   }
 }
 
 export async function readLoggedDeviceResponse(response: Response): Promise<StarLineDataResponse> {
   const rawBody = await response.text()
   const contentType = response.headers.get('content-type') || 'unknown'
-  console.info(`[starline.api.raw] status=${response.status} content-type=${contentType} body=${rawBody}`)
+  console.info(`[starline.api] status=${response.status} content-type=${contentType} body-bytes=${Buffer.byteLength(rawBody)}`)
   return JSON.parse(rawBody) as StarLineDataResponse
 }
 
@@ -51,9 +98,12 @@ export async function pollVehicle(database: Database) {
     throw new Error(`Rejected decreasing mileage: ${normalized.mileage} < ${previous.mileage}`)
   }
   const [snapshot] = await database.insert(vehicleSnapshots).values({
-    vehicleId: vehicle.id, ts: normalized.ts, activityTs: normalized.activityTs, ignition: normalized.ignition, mileage: normalized.mileage,
-    fuel: normalized.fuel, battery: normalized.battery, engineTemp: normalized.engineTemp, cabinTemp: normalized.cabinTemp,
-    lat: normalized.lat, lon: normalized.lon, gsmLevel: normalized.gsmLevel, rawJson: normalized.rawJson
+    vehicleId: vehicle.id, ts: normalized.ts, activityTs: normalized.activityTs, online: normalized.online,
+    ignition: normalized.ignition, mileage: normalized.mileage, mileageTs: normalized.mileageTs,
+    fuel: normalized.fuel, fuelPercent: normalized.fuelPercent, fuelTs: normalized.fuelTs, fuelSource: normalized.fuelSource,
+    battery: normalized.battery, batteryType: normalized.batteryType, commonTs: normalized.commonTs,
+    engineTemp: normalized.engineTemp, cabinTemp: normalized.cabinTemp, lat: normalized.lat, lon: normalized.lon,
+    positionTs: normalized.positionTs, gsmLevel: normalized.gsmLevel, rawJson: normalized.rawJson
   }).returning()
 
   const usage = config.starlineMode === 'live' ? await getDailyUsage(database) : { remaining: 1000 }

@@ -15,6 +15,13 @@
       "when": 1785928991730,
       "tag": "0001_aromatic_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785931250154,
+      "tag": "0002_robust_zzzax",
+      "breakpoints": true
     }
   ]
 }

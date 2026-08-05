@@ -227,6 +227,8 @@ button { color: inherit; }
 .metric-card { display: flex; flex-direction: column; justify-content: space-between; }
 .metric { margin: 28px 0 0; font-size: clamp(2.2rem, 4vw, 3.45rem); font-weight: 330; line-height: .95; letter-spacing: -.055em; }
 .metric small { color: var(--muted); font-size: .26em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
+.metric-meta { margin: 17px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.metric-meta--stale { color: var(--danger); }
 .card > .muted { margin-bottom: 0; font-size: .82rem; }
 
 .state-card {
@@ -240,6 +242,7 @@ button { color: inherit; }
 .state-card .muted { margin: 0; font-size: .8rem; }
 .status-dot { display: inline-block; width: 9px; height: 9px; margin-right: 12px; border-radius: 50%; background: var(--muted); vertical-align: .16em; }
 .status-dot--on { background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 13%, transparent); }
+.status-dot--offline { background: var(--danger); box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 13%, transparent); }
 .skeleton { color: var(--muted); }
 
 .table-wrap { overflow-x: auto; margin: 19px -7px 0; }

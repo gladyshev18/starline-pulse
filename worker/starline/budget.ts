@@ -3,7 +3,13 @@ import type { Database } from '../../db/client'
 import { apiCalls } from '../../db/schema'
 
 const MAX_LOG_VALUE_LENGTH = 256_000
-const SENSITIVE_KEY = /(?:authorization|cookie|token|secret|password|passwd|pass|captcha(?:code)?|sms(?:code)?|login)/i
+const SECRET_KEY = /^(?:authorization|cookie|password|passwd|pass|captcha(?:code)?|sms(?:code)?|login)$/i
+const SECRET_SEGMENT = /(?:^|_)(?:token|secret)(?:$|_)/i
+const PERSONAL_KEY = /^(?:telephone|phone|number|m_phones|sn|registration_plate|url_payment|device_id|hw_device_id|x|y)$/i
+
+function isSensitiveKey(key: string) {
+  return SECRET_KEY.test(key) || SECRET_SEGMENT.test(key) || PERSONAL_KEY.test(key)
+}
 
 export interface ApiCallLog {
   url: string
@@ -25,7 +31,7 @@ function truncate(value: string | null) {
 function redactValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactValue)
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE_KEY.test(key) ? '[СКРЫТО]' : redactValue(item)]))
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, isSensitiveKey(key) ? '[СКРЫТО]' : redactValue(item)]))
   }
   return value
 }
@@ -33,14 +39,19 @@ function redactValue(value: unknown): unknown {
 export function sanitizeUrl(value: string) {
   const url = new URL(value)
   for (const key of [...url.searchParams.keys()]) {
-    if (SENSITIVE_KEY.test(key)) url.searchParams.set(key, '[СКРЫТО]')
+    if (isSensitiveKey(key)) url.searchParams.set(key, '[СКРЫТО]')
   }
+  url.pathname = sanitizeEndpoint(url.pathname)
   return url.toString()
+}
+
+export function sanitizeEndpoint(value: string) {
+  return value.replace(/(\/device\/)[^/]+/gi, '$1[СКРЫТО]')
 }
 
 export function sanitizeHeaders(headers?: HeadersInit) {
   if (!headers) return null
-  const safe = Object.fromEntries([...new Headers(headers).entries()].map(([key, value]) => [key, SENSITIVE_KEY.test(key) ? '[СКРЫТО]' : value]))
+  const safe = Object.fromEntries([...new Headers(headers).entries()].map(([key, value]) => [key, isSensitiveKey(key) ? '[СКРЫТО]' : value]))
   return truncate(JSON.stringify(safe, null, 2))
 }
 
@@ -52,7 +63,7 @@ export function sanitizeBody(body: string | null | undefined, contentType = '') 
     }
     if (contentType.includes('x-www-form-urlencoded')) {
       const params = new URLSearchParams(body)
-      for (const key of [...params.keys()]) if (SENSITIVE_KEY.test(key)) params.set(key, '[СКРЫТО]')
+      for (const key of [...params.keys()]) if (isSensitiveKey(key)) params.set(key, '[СКРЫТО]')
       return truncate(params.toString())
     }
   } catch {
@@ -96,7 +107,7 @@ export async function recordCall(database: Database, call: ApiCallLog) {
   const rawRequestBody = await requestBodyText(call.requestBody)
   await database.insert(apiCalls).values({
     day: new Date().toISOString().slice(0, 10),
-    endpoint: parsedUrl.pathname,
+    endpoint: sanitizeEndpoint(parsedUrl.pathname),
     method: call.method,
     url: sanitizeUrl(call.url),
     status: call.status,
