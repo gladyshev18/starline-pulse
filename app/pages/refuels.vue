@@ -3,6 +3,19 @@ const MAX_FILE_SIZE = 15 * 1024 * 1024
 const { data, status, refresh } = await useFetch('/api/refuels')
 const uploading = reactive<Record<number, boolean>>({})
 const errors = reactive<Record<number, string>>({})
+const editingRefuel = ref<{
+  id: number
+  detectedAt: string | Date
+  litresAdded: number | null
+  station: 'rosneft' | 'lukoil' | 'other' | null
+  stationName: string | null
+  fuelType: string | null
+  pricePerLitre: number | null
+  totalAmount: number | null
+} | null>(null)
+const detailsPending = ref(false)
+const detailsError = ref('')
+const details = reactive({ station: '', stationName: '', fuelType: '', pricePerLitre: '', totalAmount: '' })
 
 function number(value: number | null, digits = 1) {
   return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
@@ -10,6 +23,10 @@ function number(value: number | null, digits = 1) {
 
 function date(value: string | Date) {
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(value))
+}
+
+function money(value: number | null) {
+  return value == null ? '—' : new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(value)
 }
 
 function fileSize(value: number) {
@@ -23,12 +40,57 @@ function receiptKind(mimeType: string) {
   return 'Изображение'
 }
 
-function errorMessage(error: unknown) {
+function errorMessage(error: unknown, fallback = 'Не удалось выполнить запрос') {
   if (typeof error === 'object' && error) {
     const value = error as { data?: { statusMessage?: string }, statusMessage?: string }
-    return value.data?.statusMessage || value.statusMessage || 'Не удалось прикрепить чек'
+    return value.data?.statusMessage || value.statusMessage || fallback
   }
-  return 'Не удалось прикрепить чек'
+  return fallback
+}
+
+function openDetails(refuel: NonNullable<typeof editingRefuel.value>) {
+  editingRefuel.value = refuel
+  details.station = refuel.station || ''
+  details.stationName = refuel.stationName || ''
+  details.fuelType = refuel.fuelType || ''
+  details.pricePerLitre = refuel.pricePerLitre?.toString() || ''
+  details.totalAmount = refuel.totalAmount?.toString() || ''
+  detailsError.value = ''
+}
+
+function closeDetails() {
+  editingRefuel.value = null
+  detailsError.value = ''
+}
+
+function calculateTotal() {
+  const litres = editingRefuel.value?.litresAdded
+  const price = Number(details.pricePerLitre)
+  if (litres != null && litres > 0 && Number.isFinite(price) && price > 0) details.totalAmount = (litres * price).toFixed(2)
+}
+
+async function saveDetails() {
+  if (!editingRefuel.value || detailsPending.value) return
+  detailsPending.value = true
+  detailsError.value = ''
+  try {
+    await $fetch(`/api/refuels/${editingRefuel.value.id}`, {
+      method: 'PATCH',
+      body: {
+        station: details.station,
+        stationName: details.stationName,
+        fuelType: details.fuelType,
+        pricePerLitre: Number(details.pricePerLitre),
+        totalAmount: Number(details.totalAmount)
+      }
+    })
+    await refresh()
+    closeDetails()
+  } catch (error) {
+    detailsError.value = errorMessage(error, 'Не удалось сохранить данные заправки')
+  } finally {
+    detailsPending.value = false
+  }
 }
 
 async function uploadReceipt(refuelId: number, event: Event) {
@@ -50,7 +112,7 @@ async function uploadReceipt(refuelId: number, event: Event) {
     await $fetch(`/api/refuels/${refuelId}/receipts`, { method: 'POST', body })
     await refresh()
   } catch (error) {
-    errors[refuelId] = errorMessage(error)
+    errors[refuelId] = errorMessage(error, 'Не удалось прикрепить чек')
   } finally {
     uploading[refuelId] = false
   }
@@ -76,13 +138,20 @@ async function uploadReceipt(refuelId: number, event: Event) {
       <article v-for="refuel in data.items" :key="refuel.id" class="card refuel-card">
         <div class="refuel-card__summary">
           <div>
-            <p class="eyebrow">{{ date(refuel.detectedAt) }}</p>
+            <div class="refuel-card__top">
+              <p class="eyebrow">{{ date(refuel.detectedAt) }}</p>
+              <button class="refuel-edit" type="button" @click="openDetails(refuel)">{{ refuel.station ? 'Изменить' : 'Добавить данные' }}</button>
+            </div>
+            <RefuelStationBadge v-if="refuel.station" :station="refuel.station" :name="refuel.stationName" />
             <p class="refuel-card__amount">+{{ number(refuel.litresAdded) }} <small>л</small></p>
           </div>
           <dl class="refuel-meta">
             <div><dt>Пробег</dt><dd>{{ number(refuel.mileage) }} км</dd></div>
             <div><dt>Уровень</dt><dd>{{ number(refuel.percentBefore, 0) }} → {{ number(refuel.percentAfter, 0) }}%</dd></div>
             <div><dt>Топливо</dt><dd>{{ number(refuel.fuelBefore) }} → {{ number(refuel.fuelAfter) }} л</dd></div>
+            <div><dt>Вид топлива</dt><dd>{{ refuel.fuelType || '—' }}</dd></div>
+            <div><dt>Цена за литр</dt><dd>{{ money(refuel.pricePerLitre) }}</dd></div>
+            <div><dt>Сумма</dt><dd>{{ money(refuel.totalAmount) }}</dd></div>
           </dl>
         </div>
 
@@ -120,5 +189,57 @@ async function uploadReceipt(refuelId: number, event: Event) {
         </div>
       </article>
     </div>
+
+    <AppModal
+      :model-value="Boolean(editingRefuel)"
+      title="Данные заправки"
+      :eyebrow="editingRefuel ? date(editingRefuel.detectedAt) : ''"
+      :close-on-backdrop="!detailsPending"
+      :close-on-escape="!detailsPending"
+      @update:model-value="value => { if (!value && !detailsPending) closeDetails() }"
+    >
+      <form id="refuel-details-form" class="refuel-details-form" @submit.prevent="saveDetails">
+        <label class="field">
+          <span>АЗС</span>
+          <select v-model="details.station" required :disabled="detailsPending">
+            <option value="" disabled>Выберите АЗС</option>
+            <option value="rosneft">Роснефть</option>
+            <option value="lukoil">Лукойл</option>
+            <option value="other">Другая АЗС</option>
+          </select>
+        </label>
+        <label v-if="details.station === 'other'" class="field refuel-details-form__wide">
+          <span>Название АЗС</span>
+          <input v-model="details.stationName" required maxlength="100" placeholder="Введите название">
+        </label>
+        <label class="field refuel-details-form__wide">
+          <span>Вид топлива</span>
+          <input v-model="details.fuelType" required maxlength="50" list="fuel-types" placeholder="Например, АИ-95">
+          <datalist id="fuel-types">
+            <option value="АИ-92" />
+            <option value="АИ-95" />
+            <option value="АИ-95 Премиум" />
+            <option value="АИ-98" />
+            <option value="АИ-100" />
+            <option value="ДТ" />
+            <option value="Газ" />
+          </datalist>
+        </label>
+        <label class="field">
+          <span>Цена за литр, ₽</span>
+          <input v-model="details.pricePerLitre" required type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="calculateTotal">
+        </label>
+        <label class="field">
+          <span>Сумма, ₽</span>
+          <input v-model="details.totalAmount" required type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00">
+        </label>
+        <button class="refuel-calculate" type="button" :disabled="detailsPending || !details.pricePerLitre" @click="calculateTotal">Рассчитать сумму по объёму {{ number(editingRefuel?.litresAdded || null) }} л</button>
+        <p v-if="detailsError" class="error refuel-details-form__wide">{{ detailsError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn btn--secondary" type="button" :disabled="detailsPending" @click="closeDetails">Отмена</button>
+        <button class="btn" type="submit" form="refuel-details-form" :disabled="detailsPending">{{ detailsPending ? 'Сохраняем…' : 'Сохранить' }}</button>
+      </template>
+    </AppModal>
   </div>
 </template>

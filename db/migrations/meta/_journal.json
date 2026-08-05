@@ -43,6 +43,13 @@
       "when": 1785935368824,
       "tag": "0005_abandoned_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785936149944,
+      "tag": "0006_broken_thena",
+      "breakpoints": true
     }
   ]
 }

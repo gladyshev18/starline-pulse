@@ -293,7 +293,12 @@ tbody tr:hover { background: var(--surface-subtle); }
 .refuel-list { display: grid; gap: 14px; }
 .refuel-card { display: grid; min-height: 0; grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr); gap: 30px; padding: 28px; }
 .refuel-card__summary { display: flex; flex-direction: column; justify-content: space-between; gap: 30px; }
+.refuel-card__top { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
+.refuel-edit, .refuel-calculate { padding: 0; border: 0; background: transparent; color: var(--accent-ink); cursor: pointer; font-size: .7rem; font-weight: 700; }
+.refuel-edit:hover, .refuel-calculate:hover { text-decoration: underline; }
+.refuel-edit:focus-visible, .refuel-calculate:focus-visible { border-radius: 3px; outline: 2px solid var(--accent); outline-offset: 3px; }
 .refuel-card__amount { margin: 15px 0 0; font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 340; line-height: .95; letter-spacing: -.055em; }
+.station-badge + .refuel-card__amount { margin-top: 13px; }
 .refuel-card__amount small { color: var(--muted); font-size: .32em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 .refuel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }
 .refuel-meta div { min-width: 0; }
@@ -316,6 +321,11 @@ tbody tr:hover { background: var(--surface-subtle); }
 .receipt-file__copy strong { font-size: .76rem; font-weight: 650; }
 .receipt-file__copy small { margin-top: 2px; color: var(--muted); font-size: .63rem; }
 .receipt-file__action { color: var(--accent-ink); font-size: .68rem; font-weight: 700; }
+.refuel-details-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 12px; }
+.refuel-details-form__wide, .refuel-calculate { grid-column: 1 / -1; }
+.refuel-details-form .field > span { color: var(--muted); font-size: .78rem; font-weight: 620; }
+.refuel-calculate { width: fit-content; margin-top: -6px; }
+.refuel-calculate:disabled { cursor: default; opacity: .5; text-decoration: none; }
 
 .api-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .log-filters { display: grid; grid-template-columns: minmax(240px, 1fr) 190px 180px; gap: 12px; margin-bottom: 22px; }
@@ -394,6 +404,8 @@ tbody tr:hover { background: var(--surface-subtle); }
   .battery-trend__row { grid-template-columns: 54px 1fr 1fr; gap: 8px; }
   .battery-trend__row span:last-child { display: none; }
   .refuel-card { grid-template-columns: 1fr; }
+  .refuel-details-form { grid-template-columns: 1fr; }
+  .refuel-details-form__wide, .refuel-calculate { grid-column: auto; }
 }
 @media (max-width: 560px) {
   .app-header { top: 8px; min-height: 60px; margin-top: 8px; padding: 9px; border-radius: 16px; }

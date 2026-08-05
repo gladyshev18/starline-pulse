@@ -132,7 +132,12 @@ export const refuelEvents = sqliteTable('refuel_events', {
   percentBefore: real('percent_before'),
   percentAfter: real('percent_after'),
   lat: real('lat'),
-  lon: real('lon')
+  lon: real('lon'),
+  station: text('station', { enum: ['rosneft', 'lukoil', 'other'] }),
+  stationName: text('station_name'),
+  fuelType: text('fuel_type'),
+  pricePerLitre: real('price_per_litre'),
+  totalAmount: real('total_amount')
 }, table => [
   index('refuel_events_vehicle_detected_idx').on(table.vehicleId, table.detectedAt),
   uniqueIndex('refuel_events_vehicle_detected_unique').on(table.vehicleId, table.detectedAt)
