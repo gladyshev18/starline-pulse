@@ -349,15 +349,22 @@ tbody tr:hover { background: var(--surface-subtle); }
 .log-open:hover { text-decoration: underline; }
 .log-open:disabled { cursor: wait; opacity: .55; }
 .log-meta { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; margin: 0 0 24px; }
-.log-meta > div { min-width: 0; padding: 14px; border-radius: 12px; background: var(--surface-subtle); }
+.log-meta > div { position: relative; min-width: 0; padding: 14px; border-radius: 12px; background: var(--surface-subtle); }
 .log-meta__url { grid-column: 1 / -1; }
 .log-meta dt { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.log-meta dd { margin: 5px 0 0; overflow-wrap: anywhere; font-size: .84rem; }
+.log-meta dd { margin: 5px 0 0; padding-right: 76px; overflow-wrap: anywhere; font-size: .84rem; }
 .payload-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .payload-grid details { min-width: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-subtle); }
 .payload-grid summary { padding: 13px 15px; cursor: pointer; color: var(--muted); font-size: .76rem; font-weight: 700; }
-.payload-grid pre { max-height: 420px; margin: 0; overflow: auto; padding: 16px; border-top: 1px solid var(--line); color: var(--ink); font: 12px/1.55 Consolas, "SFMono-Regular", monospace; white-space: pre-wrap; word-break: break-word; }
-.privacy-note { margin: 18px 0 0; color: var(--muted); font-size: .75rem; }
+.payload-grid pre { position: relative; max-height: 420px; margin: 0; overflow: auto; padding: 16px; border-top: 1px solid var(--line); color: var(--ink); font: 12px/1.55 Consolas, "SFMono-Regular", monospace; white-space: pre-wrap; word-break: break-word; }
+.payload-grid pre code { display: block; padding-top: 16px; font: inherit; white-space: inherit; }
+.copyable-card, .copyable-data { cursor: copy; transition: background-color .16s ease, box-shadow .16s ease; }
+.copyable-card:hover, .copyable-data:hover { background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface-subtle)); }
+.copyable-card:focus-visible, .copyable-data:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copy-indicator { position: absolute; top: 11px; right: 12px; color: var(--accent-ink); font: 650 .66rem/1.2 Inter, system-ui, sans-serif; }
+.copy-hint { margin: 18px 0 0; color: var(--accent-ink); font-size: .75rem; }
+.privacy-note { margin: 5px 0 0; color: var(--muted); font-size: .75rem; }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 
 .login-shell {
   position: relative;

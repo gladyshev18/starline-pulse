@@ -24,6 +24,9 @@ const { data, status, refresh } = await useFetch('/api/api-logs', { query })
 const selected = ref<ApiCallDetail | null>(null)
 const detailPending = ref(false)
 const detailsOpen = ref(false)
+const copiedField = ref<string | null>(null)
+const copyMessage = ref('')
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 watch([search, statusFilter, day], () => { page.value = 1 })
 
@@ -50,6 +53,51 @@ function statusLabel(value: number) {
 }
 
 function bodyLabel(value: string | null) { return value || 'Тело отсутствует' }
+
+function durationLabel(value: number | null) { return value == null ? '—' : `${value} мс` }
+
+async function writeClipboard(value: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Fallback supports non-secure local environments and older browsers.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('Clipboard API is unavailable')
+}
+
+async function copyData(value: string, field: string) {
+  if (!import.meta.client) return
+  try {
+    await writeClipboard(value)
+    copiedField.value = field
+    copyMessage.value = 'Данные скопированы'
+    if (copyTimer) clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => {
+      copiedField.value = null
+      copyMessage.value = ''
+    }, 1800)
+  } catch {
+    copiedField.value = null
+    copyMessage.value = 'Не удалось скопировать данные'
+  }
+}
+
+onBeforeUnmount(() => {
+  if (copyTimer) clearTimeout(copyTimer)
+})
 </script>
 
 <template>
@@ -100,19 +148,109 @@ function bodyLabel(value: string | null) { return value || 'Тело отсут�
     >
       <div class="log-details">
         <dl class="log-meta">
-          <div><dt>Время</dt><dd>{{ date(selected.createdAt) }}</dd></div>
-          <div><dt>Статус</dt><dd>{{ statusLabel(selected.status) }}</dd></div>
-          <div><dt>Длительность</dt><dd>{{ selected.durationMs == null ? '—' : `${selected.durationMs} мс` }}</dd></div>
-          <div class="log-meta__url"><dt>URL</dt><dd>{{ selected.url || selected.endpoint }}</dd></div>
+          <div
+            class="copyable-card"
+            role="button"
+            tabindex="0"
+            aria-label="Скопировать время"
+            @click="copyData(date(selected.createdAt), 'createdAt')"
+            @keydown.enter.prevent="copyData(date(selected.createdAt), 'createdAt')"
+            @keydown.space.prevent="copyData(date(selected.createdAt), 'createdAt')"
+          >
+            <dt>Время</dt><dd>{{ date(selected.createdAt) }}</dd>
+            <span class="copy-indicator">{{ copiedField === 'createdAt' ? 'Скопировано' : 'Копировать' }}</span>
+          </div>
+          <div
+            class="copyable-card"
+            role="button"
+            tabindex="0"
+            aria-label="Скопировать статус"
+            @click="copyData(statusLabel(selected.status), 'status')"
+            @keydown.enter.prevent="copyData(statusLabel(selected.status), 'status')"
+            @keydown.space.prevent="copyData(statusLabel(selected.status), 'status')"
+          >
+            <dt>Статус</dt><dd>{{ statusLabel(selected.status) }}</dd>
+            <span class="copy-indicator">{{ copiedField === 'status' ? 'Скопировано' : 'Копировать' }}</span>
+          </div>
+          <div
+            class="copyable-card"
+            role="button"
+            tabindex="0"
+            aria-label="Скопировать длительность"
+            @click="copyData(durationLabel(selected.durationMs), 'duration')"
+            @keydown.enter.prevent="copyData(durationLabel(selected.durationMs), 'duration')"
+            @keydown.space.prevent="copyData(durationLabel(selected.durationMs), 'duration')"
+          >
+            <dt>Длительность</dt><dd>{{ durationLabel(selected.durationMs) }}</dd>
+            <span class="copy-indicator">{{ copiedField === 'duration' ? 'Скопировано' : 'Копировать' }}</span>
+          </div>
+          <div
+            class="log-meta__url copyable-card"
+            role="button"
+            tabindex="0"
+            aria-label="Скопировать URL"
+            @click="copyData(selected.url || selected.endpoint, 'url')"
+            @keydown.enter.prevent="copyData(selected.url || selected.endpoint, 'url')"
+            @keydown.space.prevent="copyData(selected.url || selected.endpoint, 'url')"
+          >
+            <dt>URL</dt><dd>{{ selected.url || selected.endpoint }}</dd>
+            <span class="copy-indicator">{{ copiedField === 'url' ? 'Скопировано' : 'Копировать' }}</span>
+          </div>
         </dl>
         <p v-if="selected.error" class="error">{{ selected.error }}</p>
         <div class="payload-grid">
-          <details open><summary>Запрос — заголовки</summary><pre>{{ bodyLabel(selected.requestHeaders) }}</pre></details>
-          <details open><summary>Ответ — заголовки</summary><pre>{{ bodyLabel(selected.responseHeaders) }}</pre></details>
-          <details open><summary>Запрос — данные</summary><pre>{{ bodyLabel(selected.requestBody) }}</pre></details>
-          <details open><summary>Ответ — данные</summary><pre>{{ bodyLabel(selected.responseBody) }}</pre></details>
+          <details open>
+            <summary>Запрос — заголовки</summary>
+            <pre
+              class="copyable-data"
+              role="button"
+              tabindex="0"
+              aria-label="Скопировать заголовки запроса"
+              @click="copyData(bodyLabel(selected.requestHeaders), 'requestHeaders')"
+              @keydown.enter.prevent="copyData(bodyLabel(selected.requestHeaders), 'requestHeaders')"
+              @keydown.space.prevent="copyData(bodyLabel(selected.requestHeaders), 'requestHeaders')"
+            ><span class="copy-indicator">{{ copiedField === 'requestHeaders' ? 'Скопировано' : 'Копировать' }}</span><code>{{ bodyLabel(selected.requestHeaders) }}</code></pre>
+          </details>
+          <details open>
+            <summary>Ответ — заголовки</summary>
+            <pre
+              class="copyable-data"
+              role="button"
+              tabindex="0"
+              aria-label="Скопировать заголовки ответа"
+              @click="copyData(bodyLabel(selected.responseHeaders), 'responseHeaders')"
+              @keydown.enter.prevent="copyData(bodyLabel(selected.responseHeaders), 'responseHeaders')"
+              @keydown.space.prevent="copyData(bodyLabel(selected.responseHeaders), 'responseHeaders')"
+            ><span class="copy-indicator">{{ copiedField === 'responseHeaders' ? 'Скопировано' : 'Копировать' }}</span><code>{{ bodyLabel(selected.responseHeaders) }}</code></pre>
+          </details>
+          <details open>
+            <summary>Запрос — данные</summary>
+            <pre
+              class="copyable-data"
+              role="button"
+              tabindex="0"
+              aria-label="Скопировать данные запроса"
+              @click="copyData(bodyLabel(selected.requestBody), 'requestBody')"
+              @keydown.enter.prevent="copyData(bodyLabel(selected.requestBody), 'requestBody')"
+              @keydown.space.prevent="copyData(bodyLabel(selected.requestBody), 'requestBody')"
+            ><span class="copy-indicator">{{ copiedField === 'requestBody' ? 'Скопировано' : 'Копировать' }}</span><code>{{ bodyLabel(selected.requestBody) }}</code></pre>
+          </details>
+          <details open>
+            <summary>Ответ — данные</summary>
+            <pre
+              class="copyable-data"
+              role="button"
+              tabindex="0"
+              aria-label="Скопировать данные ответа"
+              @click="copyData(bodyLabel(selected.responseBody), 'responseBody')"
+              @keydown.enter.prevent="copyData(bodyLabel(selected.responseBody), 'responseBody')"
+              @keydown.space.prevent="copyData(bodyLabel(selected.responseBody), 'responseBody')"
+            ><span class="copy-indicator">{{ copiedField === 'responseBody' ? 'Скопировано' : 'Копировать' }}</span><code>{{ bodyLabel(selected.responseBody) }}</code></pre>
+          </details>
         </div>
+        <p class="copy-hint">Нажмите на значение или блок данных, чтобы скопировать.</p>
         <p class="privacy-note">Значения секретов, токенов, cookie, логинов и паролей автоматически заменяются на «[СКРЫТО]».</p>
+        <p class="visually-hidden" role="status" aria-live="polite">{{ copyMessage }}</p>
       </div>
     </AppModal>
   </div>
