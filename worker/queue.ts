@@ -2,6 +2,7 @@ import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { jobs } from '../db/schema'
 import { notifyAllowedChats } from './bot'
+import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { pollVehicle } from './starline/poll'
 import { closeTrip, handleMileageProgress } from './starline/trips'
@@ -31,6 +32,7 @@ async function execute(database: Database, job: typeof jobs.$inferSelect) {
       return { nextPollAt: tomorrow }
     }
     const result = await pollVehicle(database)
+    await aggregateSnapshot(database, result.vehicle.id, result.snapshot, result.previous)
     await handleMileageProgress(database, result.vehicle.id, result.snapshot, result.previous)
     return { nextPollAt: new Date(Date.now() + result.delayMs) }
   }

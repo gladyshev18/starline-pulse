@@ -12,6 +12,8 @@ const engineState = (online: boolean | null, ignition: boolean | null) => {
   return ignition ? 'двигатель работает' : 'двигатель выключен'
 }
 
+// TODO: добавить еженедельную Telegram-сводку после возобновления интеграции бота.
+
 export function registerCommands(bot: import('grammy').Bot, database: Database) {
   bot.command('status', async (context: Context) => {
     const vehicle = await database.query.vehicles.findFirst()

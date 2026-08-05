@@ -226,6 +226,7 @@ button { color: inherit; }
 .metric-label { margin: 0; color: var(--muted); font-size: .8rem; font-weight: 620; }
 .metric-card { display: flex; flex-direction: column; justify-content: space-between; }
 .metric { margin: 28px 0 0; font-size: clamp(2.2rem, 4vw, 3.45rem); font-weight: 330; line-height: .95; letter-spacing: -.055em; }
+.metric--compact { font-size: clamp(1.8rem, 3.5vw, 2.75rem); }
 .metric small { color: var(--muted); font-size: .26em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 .metric-meta { margin: 17px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .metric-meta--stale { color: var(--danger); }
@@ -244,6 +245,19 @@ button { color: inherit; }
 .status-dot--on { background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 13%, transparent); }
 .status-dot--offline { background: var(--danger); box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 13%, transparent); }
 .skeleton { color: var(--muted); }
+
+.activity-card, .battery-card { min-height: 0; }
+.activity-card .card__top .muted, .battery-card .card__top .muted { margin: 5px 0 0; font-size: .75rem; }
+.daily-chart { display: grid; height: 180px; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 7px; margin-top: 25px; }
+.daily-chart__item { display: grid; min-width: 0; grid-template-rows: 20px 1fr 19px; gap: 5px; text-align: center; }
+.daily-chart__value, .daily-chart__day { overflow: hidden; color: var(--muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.daily-chart__track { display: flex; min-height: 0; align-items: end; overflow: hidden; border-radius: 7px; background: var(--surface-subtle); }
+.daily-chart__bar { display: block; width: 100%; min-height: 2px; border-radius: 7px 7px 4px 4px; background: var(--accent); }
+.battery-trend { display: grid; gap: 1px; margin-top: 23px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--line); }
+.battery-trend__row { display: grid; grid-template-columns: 70px repeat(3, 1fr); gap: 18px; padding: 11px 14px; background: var(--surface); font-size: .75rem; }
+.battery-trend__row strong { color: var(--accent-ink); font-weight: 700; }
+.battery-trend__row span:not(:first-child) { color: var(--muted); }
+.empty-note { margin: 24px 0 0; }
 
 .table-wrap { overflow-x: auto; margin: 19px -7px 0; }
 table { width: 100%; border-collapse: collapse; }
@@ -325,6 +339,11 @@ tbody tr:hover { background: var(--surface-subtle); }
   .log-filters { grid-template-columns: 1fr 1fr; }
   .log-filters .field:first-child { grid-column: 1 / -1; }
   .payload-grid { grid-template-columns: 1fr; }
+  .daily-chart { gap: 4px; }
+  .daily-chart__value { display: none; }
+  .daily-chart__item { grid-template-rows: 1fr 19px; }
+  .battery-trend__row { grid-template-columns: 54px 1fr 1fr; gap: 8px; }
+  .battery-trend__row span:last-child { display: none; }
 }
 @media (max-width: 560px) {
   .app-header { top: 8px; min-height: 60px; margin-top: 8px; padding: 9px; border-radius: 16px; }

@@ -103,5 +103,39 @@ export const trips = sqliteTable('trips', {
   isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
 }, table => [index('trips_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
 
+export const engineSessions = sqliteTable('engine_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+  firstMovementAt: integer('first_movement_at', { mode: 'timestamp_ms' }),
+  mileageStart: real('mileage_start'),
+  mileageEnd: real('mileage_end'),
+  fuelStart: real('fuel_start'),
+  fuelEnd: real('fuel_end'),
+  distance: real('distance'),
+  durationMinutes: real('duration_minutes'),
+  warmupMinutes: real('warmup_minutes'),
+  isStationary: integer('is_stationary', { mode: 'boolean' }),
+  isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
+}, table => [index('engine_sessions_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
+
+export const refuelEvents = sqliteTable('refuel_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  detectedAt: integer('detected_at', { mode: 'timestamp_ms' }).notNull(),
+  mileage: real('mileage'),
+  fuelBefore: real('fuel_before'),
+  fuelAfter: real('fuel_after'),
+  litresAdded: real('litres_added'),
+  percentBefore: real('percent_before'),
+  percentAfter: real('percent_after'),
+  lat: real('lat'),
+  lon: real('lon')
+}, table => [
+  index('refuel_events_vehicle_detected_idx').on(table.vehicleId, table.detectedAt),
+  uniqueIndex('refuel_events_vehicle_detected_unique').on(table.vehicleId, table.detectedAt)
+])
+
 export type Job = typeof jobs.$inferSelect
 export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect
