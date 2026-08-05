@@ -23,13 +23,21 @@ const query = computed(() => ({ page: page.value, search: search.value || undefi
 const { data, status, refresh } = await useFetch('/api/api-logs', { query })
 const selected = ref<ApiCallDetail | null>(null)
 const detailPending = ref(false)
+const detailsOpen = ref(false)
 
 watch([search, statusFilter, day], () => { page.value = 1 })
 
 async function openDetails(id: number) {
   detailPending.value = true
-  try { selected.value = await $fetch<ApiCallDetail>(['/api/api-logs', id].join('/')) }
+  try {
+    selected.value = await $fetch<ApiCallDetail>(['/api/api-logs', id].join('/'))
+    detailsOpen.value = true
+  }
   finally { detailPending.value = false }
+}
+
+function clearClosedDetails() {
+  if (!detailsOpen.value) selected.value = null
 }
 
 function date(value: string | Date) {
@@ -82,25 +90,30 @@ function bodyLabel(value: string | null) { return value || 'Тело отсут�
       </nav>
     </section>
 
-    <section v-if="selected" class="card card--table log-details">
-      <div class="card__top">
-        <div><p class="eyebrow">Запись № {{ selected.id }}</p><h2>{{ selected.method }} {{ selected.endpoint }}</h2></div>
-        <button class="icon-button" type="button" aria-label="Закрыть детали" @click="selected = null">×</button>
+    <AppModal
+      v-if="selected"
+      v-model="detailsOpen"
+      :title="`${selected.method} ${selected.endpoint}`"
+      :eyebrow="`Запись № ${selected.id}`"
+      size="large"
+      @after-close="clearClosedDetails"
+    >
+      <div class="log-details">
+        <dl class="log-meta">
+          <div><dt>Время</dt><dd>{{ date(selected.createdAt) }}</dd></div>
+          <div><dt>Статус</dt><dd>{{ statusLabel(selected.status) }}</dd></div>
+          <div><dt>Длительность</dt><dd>{{ selected.durationMs == null ? '—' : `${selected.durationMs} мс` }}</dd></div>
+          <div class="log-meta__url"><dt>URL</dt><dd>{{ selected.url || selected.endpoint }}</dd></div>
+        </dl>
+        <p v-if="selected.error" class="error">{{ selected.error }}</p>
+        <div class="payload-grid">
+          <details open><summary>Запрос — заголовки</summary><pre>{{ bodyLabel(selected.requestHeaders) }}</pre></details>
+          <details open><summary>Ответ — заголовки</summary><pre>{{ bodyLabel(selected.responseHeaders) }}</pre></details>
+          <details open><summary>Запрос — данные</summary><pre>{{ bodyLabel(selected.requestBody) }}</pre></details>
+          <details open><summary>Ответ — данные</summary><pre>{{ bodyLabel(selected.responseBody) }}</pre></details>
+        </div>
+        <p class="privacy-note">Значения секретов, токенов, cookie, логинов и паролей автоматически заменяются на «[СКРЫТО]».</p>
       </div>
-      <dl class="log-meta">
-        <div><dt>Время</dt><dd>{{ date(selected.createdAt) }}</dd></div>
-        <div><dt>Статус</dt><dd>{{ statusLabel(selected.status) }}</dd></div>
-        <div><dt>Длительность</dt><dd>{{ selected.durationMs == null ? '—' : `${selected.durationMs} мс` }}</dd></div>
-        <div class="log-meta__url"><dt>URL</dt><dd>{{ selected.url || selected.endpoint }}</dd></div>
-      </dl>
-      <p v-if="selected.error" class="error">{{ selected.error }}</p>
-      <div class="payload-grid">
-        <details open><summary>Запрос — заголовки</summary><pre>{{ bodyLabel(selected.requestHeaders) }}</pre></details>
-        <details open><summary>Ответ — заголовки</summary><pre>{{ bodyLabel(selected.responseHeaders) }}</pre></details>
-        <details open><summary>Запрос — данные</summary><pre>{{ bodyLabel(selected.requestBody) }}</pre></details>
-        <details open><summary>Ответ — данные</summary><pre>{{ bodyLabel(selected.responseBody) }}</pre></details>
-      </div>
-      <p class="privacy-note">Значения секретов, токенов, cookie, логинов и паролей автоматически заменяются на «[СКРЫТО]».</p>
-    </section>
+    </AppModal>
   </div>
 </template>

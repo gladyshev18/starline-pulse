@@ -272,10 +272,7 @@ tbody tr:hover { background: var(--surface-subtle); }
 .log-open { padding: 5px 0; border: 0; background: transparent; color: var(--accent-ink); cursor: pointer; font-size: .78rem; font-weight: 700; }
 .log-open:hover { text-decoration: underline; }
 .log-open:disabled { cursor: wait; opacity: .55; }
-.log-details { margin-top: 14px; }
-.log-details h2 { margin: 5px 0 0; font-size: clamp(1.2rem, 3vw, 1.8rem); font-weight: 450; overflow-wrap: anywhere; }
-.log-details .icon-button { font-size: 1.5rem; line-height: 1; }
-.log-meta { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; margin: 24px 0; }
+.log-meta { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; margin: 0 0 24px; }
 .log-meta > div { min-width: 0; padding: 14px; border-radius: 12px; background: var(--surface-subtle); }
 .log-meta__url { grid-column: 1 / -1; }
 .log-meta dt { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
