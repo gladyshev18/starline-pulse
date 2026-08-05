@@ -13,7 +13,16 @@ if (process.argv.includes('--once')) {
 }
 
 const bot = createTelegramBot(database)
-if (bot) void bot.start({ onStart: info => console.log(`Telegram bot @${info.username} started`) })
+if (bot) void bot.start({ onStart: async info => {
+  await bot.api.setMyCommands([
+    { command: 'status', description: 'Текущее состояние автомобиля' },
+    { command: 'last', description: 'Последние пять поездок' },
+    { command: 'day', description: 'Отчёт за вчера' },
+    { command: 'week', description: 'Отчёт за прошлую неделю' },
+    { command: 'month', description: 'Отчёт за прошлый месяц' }
+  ])
+  console.log(`Telegram bot @${info.username} started`)
+} })
 console.log(`Worker started in ${config.starlineMode} mode`)
 
 let running = true

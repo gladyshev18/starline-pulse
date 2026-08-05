@@ -8,8 +8,7 @@ const database = createDatabase()
 const seeds = [1, 2].map(index => ({
   login: process.env[`SEED_USER_${index}_LOGIN`]?.trim().toLowerCase(),
   password: process.env[`SEED_USER_${index}_PASSWORD`],
-  displayName: process.env[`SEED_USER_${index}_DISPLAY_NAME`],
-  telegramChatId: process.env[`SEED_USER_${index}_TELEGRAM_CHAT_ID`] || null
+  displayName: process.env[`SEED_USER_${index}_DISPLAY_NAME`]
 }))
 
 for (const seed of seeds) {
@@ -19,9 +18,9 @@ for (const seed of seeds) {
   const passwordHash = await argon2.hash(seed.password, { type: argon2.argon2id })
   const existing = await database.query.users.findFirst({ where: eq(users.login, seed.login) })
   if (existing) {
-    await database.update(users).set({ passwordHash, displayName: seed.displayName, telegramChatId: seed.telegramChatId }).where(eq(users.id, existing.id))
+    await database.update(users).set({ passwordHash, displayName: seed.displayName }).where(eq(users.id, existing.id))
   } else {
-    await database.insert(users).values({ login: seed.login, passwordHash, displayName: seed.displayName, telegramChatId: seed.telegramChatId })
+    await database.insert(users).values({ login: seed.login, passwordHash, displayName: seed.displayName })
   }
   console.log(`Seeded ${seed.login}`)
 }

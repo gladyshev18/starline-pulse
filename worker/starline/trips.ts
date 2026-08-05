@@ -62,7 +62,8 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
   if (closed) {
     const consumption = distance && fuelUsed != null ? fuelUsed / distance * 100 : null
     await database.insert(jobs).values({ type: 'telegram:notify', payload: JSON.stringify({
-      text: `Поездка завершена\nРасстояние: ${format(distance)} км\nТопливо: ${format(fuelUsed)} л\nРасход: ${format(consumption)} л/100 км`
+      html: true,
+      text: `🏁 <b>Поездка завершена</b>\n\n🛣 Расстояние: ${format(distance)} км\n⛽ Топливо: ${format(fuelUsed)} л\n📊 Расход: ${format(consumption)} л/100 км`
     }) })
   }
   return closed

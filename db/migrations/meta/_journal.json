@@ -50,6 +50,13 @@
       "when": 1785936149944,
       "tag": "0006_broken_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785937110329,
+      "tag": "0007_mysterious_arachne",
+      "breakpoints": true
     }
   ]
 }

@@ -1,43 +1,91 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm'
-import type { Context } from 'grammy'
+import { and, desc, eq } from 'drizzle-orm'
+import type { Bot, Context } from 'grammy'
 import type { Database } from '../../db/client'
-import { trips, vehicleSnapshots } from '../../db/schema'
+import { telegramRecipients, trips, vehicleSnapshots } from '../../db/schema'
+import { config, normalizeTelegramUsername } from '../config'
+import { buildReport, type ReportPeriod } from './reports'
 
-const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(1)
-const date = (value: Date) => new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow' }).format(value)
-const engineState = (online: boolean | null, ignition: boolean | null) => {
-  if (online == null) return 'состояние неизвестно'
-  if (!online) return 'устройство не в сети'
-  if (ignition == null) return 'состояние двигателя неизвестно'
-  return ignition ? 'двигатель работает' : 'двигатель выключен'
+const decimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const date = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow' })
+const replyOptions = { disable_notification: true, parse_mode: 'HTML' as const }
+
+function escapeHtml(value: string) {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-// TODO: добавить еженедельную Telegram-сводку после возобновления интеграции бота.
+function number(value: number | null | undefined, suffix: string) {
+  return value == null ? '—' : `${decimal.format(value)} ${suffix}`
+}
 
-export function registerCommands(bot: import('grammy').Bot, database: Database) {
+function engineState(online: boolean | null, ignition: boolean | null) {
+  if (online === false) return 'не в сети'
+  if (ignition === true) return 'двигатель работает'
+  if (ignition === false) return 'двигатель выключен'
+  return 'состояние неизвестно'
+}
+
+async function reply(context: Context, text: string) {
+  return context.reply(text, replyOptions)
+}
+
+async function report(context: Context, database: Database, period: ReportPeriod) {
+  return reply(context, await buildReport(database, period))
+}
+
+export function registerCommands(bot: Bot, database: Database) {
+  bot.command('start', async (context: Context) => {
+    const username = normalizeTelegramUsername(context.from?.username)
+    if (!username) return reply(context, 'Чтобы подключить уведомления, задайте публичный username в Telegram и снова отправьте /start.')
+    if (!config.telegramAllowedUsernames.has(username)) return reply(context, `Для ${escapeHtml(username)} доступ к уведомлениям не настроен.`)
+
+    const chatId = context.chat?.id.toString()
+    if (!chatId) return
+    await database.delete(telegramRecipients).where(eq(telegramRecipients.chatId, chatId))
+    await database.insert(telegramRecipients).values({
+      username, chatId, firstName: context.from?.first_name || null
+    }).onConflictDoUpdate({
+      target: telegramRecipients.username,
+      set: { chatId, firstName: context.from?.first_name || null, updatedAt: new Date() }
+    })
+    return reply(context, [
+      '✅ <b>Уведомления подключены</b>',
+      '',
+      `Получатель: ${escapeHtml(username)}`,
+      'Chat ID определён и сохранён автоматически.',
+      '',
+      'Все автоматические сообщения приходят без звука.',
+      'Команды: /status, /last, /day, /week, /month'
+    ].join('\n'))
+  })
+
   bot.command('status', async (context: Context) => {
     const vehicle = await database.query.vehicles.findFirst()
-    if (!vehicle) return context.reply('Данных об автомобиле пока нет.')
+    if (!vehicle) return reply(context, 'Данных об автомобиле пока нет.')
     const snapshot = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, vehicle.id), orderBy: desc(vehicleSnapshots.ts) })
-    if (!snapshot) return context.reply('Снимков состояния пока нет.')
-    return context.reply(`${vehicle.alias}\nСостояние: ${engineState(snapshot.online, snapshot.ignition)}\nПробег: ${number(snapshot.mileage)} км\nТопливо: ${number(snapshot.fuel)} л\nПоследняя связь: ${date(snapshot.activityTs || snapshot.ts)}`)
+    if (!snapshot) return reply(context, 'Снимков состояния пока нет.')
+    return reply(context, [
+      `🚗 <b>${escapeHtml(vehicle.alias)}</b>`,
+      `Состояние: ${engineState(snapshot.online, snapshot.ignition)}`,
+      `Пробег: ${number(snapshot.mileage, 'км')}`,
+      `Топливо: ${number(snapshot.fuel, 'л')}`,
+      `АКБ: ${number(snapshot.battery, snapshot.batteryType === 'percent' ? '%' : 'В')}`,
+      `Последняя связь: ${date.format(snapshot.activityTs || snapshot.ts)}`
+    ].join('\n'))
   })
 
   bot.command('last', async (context: Context) => {
     const vehicle = await database.query.vehicles.findFirst()
-    if (!vehicle) return context.reply('Поездок пока нет.')
+    if (!vehicle) return reply(context, 'Поездок пока нет.')
     const items = await database.select().from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false))).orderBy(desc(trips.startedAt)).limit(5)
-    if (!items.length) return context.reply('Поездок пока нет.')
-    return context.reply(items.map(item => `${date(item.startedAt)} — ${number(item.distance)} км, ${number(item.fuelUsed)} л`).join('\n'))
+    if (!items.length) return reply(context, 'Поездок пока нет.')
+    return reply(context, [
+      '🛣 <b>Последние поездки</b>',
+      '',
+      ...items.map(item => `• ${date.format(item.startedAt)} — ${number(item.distance, 'км')}, ${number(item.fuelUsed, 'л')}`)
+    ].join('\n'))
   })
 
-  bot.command('month', async (context: Context) => {
-    const vehicle = await database.query.vehicles.findFirst()
-    if (!vehicle) return context.reply('Данных за месяц пока нет.')
-    const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0)
-    const [result] = await database.select({ distance: sql<number>`coalesce(sum(${trips.distance}), 0)`, fuel: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)` })
-      .from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), gte(trips.startedAt, start)))
-    const distance = Number(result?.distance || 0), fuel = Number(result?.fuel || 0)
-    return context.reply(`Текущий месяц\nПробег: ${number(distance)} км\nТопливо: ${number(fuel)} л\nСредний расход: ${number(distance > 0 ? fuel / distance * 100 : null)} л/100 км`)
-  })
+  bot.command('day', context => report(context, database, 'daily'))
+  bot.command('week', context => report(context, database, 'weekly'))
+  bot.command('month', context => report(context, database, 'monthly'))
 }

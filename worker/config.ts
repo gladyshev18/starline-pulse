@@ -9,6 +9,15 @@ function pathFromRoot(value: string) {
   return resolve(projectRoot, value.split(/[\\/]/).join(sep))
 }
 
+export function normalizeTelegramUsername(value: string | null | undefined) {
+  const username = value?.trim().replace(/^@/, '').toLowerCase()
+  return username && /^[a-z0-9_]{5,32}$/.test(username) ? `@${username}` : null
+}
+
+function telegramUsernames(value: string | undefined) {
+  return new Set((value || '').split(',').map(normalizeTelegramUsername).filter((username): username is string => Boolean(username)))
+}
+
 export const config = {
   databaseUrl: process.env.DATABASE_URL || `file:${resolve(projectRoot, 'data', 'app.db')}`,
   starlineMode: process.env.STARLINE_MODE === 'live' ? 'live' as const : 'fixture' as const,
@@ -19,5 +28,5 @@ export const config = {
   starlinePassword: process.env.STARLINE_PASSWORD || '',
   starlineDeviceId: process.env.STARLINE_DEVICE_ID || '',
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
-  telegramAllowedChatIds: new Set((process.env.TELEGRAM_ALLOWED_CHAT_IDS || '').split(',').map(value => value.trim()).filter(Boolean))
+  telegramAllowedUsernames: telegramUsernames(process.env.TELEGRAM_ALLOWED_USERNAMES)
 }

@@ -14,9 +14,20 @@ export const users = sqliteTable('users', {
   createdAt: timestamps.createdAt
 }, table => [uniqueIndex('users_login_unique').on(table.login)])
 
+export const telegramRecipients = sqliteTable('telegram_recipients', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  username: text('username').notNull(),
+  chatId: text('chat_id').notNull(),
+  firstName: text('first_name'),
+  ...timestamps
+}, table => [
+  uniqueIndex('telegram_recipients_username_unique').on(table.username),
+  uniqueIndex('telegram_recipients_chat_id_unique').on(table.chatId)
+])
+
 export const jobs = sqliteTable('jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify'] }).notNull(),
+  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
