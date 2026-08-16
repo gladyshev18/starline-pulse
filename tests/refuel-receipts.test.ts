@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { detectReceiptType, normalizeReceiptFileName, resolveReceiptPath } from '../server/utils/refuel-receipts'
+import {
+  detectReceiptType,
+  normalizeReceiptFileName,
+  receiptContentHash,
+  receiptFileNameFor,
+  resolveReceiptPath
+} from '../receipts/storage'
 
 describe('refuel receipt files', () => {
   it.each([
@@ -26,5 +32,30 @@ describe('refuel receipt files', () => {
 
   it('does not resolve stored files outside the storage directory', () => {
     expect(() => resolveReceiptPath('../receipt.pdf', 'C:\\receipts')).toThrow('INVALID_STORED_NAME')
+  })
+})
+
+describe('receiptFileNameFor', () => {
+  it('keeps a usable name as it is', () => {
+    expect(receiptFileNameFor('чек.pdf', 'application/pdf')).toBe('чек.pdf')
+  })
+
+  it('recovers the extension for a Telegram photo without a name', () => {
+    expect(receiptFileNameFor(null, 'image/jpeg')).toBe('receipt.jpg')
+  })
+
+  it('replaces an extension the storage does not accept', () => {
+    expect(receiptFileNameFor('receipt.bin', 'application/pdf')).toBe('receipt.pdf')
+  })
+
+  it('refuses a name and a MIME type that both say nothing', () => {
+    expect(() => receiptFileNameFor('receipt.bin', 'application/octet-stream')).toThrow('UNSUPPORTED_RECEIPT_TYPE')
+  })
+})
+
+describe('receiptContentHash', () => {
+  it('gives identical attachments the same hash', () => {
+    expect(receiptContentHash(Buffer.from('чек'))).toBe(receiptContentHash(Buffer.from('чек')))
+    expect(receiptContentHash(Buffer.from('чек'))).not.toBe(receiptContentHash(Buffer.from('счёт')))
   })
 })

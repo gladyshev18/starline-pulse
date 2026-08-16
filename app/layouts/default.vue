@@ -17,7 +17,8 @@ async function logout() {
         <NuxtLink to="/">Обзор</NuxtLink>
         <NuxtLink to="/history">История</NuxtLink>
         <NuxtLink to="/trips">Поездки</NuxtLink>
-        <NuxtLink to="/refuels">Чеки</NuxtLink>
+        <NuxtLink to="/refuels">Заправки</NuxtLink>
+        <NuxtLink to="/receipts">Чеки</NuxtLink>
         <NuxtLink to="/api-logs">API</NuxtLink>
         <span class="nav__separator" aria-hidden="true" />
         <ThemeToggle />

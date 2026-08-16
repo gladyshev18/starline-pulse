@@ -365,6 +365,41 @@ tbody tr:hover { background: var(--surface-subtle); }
 .receipt-file__copy strong { font-size: .76rem; font-weight: 650; }
 .receipt-file__copy small { margin-top: 2px; color: var(--muted); font-size: .63rem; }
 .receipt-file__action { color: var(--accent-ink); font-size: .68rem; font-weight: 700; }
+.refuel-flags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.confirm-badge {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 7px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: .66rem;
+  font-weight: 720;
+  letter-spacing: .02em;
+}
+.confirm-badge--ok, .confirm-badge--auto, .confirm-badge--manual { background: var(--accent-soft); color: var(--accent-ink); }
+.confirm-badge--warn, .confirm-badge--suggested { background: color-mix(in srgb, var(--danger-soft) 65%, var(--surface-subtle)); color: var(--danger); }
+
+.receipts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.receipts-toolbar__note { margin: 0; font-size: .76rem; }
+.receipt-card { display: grid; min-height: 0; grid-template-columns: minmax(300px, .9fr) minmax(340px, 1.1fr); gap: 30px; padding: 28px; }
+.receipt-card__main { display: flex; flex-direction: column; justify-content: space-between; gap: 26px; }
+.receipt-card__side { display: flex; flex-direction: column; gap: 13px; }
+.receipt-link { margin: 0; font-size: .82rem; line-height: 1.5; }
+.receipt-link small { display: block; margin-top: 3px; color: var(--muted); font-size: .68rem; }
+.receipt-picker { margin-top: 3px; }
+.receipt-picker > span { color: var(--muted); font-size: .72rem; font-weight: 620; }
+.receipt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; }
+.receipt-actions .btn { min-height: 38px; padding-inline: 14px; font-size: .74rem; }
+.receipt-delete { margin-left: auto; color: var(--danger); }
+.receipt-delete:disabled { cursor: wait; opacity: .5; }
+.receipt-file--plain { cursor: default; }
+.receipt-file--plain:hover { border-color: var(--line); transform: none; }
+.receipt-capture { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.receipt-capture__name { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.receipt-hint { margin: -4px 0 0; font-size: .73rem; }
+
 .refuel-details-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 12px; }
 .refuel-details-form__wide, .refuel-calculate { grid-column: 1 / -1; }
 .refuel-details-form .field > span { color: var(--muted); font-size: .78rem; font-weight: 620; }
@@ -456,7 +491,7 @@ tbody tr:hover { background: var(--surface-subtle); }
   .daily-chart__item { grid-template-rows: 1fr 19px; }
   .battery-trend__row { grid-template-columns: 54px 1fr 1fr; gap: 8px; }
   .battery-trend__row span:last-child { display: none; }
-  .refuel-card { grid-template-columns: 1fr; }
+  .refuel-card, .receipt-card { grid-template-columns: 1fr; }
   .refuel-details-form { grid-template-columns: 1fr; }
   .refuel-details-form__wide, .refuel-calculate { grid-column: auto; }
 }
@@ -490,8 +525,12 @@ tbody tr:hover { background: var(--surface-subtle); }
   .history-chart { height: 300px; }
   .history-empty { max-width: calc(100% - 32px); text-align: center; white-space: normal; }
   .refuels-heading__note { text-align: left; }
-  .refuel-card { gap: 22px; padding: 20px; }
+  .refuel-card, .receipt-card { gap: 22px; padding: 20px; }
   .refuel-meta { gap: 8px; }
+  .receipts-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
+  .chart-switcher { overflow-x: auto; }
+  .receipt-actions .btn { flex: 1 1 auto; }
+  .receipt-delete { margin-left: 0; }
   .receipt-panel { padding: 15px; }
   .receipt-panel__top { align-items: stretch; flex-direction: column; }
   .receipt-upload { width: 100%; }

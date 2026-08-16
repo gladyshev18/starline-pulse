@@ -5,6 +5,7 @@ import { telegramRecipients } from '../../db/schema'
 import { config, normalizeTelegramUsername } from '../config'
 import { registerCommands } from './commands'
 import { mainKeyboard } from './keyboard'
+import { registerReceiptHandlers } from './receipts'
 import { createTelegramProxyFetch } from './proxy'
 
 let bot: Bot | null = null
@@ -33,6 +34,7 @@ export function createTelegramBot(database: Database) {
     if (recipient) await next()
   })
   registerCommands(bot, database)
+  registerReceiptHandlers(bot, database)
   bot.catch(error => console.error('Telegram bot error', error.error))
   return bot
 }

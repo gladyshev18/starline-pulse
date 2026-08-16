@@ -27,7 +27,7 @@ export const telegramRecipients = sqliteTable('telegram_recipients', {
 
 export const jobs = sqliteTable('jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder'] }).notNull(),
+  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
@@ -139,7 +139,11 @@ export const refuelEvents = sqliteTable('refuel_events', {
   mileage: real('mileage'),
   fuelBefore: real('fuel_before'),
   fuelAfter: real('fuel_after'),
+  // The best known volume: what the sensor saw until a receipt corrects it. The
+  // raw reading stays in sensor_litres_added so the drift remains visible and the
+  // correction can be undone when the receipt is unlinked.
   litresAdded: real('litres_added'),
+  sensorLitresAdded: real('sensor_litres_added'),
   percentBefore: real('percent_before'),
   percentAfter: real('percent_after'),
   lat: real('lat'),
@@ -154,20 +158,62 @@ export const refuelEvents = sqliteTable('refuel_events', {
   uniqueIndex('refuel_events_vehicle_detected_unique').on(table.vehicleId, table.detectedAt)
 ])
 
+// A receipt lives on its own: an email or a photo can arrive before — or without —
+// the fuel level jump that creates a refuel event, so both the linked event and
+// the stored file are optional. Receipt figures are kept apart from the ones on
+// refuel_events so a discrepancy between the sensor and the paper stays visible.
 export const refuelReceipts = sqliteTable('refuel_receipts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  refuelEventId: integer('refuel_event_id').notNull().references(() => refuelEvents.id),
-  source: text('source', { enum: ['manual', 'imap'] }).notNull().default('manual'),
-  originalName: text('original_name').notNull(),
-  storedName: text('stored_name').notNull(),
-  mimeType: text('mime_type').notNull(),
-  size: integer('size').notNull(),
+  refuelEventId: integer('refuel_event_id').references(() => refuelEvents.id),
+  suggestedRefuelEventId: integer('suggested_refuel_event_id').references(() => refuelEvents.id),
+  source: text('source', { enum: ['manual', 'imap', 'telegram'] }).notNull().default('manual'),
+  dataSource: text('data_source', { enum: ['manual', 'parsed', 'qr'] }).notNull().default('manual'),
+  matchStatus: text('match_status', { enum: ['unmatched', 'suggested', 'auto', 'manual', 'rejected'] }).notNull().default('unmatched'),
+  matchScore: real('match_score'),
+  matchedAt: integer('matched_at', { mode: 'timestamp_ms' }),
+  paymentMethod: text('payment_method', { enum: ['card', 'cash', 'unknown'] }).notNull().default('unknown'),
+  purchasedAt: integer('purchased_at', { mode: 'timestamp_ms' }),
+  station: text('station', { enum: ['rosneft', 'lukoil', 'other'] }),
+  stationName: text('station_name'),
+  address: text('address'),
+  fuelType: text('fuel_type'),
+  litres: real('litres'),
+  pricePerLitre: real('price_per_litre'),
+  totalAmount: real('total_amount'),
+  fiscalDocNumber: text('fiscal_doc_number'),
+  fiscalSign: text('fiscal_sign'),
+  sellerInn: text('seller_inn'),
+  originalName: text('original_name'),
+  storedName: text('stored_name'),
+  mimeType: text('mime_type'),
+  size: integer('size'),
+  contentHash: text('content_hash'),
   externalMessageId: text('external_message_id'),
-  createdAt: timestamps.createdAt
+  // Telegram asks for a missing figure in the next message; the awaited field is
+  // stored here because the worker restarts and would lose in-memory dialog state.
+  pendingField: text('pending_field', { enum: ['litres', 'totalAmount', 'pricePerLitre'] }),
+  pendingChatId: text('pending_chat_id'),
+  ...timestamps
 }, table => [
   index('refuel_receipts_refuel_event_idx').on(table.refuelEventId),
-  uniqueIndex('refuel_receipts_stored_name_unique').on(table.storedName)
+  index('refuel_receipts_match_status_idx').on(table.matchStatus),
+  index('refuel_receipts_purchased_at_idx').on(table.purchasedAt),
+  index('refuel_receipts_content_hash_idx').on(table.contentHash),
+  uniqueIndex('refuel_receipts_stored_name_unique').on(table.storedName),
+  uniqueIndex('refuel_receipts_external_message_id_unique').on(table.externalMessageId)
 ])
+
+export const imapState = sqliteTable('imap_state', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  mailbox: text('mailbox').notNull(),
+  uidValidity: text('uid_validity'),
+  lastUid: integer('last_uid').notNull().default(0),
+  lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
+  lastError: text('last_error'),
+  ...timestamps
+}, table => [uniqueIndex('imap_state_mailbox_unique').on(table.mailbox)])
 
 export type Job = typeof jobs.$inferSelect
 export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect
+export type RefuelEvent = typeof refuelEvents.$inferSelect
+export type RefuelReceipt = typeof refuelReceipts.$inferSelect

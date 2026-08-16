@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../../db/schema'
+import { applyReceiptsToRefuel, rematchPendingReceipts } from '../../receipts/store'
 import { hasMileageIncreased } from './trips'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
@@ -68,17 +69,17 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
 }
 
 async function detectRefuel(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
-  if (!previous || !current.fuelTs || !previous.fuelTs || current.fuelTs <= previous.fuelTs) return
+  if (!previous || !current.fuelTs || !previous.fuelTs || current.fuelTs <= previous.fuelTs) return false
   // The OBD fuel level only refreshes while the engine runs, so the reading
   // after a refuel arrives one or two polls after the next start — with the
   // ignition already on in both snapshots. Movement, not ignition, is what
   // separates a refuel from fuel sloshing in the tank on the road.
-  if (hasMileageIncreased(previous.mileage, current.mileage)) return
+  if (hasMileageIncreased(previous.mileage, current.mileage)) return false
 
   const litresDelta = current.fuel != null && previous.fuel != null ? current.fuel - previous.fuel : null
   const percentDelta = current.fuelPercent != null && previous.fuelPercent != null ? current.fuelPercent - previous.fuelPercent : null
   const sameSource = current.fuelSource === previous.fuelSource
-  if (!isRefuelIncrease(litresDelta, percentDelta, sameSource)) return
+  if (!isRefuelIncrease(litresDelta, percentDelta, sameSource)) return false
 
   const last = await database.query.refuelEvents.findFirst({
     where: eq(refuelEvents.vehicleId, vehicleId),
@@ -93,11 +94,15 @@ async function detectRefuel(database: Database, vehicleId: number, current: Snap
       mileage: current.mileage,
       fuelAfter: current.fuel,
       litresAdded,
+      sensorLitresAdded: litresAdded,
       percentAfter: current.fuelPercent,
       lat: current.lat,
       lon: current.lon
     }).where(eq(refuelEvents.id, last.id))
-    return
+    // A receipt may already have corrected this event, and the merge just
+    // overwrote its volume with the sensor reading again.
+    await applyReceiptsToRefuel(database, last.id)
+    return true
   }
 
   await database.insert(refuelEvents).values({
@@ -107,14 +112,20 @@ async function detectRefuel(database: Database, vehicleId: number, current: Snap
     fuelBefore: previous.fuel,
     fuelAfter: current.fuel,
     litresAdded: sameSource && litresDelta != null && litresDelta > 0 ? litresDelta : null,
+    sensorLitresAdded: sameSource && litresDelta != null && litresDelta > 0 ? litresDelta : null,
     percentBefore: previous.fuelPercent,
     percentAfter: current.fuelPercent,
     lat: current.lat,
     lon: current.lon
   }).onConflictDoNothing()
+  return true
 }
 
 export async function aggregateSnapshot(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
   await updateEngineSession(database, vehicleId, current, previous)
-  await detectRefuel(database, vehicleId, current, previous)
+  const refuelChanged = await detectRefuel(database, vehicleId, current, previous)
+  // A receipt usually reaches the mailbox before the sensor reports the jump, so
+  // whatever is still waiting gets another chance the moment an event appears.
+  const linkedReceipts = refuelChanged ? await rematchPendingReceipts(database, vehicleId) : []
+  return { refuelChanged, linkedReceipts }
 }

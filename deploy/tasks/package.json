@@ -16,6 +16,10 @@
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",
     "grammy": "1.45.1",
+    "imapflow": "1.7.1",
+    "jimp": "1.6.1",
+    "jsqr": "1.4.0",
+    "mailparser": "3.9.15",
     "tsx": "4.23.7",
     "undici": "^7.29.0"
   }

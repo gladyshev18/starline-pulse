@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { basename, extname, resolve, sep } from 'node:path'
 
@@ -18,6 +18,18 @@ const receiptTypes: Record<string, { mimeType: string, kind: 'image' | 'pdf' | '
   '.htm': { mimeType: 'text/html', kind: 'html' }
 }
 
+const extensionsByMimeType: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/avif': '.avif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+  'application/pdf': '.pdf',
+  'text/html': '.html'
+}
+
 export type ReceiptFileType = (typeof receiptTypes)[string]
 
 export function detectReceiptType(fileName: string, declaredMimeType?: string) {
@@ -34,8 +46,21 @@ export function detectReceiptType(fileName: string, declaredMimeType?: string) {
 }
 
 export function normalizeReceiptFileName(fileName: string) {
-  const normalized = basename(fileName.replaceAll('\\', '/')).replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  const normalized = basename(fileName.replaceAll('\\', '/')).replace(/\p{Cc}/gu, '').trim()
   return normalized.slice(0, 240) || 'receipt'
+}
+
+// Mail attachments and Telegram photos often arrive with a generic or missing
+// file name, so the extension is recovered from the declared MIME type instead.
+export function receiptFileNameFor(fileName: string | null | undefined, declaredMimeType?: string) {
+  const candidate = fileName ? normalizeReceiptFileName(fileName) : ''
+  if (candidate && receiptTypes[extname(candidate).toLowerCase()]) return candidate
+
+  const mimeType = declaredMimeType?.split(';', 1)[0]?.trim().toLowerCase() || ''
+  const extension = extensionsByMimeType[mimeType]
+  if (!extension) throw new Error('UNSUPPORTED_RECEIPT_TYPE')
+  const base = candidate.replace(/\.[^.]*$/, '') || 'receipt'
+  return `${base}${extension}`
 }
 
 export function getReceiptStorageDir() {
@@ -48,6 +73,10 @@ export function resolveReceiptPath(storedName: string, storageDir = getReceiptSt
   const filePath = resolve(root, storedName)
   if (!filePath.startsWith(`${root}${sep}`)) throw new Error('INVALID_STORED_NAME')
   return filePath
+}
+
+export function receiptContentHash(data: Buffer) {
+  return createHash('sha256').update(data).digest('hex')
 }
 
 export async function saveReceiptFile(input: {
@@ -70,7 +99,8 @@ export async function saveReceiptFile(input: {
     originalName,
     storedName,
     mimeType: type.mimeType,
-    size: input.data.length
+    size: input.data.length,
+    contentHash: receiptContentHash(input.data)
   }
 }
 

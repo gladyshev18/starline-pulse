@@ -1,5 +1,6 @@
 import { desc, eq, inArray } from 'drizzle-orm'
 import { refuelEvents, refuelReceipts } from '../../db/schema'
+import { isReceiptConfirming } from '../../receipts/store'
 
 export default defineEventHandler(async () => {
   const database = useAppDatabase()
@@ -21,9 +22,20 @@ export default defineEventHandler(async () => {
   const receiptsByRefuel = Map.groupBy(receipts, receipt => receipt.refuelEventId)
 
   return {
-    items: events.map(refuel => ({
-      ...refuel,
-      receipts: receiptsByRefuel.get(refuel.id) || []
-    }))
+    items: events.map((refuel) => {
+      const attached = receiptsByRefuel.get(refuel.id) || []
+      const confirming = attached.filter(isReceiptConfirming)
+      return {
+        ...refuel,
+        receipts: attached,
+        confirmed: confirming.length > 0,
+        receiptTotal: confirming.reduce((total, receipt) => receipt.totalAmount != null ? total + receipt.totalAmount : total, 0) || null,
+        // litresAdded already holds the receipt volume once confirmed, so the
+        // drift is measured against what the sensor originally reported.
+        sensorDrift: confirming.length && refuel.litresAdded != null && refuel.sensorLitresAdded != null
+          ? Math.round((refuel.litresAdded - refuel.sensorLitresAdded) * 100) / 100
+          : null
+      }
+    })
   }
 })

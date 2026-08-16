@@ -34,10 +34,22 @@ function fileSize(value: number) {
   return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value / 1024 / 1024)} МБ`
 }
 
-function receiptKind(mimeType: string) {
+function receiptKind(mimeType: string | null) {
   if (mimeType === 'application/pdf') return 'PDF'
   if (mimeType === 'text/html') return 'HTML'
-  return 'Изображение'
+  return mimeType ? 'Изображение' : 'Без файла'
+}
+
+// Under half a litre the sensor simply agrees with the receipt, and saying so
+// on every card would be noise.
+function discrepancy(value: number | null) {
+  return value != null && Math.abs(value) >= 0.5
+}
+
+const receiptOrigin: Record<string, string> = {
+  manual: 'добавлен вручную',
+  imap: 'получен по почте',
+  telegram: 'прислан в Telegram'
 }
 
 function errorMessage(error: unknown, fallback = 'Не удалось выполнить запрос') {
@@ -142,6 +154,14 @@ async function uploadReceipt(refuelId: number, event: Event) {
               <p class="eyebrow">{{ date(refuel.detectedAt) }}</p>
               <button class="refuel-edit" type="button" @click="openDetails(refuel)">{{ refuel.station ? 'Изменить' : 'Добавить данные' }}</button>
             </div>
+            <div class="refuel-flags">
+              <span class="confirm-badge" :class="refuel.confirmed ? 'confirm-badge--ok' : 'confirm-badge--pending'">
+                {{ refuel.confirmed ? 'Подтверждена чеком' : 'Чек не привязан' }}
+              </span>
+              <span v-if="discrepancy(refuel.sensorDrift)" class="confirm-badge confirm-badge--warn">
+                Датчик показывал {{ number(refuel.sensorLitresAdded) }} л
+              </span>
+            </div>
             <RefuelStationBadge v-if="refuel.station" :station="refuel.station" :name="refuel.stationName" />
             <p class="refuel-card__amount">+{{ number(refuel.litresAdded) }} <small>л</small></p>
           </div>
@@ -176,14 +196,21 @@ async function uploadReceipt(refuelId: number, event: Event) {
           <p v-if="!refuel.receipts.length" class="muted receipt-empty">Нет прикреплённых чеков.</p>
           <ul v-else class="receipt-list">
             <li v-for="receipt in refuel.receipts" :key="receipt.id">
-              <a :href="`/api/refuel-receipts/${receipt.id}`" class="receipt-file">
+              <component
+                :is="receipt.storedName ? 'a' : 'div'"
+                :href="receipt.storedName ? `/api/refuel-receipts/${receipt.id}` : undefined"
+                class="receipt-file"
+                :class="{ 'receipt-file--plain': !receipt.storedName }"
+              >
                 <span class="receipt-file__type">{{ receiptKind(receipt.mimeType) }}</span>
                 <span class="receipt-file__copy">
-                  <strong>{{ receipt.originalName }}</strong>
-                  <small>{{ fileSize(receipt.size) }} · {{ receipt.source === 'manual' ? 'добавлен вручную' : 'получен по почте' }}</small>
+                  <strong>{{ receipt.originalName || money(receipt.totalAmount) }}</strong>
+                  <small>
+                    <template v-if="receipt.size">{{ fileSize(receipt.size) }} · </template>{{ receiptOrigin[receipt.source] || receipt.source }}
+                  </small>
                 </span>
-                <span class="receipt-file__action">Скачать</span>
-              </a>
+                <span v-if="receipt.storedName" class="receipt-file__action">Скачать</span>
+              </component>
             </li>
           </ul>
         </div>
@@ -221,8 +248,6 @@ async function uploadReceipt(refuelId: number, event: Event) {
             <option value="АИ-95 Премиум" />
             <option value="АИ-98" />
             <option value="АИ-100" />
-            <option value="ДТ" />
-            <option value="Газ" />
           </datalist>
         </label>
         <label class="field">

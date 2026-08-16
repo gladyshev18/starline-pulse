@@ -19,6 +19,7 @@ if (bot) void bot.start({ onStart: async info => {
     { command: 'status', description: 'Текущее состояние автомобиля' },
     { command: 'fuel', description: 'Сколько заправить до полного бака' },
     { command: 'last', description: 'Последние пять поездок' },
+    { command: 'receipts', description: 'Заправки без чеков' },
     { command: 'day', description: 'Отчёт за вчера' },
     { command: 'week', description: 'Отчёт за прошлую неделю' },
     { command: 'month', description: 'Отчёт за прошлый месяц' }

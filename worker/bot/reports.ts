@@ -1,6 +1,6 @@
-import { and, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
-import { engineSessions, refuelEvents, trips, vehicleSnapshots } from '../../db/schema'
+import { engineSessions, refuelEvents, refuelReceipts, trips, vehicleSnapshots } from '../../db/schema'
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
 
@@ -125,6 +125,15 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     eq(refuelEvents.vehicleId, vehicle.id), gte(refuelEvents.detectedAt, start), lt(refuelEvents.detectedAt, end)
   ))
 
+  const [unconfirmedSummary] = await database.select({ count: count() })
+    .from(refuelEvents).where(and(
+      eq(refuelEvents.vehicleId, vehicle.id), gte(refuelEvents.detectedAt, start), lt(refuelEvents.detectedAt, end),
+      notExists(database.select({ one: sql`1` }).from(refuelReceipts).where(and(
+        eq(refuelReceipts.refuelEventId, refuelEvents.id),
+        inArray(refuelReceipts.matchStatus, ['auto', 'manual'])
+      )))
+    ))
+
   const [batterySummary] = await database.select({
     min: sql<number>`min(${vehicleSnapshots.battery})`,
     max: sql<number>`max(${vehicleSnapshots.battery})`,
@@ -142,6 +151,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
   const fuel = Number(tripSummary?.fuel || 0)
   const consumption = distance > 0 && fuel > 0 ? fuel / distance * 100 : null
   const refuelAmount = refuelSummary?.amount == null ? null : Number(refuelSummary.amount)
+  const unconfirmed = Number(unconfirmedSummary?.count || 0)
   const batteryType = snapshot?.batteryType || null
   const batteryLine = batterySummary?.average == null
     ? '• Нет измерений за период'
@@ -167,6 +177,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     '',
     '⛽ <b>Заправки</b>',
     `• ${integer.format(Number(refuelSummary?.count || 0))} · ${decimal.format(Number(refuelSummary?.litres || 0))} л${refuelAmount == null ? '' : ` · ${money.format(refuelAmount)}`}`,
+    ...(unconfirmed > 0 ? [`• Без чека: ${integer.format(unconfirmed)} — пришлите фото сюда`] : []),
     '',
     '🔋 <b>АКБ за период</b>',
     batteryLine,

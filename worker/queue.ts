@@ -1,9 +1,12 @@
 import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { jobs } from '../db/schema'
+import { ingestReceiptMail } from '../receipts/mail/ingest'
 import { notifyAllowedChats } from './bot'
 import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
+import { receiptsMailConfig } from './config'
+import { buildReceiptImportNotice } from './bot/receipt-notices'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { pollVehicle } from './starline/poll'
@@ -12,7 +15,7 @@ import { closeTrip, handleMileageProgress, reconcileTripsWithEngineSessions } fr
 const MAX_ATTEMPTS = 5
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
 
-type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean }
+type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean }
 
 function parseJobPayload(value: string) {
   try {
@@ -67,6 +70,14 @@ async function scheduleFuelReminder(database: Database, now = new Date()) {
   }
 }
 
+async function scheduleMailPoll(database: Database, delayMs = receiptsMailConfig.pollMinutes * 60_000) {
+  if (receiptsMailConfig.mode === 'off') return
+  const existing = await database.query.jobs.findFirst({
+    where: and(eq(jobs.type, 'receipts:imap_poll'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
+  })
+  if (!existing) await database.insert(jobs).values({ type: 'receipts:imap_poll', payload: '{}', runAt: new Date(Date.now() + delayMs) })
+}
+
 async function execute(database: Database, job: typeof jobs.$inferSelect): Promise<ExecuteResult> {
   const payload = parseJobPayload(job.payload)
   if (job.type === 'starline:poll') {
@@ -99,6 +110,12 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     if (reminder) await notifyAllowedChats(reminder, { html: true, sound: true })
     return { nextFuelReminder: true }
   }
+  if (job.type === 'receipts:imap_poll') {
+    const summary = await ingestReceiptMail(database, receiptsMailConfig)
+    const notice = buildReceiptImportNotice(summary)
+    if (notice) await notifyAllowedChats(notice, { html: true })
+    return { nextMailPoll: true }
+  }
   return {}
 }
 
@@ -110,6 +127,7 @@ export async function processNextJob(database: Database) {
     await database.update(jobs).set({ status: 'done', updatedAt: new Date(), lastError: null }).where(eq(jobs.id, job.id))
     if (result.nextPollAt) await schedulePoll(database, result.nextPollAt.getTime() - Date.now())
     if (result.nextFuelReminder) await scheduleFuelReminder(database)
+    if (result.nextMailPoll) await scheduleMailPoll(database)
     if (result.nextReport) {
       try {
         await scheduleReport(database, result.nextReport)
@@ -134,6 +152,7 @@ export async function processNextJob(database: Database) {
       await scheduleReport(database, failedReportPeriod)
     }
     if (failed && job.type === 'telegram:fuel_reminder') await scheduleFuelReminder(database)
+    if (failed && job.type === 'receipts:imap_poll') await scheduleMailPoll(database)
     console.error(`Job ${job.id} (${job.type}) failed`, error)
   }
   return true
@@ -146,4 +165,5 @@ export async function initializeQueue(database: Database) {
   if (!poll) await database.insert(jobs).values({ type: 'starline:poll', payload: '{}' })
   for (const period of REPORT_PERIODS) await scheduleReport(database, period)
   await scheduleFuelReminder(database)
+  await scheduleMailPoll(database, 0)
 }
