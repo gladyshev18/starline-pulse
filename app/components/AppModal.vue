@@ -28,8 +28,20 @@ function close() {
   emit('close')
 }
 
+// A click is delivered to the nearest common ancestor of where the press started
+// and where it ended, so selecting a number inside a field and releasing just
+// outside it lands on the backdrop. On a phone the keyboard opening shifts the
+// layout under the finger and does the same on a plain tap. Only a gesture that
+// began on the backdrop may close the window.
+let pressedOnBackdrop = false
+
+function onBackdropPointerDown(event: PointerEvent) {
+  pressedOnBackdrop = event.target === event.currentTarget
+}
+
 function onBackdropClick() {
-  if (props.closeOnBackdrop) close()
+  if (props.closeOnBackdrop && pressedOnBackdrop) close()
+  pressedOnBackdrop = false
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -83,7 +95,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <Transition name="app-modal" @after-leave="emit('afterClose')">
-      <div v-if="modelValue" class="modal-backdrop" @click.self="onBackdropClick">
+      <div v-if="modelValue" class="modal-backdrop" @pointerdown="onBackdropPointerDown" @click.self="onBackdropClick">
         <section
           ref="dialog"
           class="modal"
