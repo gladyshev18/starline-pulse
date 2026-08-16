@@ -9,3 +9,4 @@ data/
 fixtures/starline-device.json
 *.log
 .DS_Store
+.claude/settings.local.json

@@ -5,6 +5,31 @@ import { createDatabase } from '../db/client'
 import { engineSessions, refuelEvents, vehicles, vehicleSnapshots } from '../db/schema'
 import { aggregateSnapshot, isRefuelIncrease } from '../worker/starline/aggregates'
 
+type SnapshotValues = { ignition: boolean, mileage: number, fuel: number, fuelPercent: number }
+
+// Feeds consecutive snapshots through the aggregator the way the queue does and
+// returns the refuel events they produced.
+async function detect(steps: SnapshotValues[]) {
+  const database = createDatabase(':memory:')
+  await migrate(database, { migrationsFolder: resolve('db/migrations') })
+  try {
+    const [vehicle] = await database.insert(vehicles).values({ deviceId: '42', alias: 'Car' }).returning()
+    const base = new Date('2026-08-15T07:00:00.000Z')
+    let previous: typeof vehicleSnapshots.$inferSelect | undefined
+    for (const [index, values] of steps.entries()) {
+      const ts = new Date(base.getTime() + index * 30_000)
+      const [row] = await database.insert(vehicleSnapshots).values({
+        vehicleId: vehicle!.id, ts, activityTs: ts, fuelTs: ts, fuelSource: 'converted', rawJson: '{}', ...values
+      }).returning()
+      await aggregateSnapshot(database, vehicle!.id, row!, previous)
+      previous = row
+    }
+    return await database.select().from(refuelEvents)
+  } finally {
+    await database.$client.close()
+  }
+}
+
 describe('StarLine snapshot aggregation', () => {
   it('detects a refuel by litres or fuel percentage', () => {
     expect(isRefuelIncrease(3, 4, true)).toBe(true)
@@ -58,5 +83,25 @@ describe('StarLine snapshot aggregation', () => {
     } finally {
       await database.$client.close()
     }
+  })
+
+  it('records a refuel reported after the engine was already running', async () => {
+    // The car is polled every 30 seconds with the ignition on, and the OBD fuel
+    // level only catches up on the second poll after the start. The odometer
+    // stays put, so the jump is a refuel and not fuel moving around on the road.
+    const events = await detect([
+      { ignition: false, mileage: 19020, fuel: 29, fuelPercent: 59 },
+      { ignition: true, mileage: 19020, fuel: 29, fuelPercent: 59 },
+      { ignition: true, mileage: 19020, fuel: 50, fuelPercent: 100 }
+    ])
+    expect(events).toMatchObject([{ fuelBefore: 29, fuelAfter: 50, litresAdded: 21, percentBefore: 59, percentAfter: 100 }])
+  })
+
+  it('ignores a fuel increase reported while the car is moving', async () => {
+    const events = await detect([
+      { ignition: true, mileage: 19020, fuel: 29, fuelPercent: 59 },
+      { ignition: true, mileage: 19024, fuel: 50, fuelPercent: 100 }
+    ])
+    expect(events).toEqual([])
   })
 })

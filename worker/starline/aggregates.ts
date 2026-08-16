@@ -69,7 +69,11 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
 
 async function detectRefuel(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
   if (!previous || !current.fuelTs || !previous.fuelTs || current.fuelTs <= previous.fuelTs) return
-  if (current.ignition === true && previous.ignition === true) return
+  // The OBD fuel level only refreshes while the engine runs, so the reading
+  // after a refuel arrives one or two polls after the next start — with the
+  // ignition already on in both snapshots. Movement, not ignition, is what
+  // separates a refuel from fuel sloshing in the tank on the road.
+  if (hasMileageIncreased(previous.mileage, current.mileage)) return
 
   const litresDelta = current.fuel != null && previous.fuel != null ? current.fuel - previous.fuel : null
   const percentDelta = current.fuelPercent != null && previous.fuelPercent != null ? current.fuelPercent - previous.fuelPercent : null
