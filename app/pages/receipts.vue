@@ -137,6 +137,22 @@ function pickFile(event: Event) {
   attachment.value = file
 }
 
+function amount(value: string) {
+  const parsed = Number(value.replace(',', '.'))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+// Any two of volume, price and total give the third. The server does the same on
+// save; doing it here as well means the figure appears while you are still typing.
+function completeAmounts() {
+  const litres = amount(form.litres)
+  const price = amount(form.pricePerLitre)
+  const total = amount(form.totalAmount)
+  if (litres != null && price != null && total == null) form.totalAmount = (litres * price).toFixed(2)
+  else if (total != null && price != null && litres == null) form.litres = (total / price).toFixed(2)
+  else if (total != null && litres != null && price == null) form.pricePerLitre = (total / litres).toFixed(2)
+}
+
 function formBody() {
   return {
     purchasedAt: form.purchasedAt ? new Date(form.purchasedAt).toISOString() : '',
@@ -345,15 +361,15 @@ const pendingCount = computed(() => data.value?.items.filter(item => item.matchS
         </label>
         <label class="field">
           <span>Объём, л</span>
-          <input v-model="form.litres" type="number" min="0.01" max="200" step="0.01" inputmode="decimal" placeholder="38,42">
+          <input v-model="form.litres" type="number" min="0.01" max="200" step="0.01" inputmode="decimal" placeholder="38,42" @change="completeAmounts">
         </label>
         <label class="field">
           <span>Цена за литр, ₽</span>
-          <input v-model="form.pricePerLitre" type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50">
+          <input v-model="form.pricePerLitre" type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="completeAmounts">
         </label>
         <label class="field">
           <span>Сумма, ₽</span>
-          <input v-model="form.totalAmount" type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00">
+          <input v-model="form.totalAmount" type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00" @change="completeAmounts">
         </label>
         <label class="field">
           <span>Вид топлива</span>

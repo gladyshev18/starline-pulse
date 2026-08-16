@@ -75,11 +75,28 @@ function closeDetails() {
   detailsError.value = ''
 }
 
-function calculateTotal() {
-  const litres = editingRefuel.value?.litresAdded
-  const price = Number(details.pricePerLitre)
-  if (litres != null && litres > 0 && Number.isFinite(price) && price > 0) details.totalAmount = (litres * price).toFixed(2)
+function amount(value: string) {
+  const parsed = Number(value.replace(',', '.'))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
+
+// Whichever of the two you have, the volume from the sensor gives the other:
+// receipts often print only the total, and the price then follows from it.
+function completeAmounts() {
+  const litres = editingRefuel.value?.litresAdded
+  if (litres == null || litres <= 0) return
+  const price = amount(details.pricePerLitre)
+  const total = amount(details.totalAmount)
+  if (price != null && total == null) details.totalAmount = (litres * price).toFixed(2)
+  else if (total != null && price == null) details.pricePerLitre = (total / litres).toFixed(2)
+}
+
+const canCompleteAmounts = computed(() => {
+  const litres = editingRefuel.value?.litresAdded
+  if (litres == null || litres <= 0) return false
+  const filled = [details.pricePerLitre, details.totalAmount].filter(value => amount(value) != null)
+  return filled.length === 1
+})
 
 async function saveDetails() {
   if (!editingRefuel.value || detailsPending.value) return
@@ -92,8 +109,8 @@ async function saveDetails() {
         station: details.station,
         stationName: details.stationName,
         fuelType: details.fuelType,
-        pricePerLitre: Number(details.pricePerLitre),
-        totalAmount: Number(details.totalAmount)
+        pricePerLitre: details.pricePerLitre,
+        totalAmount: details.totalAmount
       }
     })
     await refresh()
@@ -252,13 +269,16 @@ async function uploadReceipt(refuelId: number, event: Event) {
         </label>
         <label class="field">
           <span>Цена за литр, ₽</span>
-          <input v-model="details.pricePerLitre" required type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="calculateTotal">
+          <input v-model="details.pricePerLitre" type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="completeAmounts">
         </label>
         <label class="field">
           <span>Сумма, ₽</span>
-          <input v-model="details.totalAmount" required type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00">
+          <input v-model="details.totalAmount" type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00" @change="completeAmounts">
         </label>
-        <button class="refuel-calculate" type="button" :disabled="detailsPending || !details.pricePerLitre" @click="calculateTotal">Рассчитать сумму по объёму {{ number(editingRefuel?.litresAdded || null) }} л</button>
+        <button class="refuel-calculate" type="button" :disabled="detailsPending || !canCompleteAmounts" @click="completeAmounts">
+          Достроить второе значение по объёму {{ number(editingRefuel?.litresAdded || null) }} л
+        </button>
+        <p class="muted refuel-details-form__wide receipt-hint">Достаточно заполнить сумму или цену — второе посчитается по объёму заправки.</p>
         <p v-if="detailsError" class="error refuel-details-form__wide">{{ detailsError }}</p>
       </form>
       <template #footer>

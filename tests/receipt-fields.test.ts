@@ -46,6 +46,11 @@ describe('completeReceiptAmounts', () => {
     expect(completeReceiptAmounts({ litres: 40, pricePerLitre: null, totalAmount: 2500 }).pricePerLitre).toBe(62.5)
   })
 
+  it('gives the price for a receipt that printed only the total, using the sensor volume', () => {
+    expect(completeReceiptAmounts({ litres: 20, pricePerLitre: null, totalAmount: 1285 }))
+      .toEqual({ litres: 20, pricePerLitre: 64.25, totalAmount: 1285 })
+  })
+
   it('leaves a single known value alone', () => {
     expect(completeReceiptAmounts({ litres: null, pricePerLitre: null, totalAmount: 2500 }))
       .toEqual({ litres: null, pricePerLitre: null, totalAmount: 2500 })

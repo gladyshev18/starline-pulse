@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { refuelEvents } from '../../../db/schema'
+import { completeReceiptAmounts } from '../../../receipts/fields'
 
 const stations = ['rosneft', 'lukoil', 'other'] as const
 
@@ -14,8 +15,9 @@ function requiredText(value: unknown, field: string, maxLength: number) {
   return result
 }
 
-function positiveAmount(value: unknown, field: string, maximum: number) {
-  const result = typeof value === 'number' ? value : Number.NaN
+function optionalAmount(value: unknown, field: string, maximum: number) {
+  if (value == null || value === '') return null
+  const result = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
   if (!Number.isFinite(result) || result <= 0 || result > maximum) {
     throw createError({ statusCode: 400, statusMessage: `Укажите корректное значение поля «${field}»` })
   }
@@ -42,17 +44,26 @@ export default defineEventHandler(async (event) => {
   const station = body.station as typeof stations[number]
   const stationName = station === 'other' ? requiredText(body.stationName, 'Название АЗС', 100) : null
   const fuelType = requiredText(body.fuelType, 'Вид топлива', 50)
-  const pricePerLitre = positiveAmount(body.pricePerLitre, 'Цена за литр', 10_000)
-  const totalAmount = positiveAmount(body.totalAmount, 'Сумма', 10_000_000)
 
   const database = useAppDatabase()
   const vehicle = await database.query.vehicles.findFirst()
   if (!vehicle) throw createError({ statusCode: 404, statusMessage: 'Автомобиль не найден' })
 
   const where = and(eq(refuelEvents.id, id), eq(refuelEvents.vehicleId, vehicle.id))
-  const [refuel] = await database.select({ id: refuelEvents.id }).from(refuelEvents).where(where).limit(1)
+  const [refuel] = await database.select().from(refuelEvents).where(where).limit(1)
   if (!refuel) throw createError({ statusCode: 404, statusMessage: 'Заправка не найдена' })
 
+  // On the receipt you often have only the total; the volume is already known
+  // from the sensor, so the price per litre follows from the two of them.
+  const { litres, pricePerLitre, totalAmount } = completeReceiptAmounts({
+    litres: refuel.litresAdded,
+    pricePerLitre: optionalAmount(body.pricePerLitre, 'Цена за литр', 10_000),
+    totalAmount: optionalAmount(body.totalAmount, 'Сумма', 10_000_000)
+  })
+  if (pricePerLitre == null && totalAmount == null) {
+    throw createError({ statusCode: 400, statusMessage: 'Укажите сумму или цену за литр' })
+  }
+
   await database.update(refuelEvents).set({ station, stationName, fuelType, pricePerLitre, totalAmount }).where(where)
-  return { id, station, stationName, fuelType, pricePerLitre, totalAmount }
+  return { id, station, stationName, fuelType, pricePerLitre, totalAmount, litresAdded: litres }
 })
