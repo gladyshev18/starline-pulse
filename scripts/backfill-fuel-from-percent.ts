@@ -33,13 +33,20 @@ function floored(percent: number | null) {
 
 async function backfillSnapshots() {
   const rows = await database.select({
-    id: vehicleSnapshots.id, fuel: vehicleSnapshots.fuel, fuelPercent: vehicleSnapshots.fuelPercent
+    id: vehicleSnapshots.id,
+    fuel: vehicleSnapshots.fuel,
+    fuelPercent: vehicleSnapshots.fuelPercent,
+    fuelSource: vehicleSnapshots.fuelSource
   }).from(vehicleSnapshots).where(isNotNull(vehicleSnapshots.fuelPercent))
 
   let changed = 0
   for (const row of rows) {
     const fuel = fuelFromPercent(row.fuelPercent)
-    if (fuel == null || fuel === row.fuel) continue
+    // An even percentage floors to itself, so the litres already match. The
+    // source still has to be relabelled — leaving it as 'converted' would make
+    // `sameSource` in the refuel detector flip back and forth across a history
+    // that is uniformly percentage-derived.
+    if (fuel == null || (fuel === row.fuel && row.fuelSource === 'percent')) continue
     changed++
     if (apply) {
       await database.update(vehicleSnapshots).set({ fuel, fuelSource: 'percent' })
