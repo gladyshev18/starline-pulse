@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { FUEL_TANK_CAPACITY_LITRES, fuelFromPercent, fuelToFull } from '../shared/fuel'
+import { FUEL_TANK_CAPACITY_LITRES, fuelBalance, fuelFromPercent, fuelToFull } from '../shared/fuel'
+
+describe('fuelBalance', () => {
+  const august = { tankStart: 37, tankEnd: 38.5, refuelled: 50, refuelsWithoutVolume: 0, tripsFuelUsed: 40 }
+
+  it('counts the fuel the trip log never attributed to a trip', () => {
+    expect(fuelBalance(august)).toMatchObject({ fuelUsed: 48.5, source: 'balance' })
+  })
+
+  it('does not treat fuel still sitting in the tank as burned', () => {
+    const untouched = fuelBalance({ ...august, tankStart: 20, tankEnd: 70, tripsFuelUsed: 0 })
+    expect(untouched.fuelUsed).toBe(0)
+  })
+
+  it('keeps the trip total when a refuel of unknown size would inflate it', () => {
+    const unknown = fuelBalance({ ...august, refuelsWithoutVolume: 1 })
+    expect(unknown).toMatchObject({ fuelUsed: 40, source: 'trips' })
+  })
+
+  it('keeps the trip total when the tank level is missing at either end', () => {
+    expect(fuelBalance({ ...august, tankStart: null })).toMatchObject({ fuelUsed: 40, source: 'trips' })
+    expect(fuelBalance({ ...august, tankEnd: null })).toMatchObject({ fuelUsed: 40, source: 'trips' })
+  })
+
+  it('never reports a negative amount when the tank ends fuller than it can explain', () => {
+    expect(fuelBalance({ ...august, tankStart: 10, tankEnd: 45, refuelled: 20 }).fuelUsed).toBe(0)
+  })
+})
 
 describe('fuelFromPercent', () => {
   it('keeps the half litre the API loses by flooring the same percentage', () => {

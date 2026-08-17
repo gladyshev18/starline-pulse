@@ -1,5 +1,6 @@
-import { and, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
-import { trips, vehicleSnapshots } from '../../db/schema'
+import { and, asc, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
+import { refuelEvents, trips, vehicleSnapshots } from '../../db/schema'
+import { fuelBalance } from '../../shared/fuel'
 import { currentMoscowMonth, moscowMonthRange } from '../utils/moscow-month'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
@@ -31,7 +32,17 @@ export default defineEventHandler(async (event) => {
     currentMonth: currentMoscowMonth(),
     daily: fillMonth(range.month, range.days, []),
     odometer: [],
-    totals: { distance: 0, fuelUsed: 0, trips: 0, consumption: null }
+    totals: {
+      distance: 0,
+      fuelUsed: 0,
+      trips: 0,
+      consumption: null,
+      fuelSource: 'trips' as const,
+      tankStart: null,
+      tankEnd: null,
+      refuelled: 0,
+      tripsFuelUsed: 0
+    }
   }
 
   const tripDay = sql<string>`strftime('%Y-%m-%d', ${trips.startedAt} / 1000, 'unixepoch', '+3 hours')`
@@ -77,12 +88,53 @@ export default defineEventHandler(async (event) => {
         ...mileageRows.map(row => ({ day: row.day, mileage: Number(row.last), edge: 'end' as const }))
       ]
 
+  // The level the month starts from is the last reading before it, so nothing
+  // burned in the gap between the final trip of one month and the first of the
+  // next goes missing. Only a month that predates the recorded history has to
+  // fall back to its own first reading.
+  const previousFuel = await database.query.vehicleSnapshots.findFirst({
+    columns: { fuel: true },
+    where: and(
+      eq(vehicleSnapshots.vehicleId, vehicle.id),
+      isNotNull(vehicleSnapshots.fuel),
+      lt(vehicleSnapshots.ts, range.start)
+    ),
+    orderBy: desc(vehicleSnapshots.ts)
+  })
+  const fuelRange = and(
+    eq(vehicleSnapshots.vehicleId, vehicle.id),
+    isNotNull(vehicleSnapshots.fuel),
+    gte(vehicleSnapshots.ts, range.start),
+    lt(vehicleSnapshots.ts, range.end)
+  )
+  const [firstFuel, lastFuel] = await Promise.all([
+    database.query.vehicleSnapshots.findFirst({ columns: { fuel: true }, where: fuelRange, orderBy: asc(vehicleSnapshots.ts) }),
+    database.query.vehicleSnapshots.findFirst({ columns: { fuel: true }, where: fuelRange, orderBy: desc(vehicleSnapshots.ts) })
+  ])
+
+  const [refuelled] = await database.select({
+    litres: sql<number>`coalesce(sum(coalesce(${refuelEvents.litresAdded}, ${refuelEvents.sensorLitresAdded})), 0)`,
+    withoutVolume: sql<number>`coalesce(sum(case when ${refuelEvents.litresAdded} is null and ${refuelEvents.sensorLitresAdded} is null then 1 else 0 end), 0)`
+  }).from(refuelEvents).where(and(
+    eq(refuelEvents.vehicleId, vehicle.id),
+    gte(refuelEvents.detectedAt, range.start),
+    lt(refuelEvents.detectedAt, range.end)
+  ))
+
   const daily = fillMonth(range.month, range.days, rows)
   const totals = daily.reduce((result, item) => ({
     distance: result.distance + item.distance,
-    fuelUsed: result.fuelUsed + item.fuelUsed,
+    tripsFuelUsed: result.tripsFuelUsed + item.fuelUsed,
     trips: result.trips + item.trips
-  }), { distance: 0, fuelUsed: 0, trips: 0 })
+  }), { distance: 0, tripsFuelUsed: 0, trips: 0 })
+
+  const balance = fuelBalance({
+    tankStart: previousFuel?.fuel ?? firstFuel?.fuel ?? null,
+    tankEnd: lastFuel?.fuel ?? null,
+    refuelled: Number(refuelled?.litres || 0),
+    refuelsWithoutVolume: Number(refuelled?.withoutVolume || 0),
+    tripsFuelUsed: totals.tripsFuelUsed
+  })
 
   return {
     month: range.month,
@@ -90,8 +142,15 @@ export default defineEventHandler(async (event) => {
     daily,
     odometer,
     totals: {
-      ...totals,
-      consumption: totals.distance > 0 ? totals.fuelUsed / totals.distance * 100 : null
+      distance: totals.distance,
+      trips: totals.trips,
+      fuelUsed: balance.fuelUsed,
+      consumption: totals.distance > 0 ? balance.fuelUsed / totals.distance * 100 : null,
+      fuelSource: balance.source,
+      tankStart: balance.tankStart,
+      tankEnd: balance.tankEnd,
+      refuelled: balance.refuelled,
+      tripsFuelUsed: totals.tripsFuelUsed
     }
   }
 })

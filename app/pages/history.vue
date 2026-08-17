@@ -42,6 +42,15 @@ function number(value: number | null | undefined, digits = 1) {
   return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
 }
 
+// The balance counts warm-ups and short hops the trip log cannot see, so it
+// reads higher than the sum of the bars below it. Spelling the arithmetic out
+// is what keeps that difference from looking like an error.
+const fuelExplanation = computed(() => {
+  const totals = data.value?.totals
+  if (!totals || totals.fuelSource !== 'balance') return 'По данным завершённых поездок'
+  return `В баке ${number(totals.tankStart)} → ${number(totals.tankEnd)} л, заправлено ${number(totals.refuelled)} л`
+})
+
 useHead({ title: computed(() => `История — ${monthTitle.value} — Chery Pulse`) })
 </script>
 
@@ -84,7 +93,7 @@ useHead({ title: computed(() => `История — ${monthTitle.value} — Cher
       <section class="card metric-card history-metric">
         <div class="card__top"><p class="metric-label">Израсходовано</p></div>
         <p class="metric">{{ number(data?.totals.fuelUsed) }} <small>л</small></p>
-        <p class="metric-meta">По данным завершённых поездок</p>
+        <p class="metric-meta">{{ fuelExplanation }}</p>
       </section>
       <section class="card metric-card history-metric">
         <div class="card__top"><p class="metric-label">Средний расход</p></div>
@@ -96,7 +105,7 @@ useHead({ title: computed(() => `История — ${monthTitle.value} — Cher
         <div class="card__top">
           <div>
             <p class="metric-label">{{ chartMode === 'daily' ? 'Пробег и топливо по дням' : 'Общий пробег за месяц' }}</p>
-            <p v-if="chartMode === 'daily'" class="muted">Столбцы — километры, линия — израсходованные литры</p>
+            <p v-if="chartMode === 'daily'" class="muted">Столбцы — километры, линия — литры по завершённым поездкам</p>
             <p v-else class="muted">
               Показания одометра: {{ number(odometerStart) }} → {{ number(odometerEnd) }} км
               <span v-if="odometerDistance != null"> · +{{ number(odometerDistance) }} км</span>
