@@ -7,6 +7,10 @@ function number(value: number | null | undefined, digits = 0) {
   if (value == null) return '—'
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
 }
+function money(value: number | null | undefined, digits = 0) {
+  if (value == null) return '—'
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: digits }).format(value)
+}
 function date(value: string | Date | null | undefined) {
   return value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
 }
@@ -34,6 +38,27 @@ const vehicleState = computed(() => {
   return snapshot.ignition ? 'Заведена' : 'Припаркована'
 })
 const litresToFull = computed(() => fuelToFull(data.value?.snapshot?.fuel))
+// A month rarely holds more than a handful of refuels, so the count lands on
+// every one of the three Russian forms and the wrong one is impossible to miss.
+function refuelWord(count: number) {
+  const tens = count % 100
+  const ones = count % 10
+  if (tens >= 11 && tens <= 14) return 'заправок'
+  if (ones === 1) return 'заправка'
+  if (ones >= 2 && ones <= 4) return 'заправки'
+  return 'заправок'
+}
+// A refuel without a receipt keeps its money out of the total, so their number
+// is spelled out: to anyone who remembers how often the tank was filled the sum
+// would otherwise look simply wrong.
+const fuelCostNote = computed(() => {
+  const cost = data.value?.fuelCost
+  if (!cost) return ''
+  const parts = [`${number(cost.refuels)} ${refuelWord(cost.refuels)}`]
+  if (cost.pricePerLitre != null) parts.push(`${money(cost.pricePerLitre, 2)}/л`)
+  if (cost.unknown > 0) parts.push(`у ${number(cost.unknown)} нет суммы`)
+  return parts.join(' · ')
+})
 const maxDailyDistance = computed(() => Math.max(1, ...(data.value?.daily || []).map(item => item.distance)))
 function dailyBarHeight(distance: number) {
   return `${distance > 0 ? Math.max(6, distance / maxDailyDistance.value * 100) : 2}%`
@@ -86,7 +111,7 @@ function duration(minutes: number | null | undefined) {
         </div>
       </section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">За месяц</p></div><p class="metric">{{ number(data?.month.distance, 1) }} <small>км</small></p><p class="muted">{{ number(data?.month.trips) }} поездок · {{ number(data?.month.fuelUsed, 1) }} л · {{ number(data?.month.consumption, 1) }} л/100 км</p></section>
-      <section class="card card--half"><div class="card__top"><p class="metric-label">Лимит API</p></div><p class="metric">{{ number(data?.api.remaining) }} <small>доступно</small></p><p class="muted">{{ number(data?.api.used) }} из 1000 использовано</p></section>
+      <section class="card card--half"><div class="card__top"><p class="metric-label">Затраты на бензин</p></div><p class="metric metric--compact">{{ money(data?.fuelCost.amount) }}</p><p class="muted">За месяц · {{ fuelCostNote }}</p></section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">Работа без движения</p></div><p class="metric metric--compact">{{ duration(data?.engine.stationaryMinutes) }}</p><p class="muted">За месяц · до начала движения {{ duration(data?.engine.warmupMinutes) }} · сессий двигателя {{ number(data?.engine.sessions) }}</p></section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">Заправки</p></div><p class="metric">{{ number(data?.refuels.litres, 1) }} <small>л</small></p><p class="muted">{{ number(data?.refuels.count) }} за месяц<span v-if="data?.refuels.recent[0]"> · последняя {{ date(data.refuels.recent[0].detectedAt) }}</span></p></section>
       <section class="card card--wide battery-card">

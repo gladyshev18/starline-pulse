@@ -1,5 +1,5 @@
 import { and, count, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
-import { apiCalls, engineSessions, refuelEvents, trips, vehicleSnapshots, vehicles } from '../../db/schema'
+import { engineSessions, refuelEvents, trips, vehicleSnapshots, vehicles } from '../../db/schema'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
 
@@ -36,7 +36,8 @@ export default defineEventHandler(async () => {
     snapshot: null,
     month: { distance: 0, fuelUsed: 0, consumption: null, trips: 0 },
     daily: [], today: { distance: 0, fuelUsed: 0 }, engine: { stationaryMinutes: 0, warmupMinutes: 0, sessions: 0 },
-    refuels: { count: 0, litres: 0, recent: [] }, batteryTrend: [], api: { used: 0, remaining: 1000 }
+    refuels: { count: 0, litres: 0, recent: [] }, batteryTrend: [],
+    fuelCost: { amount: null, refuels: 0, unknown: 0, pricePerLitre: null }
   }
 
   const snapshot = await database.query.vehicleSnapshots.findFirst({
@@ -66,9 +67,16 @@ export default defineEventHandler(async () => {
     warmupMinutes: sql<number>`coalesce(sum(${engineSessions.warmupMinutes}), 0)`
   }).from(engineSessions).where(and(eq(engineSessions.vehicleId, vehicle.id), eq(engineSessions.isOpen, false), gte(engineSessions.startedAt, monthStart)))
 
+  // The sum stays null until at least one refuel of the month has a price on it:
+  // «0 ₽» would read as a month without fuel spending rather than one without
+  // receipts. The litres are summed over the paid refuels only, so the price per
+  // litre divides the same set of refuels it came from.
   const [refuelSummary] = await database.select({
     count: count(),
-    litres: sql<number>`coalesce(sum(${refuelEvents.litresAdded}), 0)`
+    litres: sql<number>`coalesce(sum(${refuelEvents.litresAdded}), 0)`,
+    amount: sql<number | null>`sum(${refuelEvents.totalAmount})`,
+    paidCount: sql<number>`coalesce(sum(case when ${refuelEvents.totalAmount} is not null then 1 else 0 end), 0)`,
+    paidLitres: sql<number>`coalesce(sum(case when ${refuelEvents.totalAmount} is not null then ${refuelEvents.litresAdded} else 0 end), 0)`
   }).from(refuelEvents).where(and(eq(refuelEvents.vehicleId, vehicle.id), gte(refuelEvents.detectedAt, monthStart)))
   const recentRefuels = await database.select().from(refuelEvents).where(eq(refuelEvents.vehicleId, vehicle.id))
     .orderBy(desc(refuelEvents.detectedAt)).limit(5)
@@ -86,8 +94,10 @@ export default defineEventHandler(async () => {
     isNotNull(vehicleSnapshots.battery),
     gte(vehicleSnapshots.ts, batteryStart)
   )).groupBy(batteryDay).orderBy(batteryDay)
-  const today = new Date().toISOString().slice(0, 10)
-  const [api] = await database.select({ used: sql<number>`count(*)` }).from(apiCalls).where(eq(apiCalls.day, today))
+  const refuelsCount = Number(refuelSummary?.count || 0)
+  const paidRefuels = Number(refuelSummary?.paidCount || 0)
+  const paidLitres = Number(refuelSummary?.paidLitres || 0)
+  const fuelAmount = refuelSummary?.amount == null ? null : Number(refuelSummary.amount)
   const distance = Number(month?.distance || 0)
   const fuelUsed = Number(month?.fuelUsed || 0)
   const daily = daySeries(14, dailyRows)
@@ -103,8 +113,13 @@ export default defineEventHandler(async () => {
       stationaryMinutes: Number(engine?.stationaryMinutes || 0),
       warmupMinutes: Number(engine?.warmupMinutes || 0)
     },
-    refuels: { count: Number(refuelSummary?.count || 0), litres: Number(refuelSummary?.litres || 0), recent: recentRefuels },
+    refuels: { count: refuelsCount, litres: Number(refuelSummary?.litres || 0), recent: recentRefuels },
     batteryTrend: batteryRows.map(row => ({ day: row.day, min: Number(row.min), max: Number(row.max), average: Number(row.average) })),
-    api: { used: Number(api?.used || 0), remaining: Math.max(0, 1000 - Number(api?.used || 0)) }
+    fuelCost: {
+      amount: fuelAmount,
+      refuels: paidRefuels,
+      unknown: refuelsCount - paidRefuels,
+      pricePerLitre: fuelAmount != null && paidLitres > 0 ? fuelAmount / paidLitres : null
+    }
   }
 })

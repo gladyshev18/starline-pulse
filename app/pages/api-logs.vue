@@ -47,6 +47,10 @@ function date(value: string | Date) {
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
 }
 
+function number(value: number | null | undefined) {
+  return value == null ? '—' : new Intl.NumberFormat('ru-RU').format(value)
+}
+
 function statusLabel(value: number) {
   if (value === 0) return 'Нет ответа'
   return String(value)
@@ -106,6 +110,12 @@ onBeforeUnmount(() => {
       <div><p class="eyebrow">Диагностика</p><h1 class="page-title">Журнал API</h1></div>
       <button class="btn btn--secondary" type="button" :disabled="status === 'pending'" @click="refresh()">Обновить</button>
     </header>
+
+    <section class="card api-limit">
+      <div class="card__top"><p class="metric-label">Лимит API на сегодня</p></div>
+      <p class="metric metric--compact">{{ number(data?.limit.remaining) }} <small>доступно</small></p>
+      <p class="muted">{{ number(data?.limit.used) }} из 1000 использовано</p>
+    </section>
 
     <section class="card card--table">
       <div class="log-filters">

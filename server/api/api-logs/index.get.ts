@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, like, lt, or, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, gte, like, lt, or, sql, type SQL } from 'drizzle-orm'
 import { apiCalls } from '../../../db/schema'
 
 export default defineEventHandler(async (event) => {
@@ -28,6 +28,14 @@ export default defineEventHandler(async (event) => {
     createdAt: apiCalls.createdAt
   }).from(apiCalls).where(where).orderBy(desc(apiCalls.createdAt)).limit(pageSize).offset((page - 1) * pageSize)
 
+  // The daily budget ignores the filters above: it answers how many calls are
+  // left today, not how many the current view shows. The day is taken in UTC
+  // because that is the boundary recordCall writes api_calls.day against, and a
+  // limit counted from a different midnight than the budget is a wrong limit.
+  const usageDay = new Date().toISOString().slice(0, 10)
+  const [usage] = await database.select({ used: sql<number>`count(*)` }).from(apiCalls).where(eq(apiCalls.day, usageDay))
+  const used = Number(usage?.used || 0)
+
   const total = Number(result?.total || 0)
-  return { items, page, pageSize, total, pages: Math.ceil(total / pageSize) }
+  return { items, page, pageSize, total, pages: Math.ceil(total / pageSize), limit: { used, remaining: Math.max(0, 1000 - used) } }
 })

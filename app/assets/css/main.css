@@ -407,6 +407,10 @@ tbody tr:hover { background: var(--surface-subtle); }
 .refuel-calculate:disabled { cursor: default; opacity: .5; text-decoration: none; }
 
 .api-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+/* The card stands on its own here, outside any .grid, so the column span and the
+   dashboard's card height do not apply. */
+.api-limit { min-height: 0; margin-bottom: 14px; }
+.api-limit .metric { margin-top: 14px; }
 .log-filters { display: grid; grid-template-columns: minmax(240px, 1fr) 190px 180px; gap: 12px; margin-bottom: 22px; }
 .log-filters .field > span { color: var(--muted); font-size: .78rem; font-weight: 620; }
 .log-table tbody tr.is-selected { background: var(--accent-soft); }
