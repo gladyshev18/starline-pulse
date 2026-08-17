@@ -12,6 +12,7 @@
     "postinstall": "nuxt prepare",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "fuel:backfill": "tsx scripts/backfill-fuel-from-percent.ts",
     "seed": "tsx scripts/seed.ts",
     "worker": "tsx watch worker/index.ts",
     "worker:start": "tsx worker/index.ts",

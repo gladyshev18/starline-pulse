@@ -14,12 +14,20 @@ describe('normalizeDeviceResponse', () => {
     })
   })
 
-  it('uses the API-converted fuel value when documented litres are absent', () => {
+  it('converts the percentage itself instead of trusting the API-floored litres', () => {
     const result = normalizeDeviceResponse({ code: 200, data: {
       alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
-      obd: { mileage: 1234, fuel_litres: null, fuel_percent: 74, fuel_converted: 37 }, state: { ign: false }
+      obd: { mileage: 1234, fuel_litres: null, fuel_percent: 77, fuel_converted: 38 }, state: { ign: false }
     } })
-    expect(result).toMatchObject({ fuel: 37, fuelPercent: 74, fuelSource: 'converted' })
+    expect(result).toMatchObject({ fuel: 38.5, fuelPercent: 77, fuelSource: 'percent' })
+  })
+
+  it('falls back to the API-converted fuel value when the percentage is absent', () => {
+    const result = normalizeDeviceResponse({ code: 200, data: {
+      alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
+      obd: { mileage: 1234, fuel_litres: null, fuel_percent: null, fuel_converted: 37 }, state: { ign: false }
+    } })
+    expect(result).toMatchObject({ fuel: 37, fuelPercent: null, fuelSource: 'converted' })
   })
 
   it('keeps personally identifying data and exact coordinates out of diagnostic JSON', () => {

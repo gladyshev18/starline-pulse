@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "db:migrate": "tsx scripts/migrate.ts",
+    "fuel:backfill": "tsx scripts/backfill-fuel-from-percent.ts",
     "seed": "tsx scripts/seed.ts",
     "worker:start": "tsx worker/index.ts",
     "worker:once": "tsx worker/index.ts --once",

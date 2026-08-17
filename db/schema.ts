@@ -83,7 +83,7 @@ export const vehicleSnapshots = sqliteTable('vehicle_snapshots', {
   fuel: real('fuel'),
   fuelPercent: real('fuel_percent'),
   fuelTs: integer('fuel_ts', { mode: 'timestamp_ms' }),
-  fuelSource: text('fuel_source', { enum: ['litres', 'converted'] }),
+  fuelSource: text('fuel_source', { enum: ['litres', 'percent', 'converted'] }),
   battery: real('battery'),
   batteryType: text('battery_type', { enum: ['percent', 'volt'] }),
   commonTs: integer('common_ts', { mode: 'timestamp_ms' }),

@@ -64,7 +64,7 @@ export interface NormalizedSnapshot {
   fuel: number | null
   fuelPercent: number | null
   fuelTs: Date | null
-  fuelSource: 'litres' | 'converted' | null
+  fuelSource: 'litres' | 'percent' | 'converted' | null
   battery: number | null
   batteryType: 'percent' | 'volt' | null
   commonTs: Date | null

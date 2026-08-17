@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { vehicleSnapshots, vehicles } from '../../db/schema'
+import { fuelFromPercent } from '../../shared/fuel'
 import { config } from '../config'
 import { getDailyUsage } from './budget'
 import { getSlnet, starlineRequest } from './auth'
@@ -57,14 +58,16 @@ export function normalizeDeviceResponse(raw: StarLineDataResponse): NormalizedSn
   const data: StarLineDeviceData = raw.data
   const ignition = typeof data.state?.ign === 'boolean' ? data.state.ign : typeof data.state?.run === 'boolean' ? data.state.run : null
   const fuelLitres = finite(data.obd?.fuel_litres)
+  const fuelPercent = finite(data.obd?.fuel_percent)
+  const fuelByPercent = fuelFromPercent(fuelPercent)
   const fuelConverted = finite(data.obd?.fuel_converted)
   const batteryType = data.common?.battery_type ?? data.battery_type
   return {
     deviceId: String(data.device_id), alias: data.alias || 'Chery', ts: new Date(), activityTs: timestamp(data.activity_ts ?? data.ts_activity),
     online: data.status === 1 ? true : data.status === 2 ? false : null,
     ignition, mileage: finite(data.obd?.mileage), mileageTs: timestamp(data.obd?.mileage_ts ?? data.obd?.ts),
-    fuel: fuelLitres ?? fuelConverted, fuelPercent: finite(data.obd?.fuel_percent), fuelTs: timestamp(data.obd?.fuel_ts ?? data.obd?.ts),
-    fuelSource: fuelLitres != null ? 'litres' : fuelConverted != null ? 'converted' : null,
+    fuel: fuelLitres ?? fuelByPercent ?? fuelConverted, fuelPercent, fuelTs: timestamp(data.obd?.fuel_ts ?? data.obd?.ts),
+    fuelSource: fuelLitres != null ? 'litres' : fuelByPercent != null ? 'percent' : fuelConverted != null ? 'converted' : null,
     battery: finite(data.common?.battery), batteryType: batteryType === 'volt' || batteryType === 'percent' ? batteryType : null,
     commonTs: timestamp(data.common?.ts), engineTemp: finite(data.common?.etemp), cabinTemp: finite(data.common?.ctemp),
     lat: finite(data.position?.y), lon: finite(data.position?.x), positionTs: timestamp(data.position?.ts),
