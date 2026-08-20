@@ -154,7 +154,7 @@ describe('ingestReceiptMail', () => {
 
   it('reads the attached QR code when the letter prints no fiscal link', async () => {
     await ingestReceiptMail(database, config, source([message({
-      text: 'Кассовый чек. Приход',
+      text: 'Кассовый чек. Приход\nАЗС №241\nБензин автомобильный',
       html: null,
       attachments: [{ filename: 'qr.png', contentType: 'image/png', content: await toBuffer('t=20260814T1030&s=2516.51&fn=996&i=42&fp=99&n=1') }]
     })]))
@@ -163,6 +163,17 @@ describe('ingestReceiptMail', () => {
     expect(receipt).toMatchObject({ totalAmount: 2516.51, fiscalDocNumber: '42', fiscalSign: '99' })
     expect(receipt?.purchasedAt?.toISOString()).toBe('2026-08-14T07:30:00.000Z')
   }, 20_000)
+
+  it('drops a phone bill the operator sent from the very same address', async () => {
+    const summary = await ingestReceiptMail(database, config, source([message({
+      subject: 'ПАО "РОСТЕЛЕКОМ" 20.08.2026 09:44',
+      text: 'Кассовый чек. Приход\n№ Наименование Цена за ед. Кол. Сумма\n1. Аванс за услуги связи 275.15 1 275.15\nИТОГО: 275.15'
+    })]))
+
+    expect(summary).toMatchObject({ fetched: 1, imported: 0, notFuel: 1, skipped: 0 })
+    expect(await database.select().from(refuelReceipts)).toHaveLength(0)
+    expect(await readdir(storageDir)).toHaveLength(0)
+  })
 
   it('remembers where the mailbox was left off', async () => {
     await ingestReceiptMail(database, config, source([message({})], 101))
@@ -180,7 +191,7 @@ describe('ingestReceiptMail', () => {
 })
 
 describe('buildReceiptImportNotice', () => {
-  const empty = { fetched: 0, imported: 0, skipped: 0, failed: 0, linked: [], pending: [] }
+  const empty = { fetched: 0, imported: 0, skipped: 0, notFuel: 0, failed: 0, linked: [], pending: [] }
 
   it('says nothing when the mailbox brought nothing', () => {
     expect(buildReceiptImportNotice(empty)).toBeNull()

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { imapState, type RefuelReceipt } from '../../db/schema'
 import { normalizeReceiptFields } from '../fields'
-import { parseReceiptMail } from '../parsers'
+import { looksLikeFuelReceipt, parseReceiptMail, receiptMailText } from '../parsers'
 import { readReceiptQr } from '../qr'
 import { createReceipt, findReceiptByContentHash, findReceiptByMessageId } from '../store'
 import { receiptContentHash, receiptFileNameFor, saveReceiptFile } from '../storage'
@@ -14,6 +14,10 @@ export type IngestSummary = {
   fetched: number
   imported: number
   skipped: number
+  // Letters from an allowlisted operator that turned out to be about something
+  // other than fuel. Kept apart from `skipped` because a rule that drops mail is
+  // worth watching: a run that quietly rejects everything is a broken rule.
+  notFuel: number
   failed: number
   linked: RefuelReceipt[]
   pending: RefuelReceipt[]
@@ -80,9 +84,20 @@ async function readMessageQr(message: ReceiptMailMessage) {
   return null
 }
 
-async function importMessage(database: Database, message: ReceiptMailMessage, config: ReceiptMailConfig) {
+type ImportOutcome = { skipped?: boolean, notFuel?: boolean, receipt?: RefuelReceipt }
+
+async function importMessage(database: Database, message: ReceiptMailMessage, config: ReceiptMailConfig): Promise<ImportOutcome> {
   if (!matchesSenderAllowlist(message.addresses, config.senderAllowlist)) return { skipped: true }
   if (message.messageId && await findReceiptByMessageId(database, message.messageId)) return { skipped: true }
+
+  // The allowlist only vouches for the operator, and an OFD forwards the receipts
+  // of every seller alike — a phone bill arrives from the same address as a tank
+  // of petrol. Letters about anything else are dropped before they cost storage,
+  // but they are counted and named so a real receipt cannot vanish unnoticed.
+  const parsed = parseReceiptMail(message)
+  if (!looksLikeFuelReceipt(receiptMailText(message), parsed)) {
+    return { notFuel: true }
+  }
 
   const attachment = chooseAttachment(message)
   let file = null
@@ -100,7 +115,6 @@ async function importMessage(database: Database, message: ReceiptMailMessage, co
     }
   }
 
-  const parsed = parseReceiptMail(message)
   if (parsed.totalAmount == null || parsed.fiscalSign == null) {
     const fiscal = await readMessageQr(message)
     if (fiscal) {
@@ -124,7 +138,7 @@ async function importMessage(database: Database, message: ReceiptMailMessage, co
 }
 
 export async function ingestReceiptMail(database: Database, config: ReceiptMailConfig, injected?: ReceiptMailSource) {
-  const summary: IngestSummary = { fetched: 0, imported: 0, skipped: 0, failed: 0, linked: [], pending: [] }
+  const summary: IngestSummary = { fetched: 0, imported: 0, skipped: 0, notFuel: 0, failed: 0, linked: [], pending: [] }
   const source = injected || createMailSource(config)
   if (!source) return summary
 
@@ -135,6 +149,11 @@ export async function ingestReceiptMail(database: Database, config: ReceiptMailC
   for (const message of result.messages) {
     try {
       const outcome = await importMessage(database, message, config)
+      if (outcome.notFuel) {
+        summary.notFuel += 1
+        console.info(`Mail uid ${message.uid} is not a fuel receipt: ${message.subject}`)
+        continue
+      }
       if (outcome.skipped || !outcome.receipt) {
         summary.skipped += 1
         continue

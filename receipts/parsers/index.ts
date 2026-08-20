@@ -107,6 +107,31 @@ export function parseFuelLineItem(text: string) {
   return null
 }
 
+// "Сумма" is the weakest of the labels a total hides behind: it also heads a
+// table column — "Цена за ед. Кол. Сумма" — with the row number underneath, and
+// it opens the tax line "СУММА НДС 22% 231.72". So the value has to sit on the
+// label's own line, the tax line is excluded outright, and an explicit "Итого"
+// outranks a bare "Сумма" wherever both are printed.
+export function parseTotalAmount(text: string) {
+  const matches = [...text.matchAll(/(итого?|к оплате|сумма)(?!\s*ндс)[^\d\n]{0,15}(\d[\d\s]*(?:[.,]\d{2})?)/gi)]
+  const labelled = matches.find(match => !/^сумма$/i.test(match[1]!))
+  return amount((labelled || matches[0])?.[2])
+}
+
+// An OFD mails out every receipt the buyer's address was ever printed on, so a
+// letter has to show some sign of fuel before it counts as a refuel. Cyrillic
+// has no ASCII word boundary, so the abbreviations are closed with lookarounds.
+const fuelEvidence = [
+  /АИ[\s-]?\d{2,3}/i,
+  /бензин|дизел|топлив/i,
+  /(?<![А-ЯЁ])(?:АЗ[СК]|ТРК|ДТ)(?![А-ЯЁ])/i
+]
+
+export function looksLikeFuelReceipt(text: string, parsed: Pick<ParsedReceipt, 'station' | 'fuelType'>) {
+  if (parsed.station != null || parsed.fuelType != null) return true
+  return fuelEvidence.some(pattern => pattern.test(text))
+}
+
 // Mail clients wrap the address across several quoted lines, and the OFD letter
 // then prints it a second time without the station number.
 function withoutRepeatedTail(value: string) {
@@ -167,9 +192,7 @@ export function parseReceiptText(text: string): ParsedReceipt {
     /(?:цена|тариф)\D{0,15}(\d+[.,]\d{2})/i.exec(text)?.[1]
     || /(\d+[.,]\d{2})\s*(?:руб\.?|₽|р\.)\s*\/\s*л/i.exec(text)?.[1]
   )
-  result.totalAmount ??= amount(
-    /(?:итого|итог|к оплате|сумма)\D{0,15}(\d[\d\s]*(?:[.,]\d{2})?)/i.exec(text)?.[1]
-  )
+  result.totalAmount ??= parseTotalAmount(text)
   result.fuelType ??= /(АИ[\s-]?\d{2,3}(?:\s+(?:премиум|евро|pulsar|ultimate))?)/i.exec(text)?.[1]
     ?.replace(/^АИ\s?-?\s?/i, 'АИ-') || null
   result.sellerInn ??= /ИНН\D{0,5}(\d{10,12})/i.exec(text)?.[1] || null
@@ -188,10 +211,13 @@ export function parseReceiptText(text: string): ParsedReceipt {
   return completeReceiptAmounts(result)
 }
 
-export function parseReceiptMail(message: ReceiptMailMessage): ParsedReceipt {
-  const body = [message.subject, message.text, message.html ? stripHtml(message.html) : '']
+export function receiptMailText(message: ReceiptMailMessage) {
+  return [message.subject, message.text, message.html ? stripHtml(message.html) : '']
     .filter(Boolean).join('\n')
-  const parsed = parseReceiptText(body)
+}
+
+export function parseReceiptMail(message: ReceiptMailMessage): ParsedReceipt {
+  const parsed = parseReceiptText(receiptMailText(message))
   // A letter without its own date is still anchored by when it was delivered.
   parsed.purchasedAt ||= message.date
   return parsed

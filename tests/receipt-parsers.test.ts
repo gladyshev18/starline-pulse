@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseFiscalLink, parseFuelLineItem, parseReceiptDate, parseReceiptMail, parseReceiptText, stripHtml } from '../receipts/parsers'
+import { looksLikeFuelReceipt, parseFiscalLink, parseFuelLineItem, parseReceiptDate, parseReceiptMail, parseReceiptText, parseTotalAmount, stripHtml } from '../receipts/parsers'
 import { matchesSenderAllowlist, parseForwardedSenders, type ReceiptMailMessage } from '../receipts/mail/types'
 
 function mail(values: Partial<ReceiptMailMessage>): ReceiptMailMessage {
@@ -222,6 +222,75 @@ describe('a Lukoil receipt from ОФД-Я', () => {
   it('reads the labelled address and ignores the sender mailbox under a similar label', () => {
     expect(parseReceiptText(lukoilReceipt).address)
       .toBe('392013, РОССИЯ, Тамбовская обл., г. Тамбов, ул. Чичерина, 5')
+  })
+})
+
+// Shape of a real "Первый ОФД" letter for a Rostelecom payment: the same
+// operator, the same layout, nothing to do with fuel. Personal data and fiscal
+// identifiers are replaced with stand-ins.
+const rostelecomLetter = [
+  'ПАО "РОСТЕЛЕКОМ"',
+  'ИНН: 7707049388',
+  '109316, Москва, Волгоградский проспект, 42, к 9',
+  'Кассовый чек. Приход',
+  'Смена №: 63',
+  'Чек №: 858',
+  '20.08.2026 09:44',
+  'ККТ для интернет',
+  '№ Наименование Цена за ед. Кол. Сумма',
+  '1. Аванс за услуги связи: 70000000000 275.15 1 275.15',
+  'Платеж Аванс НДС 22/122',
+  'СУММА НДС 22/122 49.62',
+  'ИТОГО: 275.15',
+  'Безналичными 275.15',
+  '№ ФД: 127468',
+  'ФПД: 4000000000'
+].join('\n')
+
+describe('parseTotalAmount', () => {
+  it('takes the printed total and not the column header with the row number under it', () => {
+    expect(parseTotalAmount('Цена за ед. Кол. Сумма\n1. Аванс 275.15 1 275.15\nИТОГО: 275.15')).toBe(275.15)
+  })
+
+  it('never reads the total out of the tax line', () => {
+    expect(parseTotalAmount('СУММА НДС 22% 231.72')).toBeNull()
+  })
+
+  it('refuses the bare column header when nothing else is labelled', () => {
+    expect(parseTotalAmount('Цена за ед. Кол. Сумма\n1. Кофе 120.00')).toBeNull()
+  })
+
+  it('still reads a total labelled every ordinary way', () => {
+    expect(parseTotalAmount('ИТОГО 2534.94')).toBe(2534.94)
+    expect(parseTotalAmount('К оплате 2 600,00')).toBe(2600)
+    expect(parseTotalAmount('Сумма: 1 285,00')).toBe(1285)
+  })
+})
+
+describe('looksLikeFuelReceipt', () => {
+  it('accepts the receipts of both chains', () => {
+    for (const letter of [rosneftLetter, lukoilReceipt]) {
+      expect(looksLikeFuelReceipt(letter, parseReceiptText(letter))).toBe(true)
+    }
+  })
+
+  it('rejects a phone bill that arrived from the very same operator', () => {
+    expect(looksLikeFuelReceipt(rostelecomLetter, parseReceiptText(rostelecomLetter))).toBe(false)
+  })
+
+  it('accepts a receipt that names the fuel without naming a chain', () => {
+    const text = 'Кассовый чек\nДТ-К5 40.00 x 62.10 = 2484.00'
+    expect(looksLikeFuelReceipt(text, parseReceiptText(text))).toBe(true)
+  })
+})
+
+describe('a Rostelecom receipt that shares the operator with the fuel ones', () => {
+  it('reads the printed total rather than the row number beside the column header', () => {
+    expect(parseReceiptText(rostelecomLetter).totalAmount).toBe(275.15)
+  })
+
+  it('finds no fuel in it', () => {
+    expect(parseReceiptText(rostelecomLetter)).toMatchObject({ station: null, fuelType: null, litres: null })
   })
 })
 
