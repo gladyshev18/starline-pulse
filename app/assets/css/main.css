@@ -177,10 +177,14 @@ button { color: inherit; }
   backdrop-filter: blur(18px);
 }
 .brand { display: inline-flex; align-items: center; }
-.nav { display: flex; align-items: center; gap: 3px; }
+/* The row wraps rather than shrinks: clipping it would put the theme toggle and
+   the logout button out of reach, and `overflow-x: clip` on the page leaves no
+   way to scroll them back into view. */
+.nav { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 3px; }
 .nav a, .nav__logout {
   display: inline-flex;
   min-height: 40px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   padding: 0 13px;
@@ -197,6 +201,27 @@ button { color: inherit; }
 .nav a.router-link-active { background: var(--accent-soft); color: var(--accent-ink); }
 .nav__separator { width: 1px; height: 22px; margin-inline: 7px; background: var(--line); }
 .nav .icon-button { border: 0; background: transparent; }
+
+/* Three bars that fold into a cross. The button only appears once the row turns
+   into a panel, so above that breakpoint it stays out of the tab order. */
+.nav-toggle { display: none; }
+.nav-toggle__box { position: relative; width: 18px; height: 12px; }
+.nav-toggle__bar {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform .24s cubic-bezier(.4, 0, .2, 1), opacity .16s ease;
+}
+.nav-toggle__bar:nth-child(1) { top: 0; }
+.nav-toggle__bar:nth-child(2) { top: 5px; }
+.nav-toggle__bar:nth-child(3) { top: 10px; }
+.nav-toggle[aria-expanded='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.nav-toggle[aria-expanded='true'] .nav-toggle__bar:nth-child(1) { transform: translateY(5px) rotate(45deg); }
+.nav-toggle[aria-expanded='true'] .nav-toggle__bar:nth-child(2) { opacity: 0; }
+.nav-toggle[aria-expanded='true'] .nav-toggle__bar:nth-child(3) { transform: translateY(-5px) rotate(-45deg); }
 
 .page { padding-block: 70px 54px; }
 .page-heading { margin-bottom: 31px; }
@@ -357,7 +382,10 @@ tbody tr:hover { background: var(--surface-subtle); }
 .receipt-panel > .error { margin: 14px 0 0; }
 .receipt-empty { margin: 24px 0 3px; font-size: .76rem; }
 .receipt-list { display: grid; gap: 7px; margin: 17px 0 0; padding: 0; list-style: none; }
-.receipt-file { display: grid; min-width: 0; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); transition: border-color .16s ease, transform .16s ease; }
+/* The kind badge holds words as long as "Изображение", so its column keeps the
+   56px that lines the short ones up with each other but may outgrow it rather
+   than let the label run over the file name. */
+.receipt-file { display: grid; min-width: 0; grid-template-columns: minmax(56px, auto) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); transition: border-color .16s ease, transform .16s ease; }
 .receipt-file:hover { border-color: var(--accent); transform: translateY(-1px); }
 .receipt-file__type { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); font-size: .58rem; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
 .receipt-file__copy { min-width: 0; }
@@ -480,13 +508,28 @@ tbody tr:hover { background: var(--surface-subtle); }
 .login-form { display: grid; gap: 18px; margin-top: 34px; }
 .login-form .btn { width: 100%; margin-top: 3px; }
 
+/* Below this the four-across overview squeezes the metric cards under the width
+   the odometer reading needs, and the two-column refuel and receipt cards stop
+   fitting their own minimum track widths — they grow past the container instead
+   of shrinking. Both drop a column here rather than overflow. The cut is set
+   where a six-figure odometer still fits, not merely today's five. */
+@media (max-width: 960px) {
+  .status-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .status-overview .state-card { grid-column: 1 / -1; }
+  .refuel-card, .receipt-card { grid-template-columns: 1fr; }
+}
+/* The full-size navigation needs 780px of viewport before it stops being clipped,
+   and the wordmark beside it another 130px on top of that. */
+@media (max-width: 820px) {
+  .nav a, .nav__logout { min-height: 38px; padding-inline: 7px; font-size: .73rem; }
+  .nav .icon-button { width: 38px; height: 38px; flex-basis: 38px; }
+  .nav__separator { margin-inline: 2px; }
+}
 @media (max-width: 760px) {
   .container { width: min(100% - 24px, 1120px); }
   .page { padding-top: 52px; }
   .card { grid-column: span 6; }
   .card--wide, .card--table { grid-column: 1 / -1; }
-  .status-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .status-overview .state-card { grid-column: 1 / -1; }
   .log-filters { grid-template-columns: 1fr 1fr; }
   .log-filters .field:first-child { grid-column: 1 / -1; }
   .payload-grid { grid-template-columns: 1fr; }
@@ -495,16 +538,44 @@ tbody tr:hover { background: var(--surface-subtle); }
   .daily-chart__item { grid-template-rows: 1fr 19px; }
   .battery-trend__row { grid-template-columns: 54px 1fr 1fr; gap: 8px; }
   .battery-trend__row span:last-child { display: none; }
-  .refuel-card, .receipt-card { grid-template-columns: 1fr; }
   .refuel-details-form { grid-template-columns: 1fr; }
   .refuel-details-form__wide, .refuel-calculate { grid-column: auto; }
 }
+/* Six links, a theme switch and a logout button stop fitting a single row here,
+   so below this they fold into a panel behind the burger. Closed, the panel is
+   `visibility: hidden`, which keeps it out of both the tab order and the
+   accessibility tree while still allowing the open state to animate. */
+@media (max-width: 660px) {
+  .nav-toggle { display: inline-grid; }
+  .nav {
+    position: absolute;
+    z-index: 1;
+    top: calc(100% + 9px);
+    right: 0;
+    left: 0;
+    gap: 2px;
+    padding: 9px;
+    border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+    border-radius: 18px;
+    /* Opaque on purpose: a `backdrop-filter` here would sample the header's
+       already-composited backdrop instead of the page, leaving the dashboard
+       legible straight through the menu. */
+    background: var(--surface);
+    box-shadow: 0 22px 50px rgb(24 57 42 / .22);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px) scale(.98);
+    transition: opacity .2s ease, transform .22s cubic-bezier(.4, 0, .2, 1), visibility .22s;
+  }
+  .nav--open { opacity: 1; visibility: visible; transform: none; }
+  /* Links take a row each; the switch and the logout share the last one. */
+  .nav a { flex: 1 1 100%; justify-content: flex-start; min-height: 46px; padding-inline: 14px; border-radius: 12px; font-size: .88rem; }
+  .nav__separator { flex: 1 1 100%; width: auto; height: 1px; margin: 6px 2px; }
+  .nav .icon-button { flex: 0 0 40px; width: 40px; height: 40px; border: 1px solid var(--line); }
+  .nav__logout { flex: 1 1 auto; min-height: 40px; border-radius: 12px; font-size: .84rem; }
+}
 @media (max-width: 560px) {
   .app-header { top: 8px; min-height: 60px; margin-top: 8px; padding: 9px; border-radius: 16px; }
-  .brand-logo--compact .brand-logo__copy { display: none; }
-  .nav__separator { margin-inline: 2px; }
-  .nav a, .nav__logout { min-height: 38px; padding-inline: 7px; font-size: .73rem; }
-  .nav .icon-button { width: 38px; height: 38px; flex-basis: 38px; }
   .page-heading { margin-bottom: 25px; }
   .page-title { font-size: clamp(2.7rem, 14vw, 4rem); }
   .grid { gap: 11px; }
@@ -530,7 +601,9 @@ tbody tr:hover { background: var(--surface-subtle); }
   .history-empty { max-width: calc(100% - 32px); text-align: center; white-space: normal; }
   .refuels-heading__note { text-align: left; }
   .refuel-card, .receipt-card { gap: 22px; padding: 20px; }
-  .refuel-meta { gap: 8px; }
+  /* Three columns leave about 80px per value, and the fuel grade does not wrap,
+     so it used to run straight over the price beside it. */
+  .refuel-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
   .receipts-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
   .chart-switcher { overflow-x: auto; }
   .receipt-actions .btn { flex: 1 1 auto; }
@@ -538,16 +611,13 @@ tbody tr:hover { background: var(--surface-subtle); }
   .receipt-panel { padding: 15px; }
   .receipt-panel__top { align-items: stretch; flex-direction: column; }
   .receipt-upload { width: 100%; }
-  .receipt-file { grid-template-columns: 50px minmax(0, 1fr); }
+  .receipt-file { grid-template-columns: minmax(50px, auto) minmax(0, 1fr); }
   .receipt-file__action { display: none; }
 }
-@media (max-width: 380px) {
-  .app-header .brand { display: none; }
-  .app-header { justify-content: center; }
-  .nav { gap: 0; }
-  .nav a, .nav__logout { padding-inline: 4px; font-size: .66rem; }
-  .nav__separator { margin-inline: 0; }
-  .nav .icon-button { width: 34px; height: 34px; flex-basis: 34px; }
+/* Fourteen columns share the card width here, which is narrower than "20.08"
+   renders — the labels were being ellipsised down to "2…". The day alone fits. */
+@media (max-width: 430px) {
+  .daily-chart__day-month { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }

@@ -66,6 +66,14 @@ function dailyBarHeight(distance: number) {
 function shortDay(value: string) {
   return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T00:00:00+03:00`))
 }
+// The chart keeps fourteen columns whatever the screen, so on a phone the month
+// half of the label is dropped by CSS and only the day number is left standing.
+function dayNumber(value: string) {
+  return shortDay(value).slice(0, 2)
+}
+function dayMonth(value: string) {
+  return shortDay(value).slice(2)
+}
 function duration(minutes: number | null | undefined) {
   if (!minutes) return '0 мин'
   const rounded = Math.round(minutes)
@@ -106,7 +114,7 @@ function duration(minutes: number | null | undefined) {
           >
             <span class="daily-chart__value">{{ item.distance > 0 ? number(item.distance, 0) : '—' }}</span>
             <span class="daily-chart__track"><span class="daily-chart__bar" :style="{ height: dailyBarHeight(item.distance) }" /></span>
-            <span class="daily-chart__day">{{ shortDay(item.day) }}</span>
+            <span class="daily-chart__day">{{ dayNumber(item.day) }}<span class="daily-chart__day-month">{{ dayMonth(item.day) }}</span></span>
           </NuxtLink>
         </div>
       </section>
