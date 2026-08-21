@@ -65,7 +65,8 @@ export function normalizeDeviceResponse(raw: StarLineDataResponse): NormalizedSn
   return {
     deviceId: String(data.device_id), alias: data.alias || 'Chery', ts: new Date(), activityTs: timestamp(data.activity_ts ?? data.ts_activity),
     online: data.status === 1 ? true : data.status === 2 ? false : null,
-    ignition, mileage: finite(data.obd?.mileage), mileageTs: timestamp(data.obd?.mileage_ts ?? data.obd?.ts),
+    ignition, armed: typeof data.state?.arm === 'boolean' ? data.state.arm : null,
+    mileage: finite(data.obd?.mileage), mileageTs: timestamp(data.obd?.mileage_ts ?? data.obd?.ts),
     fuel: fuelLitres ?? fuelByPercent ?? fuelConverted, fuelPercent, fuelTs: timestamp(data.obd?.fuel_ts ?? data.obd?.ts),
     fuelSource: fuelLitres != null ? 'litres' : fuelByPercent != null ? 'percent' : fuelConverted != null ? 'converted' : null,
     battery: finite(data.common?.battery), batteryType: batteryType === 'volt' || batteryType === 'percent' ? batteryType : null,
@@ -102,7 +103,7 @@ export async function pollVehicle(database: Database) {
   }
   const [snapshot] = await database.insert(vehicleSnapshots).values({
     vehicleId: vehicle.id, ts: normalized.ts, activityTs: normalized.activityTs, online: normalized.online,
-    ignition: normalized.ignition, mileage: normalized.mileage, mileageTs: normalized.mileageTs,
+    ignition: normalized.ignition, armed: normalized.armed, mileage: normalized.mileage, mileageTs: normalized.mileageTs,
     fuel: normalized.fuel, fuelPercent: normalized.fuelPercent, fuelTs: normalized.fuelTs, fuelSource: normalized.fuelSource,
     battery: normalized.battery, batteryType: normalized.batteryType, commonTs: normalized.commonTs,
     engineTemp: normalized.engineTemp, cabinTemp: normalized.cabinTemp, lat: normalized.lat, lon: normalized.lon,

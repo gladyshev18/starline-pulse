@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { migrate } from 'drizzle-orm/libsql/migrator'
 import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../db/client'
-import { engineSessions, refuelEvents, vehicles } from '../db/schema'
+import { engineSessions, refuelEvents, vehicleSnapshots, vehicles } from '../db/schema'
 import { idleSummary, resolveFuelPrice } from '../metrics/idle'
 import { DEFAULT_IDLE_LITRES_PER_HOUR } from '../shared/idle-cost'
 
@@ -42,6 +42,92 @@ function measuredHistory(vehicleId: number) {
     fuelEnd: 39.65
   }))
 }
+
+// Polls run every 30 seconds while the engine is on, which is what the armed
+// minutes are summed from.
+function polls(vehicleId: number, from: Date, steps: Array<{ ignition: boolean, armed: boolean | null }>) {
+  return steps.map((step, index) => ({
+    vehicleId,
+    ts: new Date(from.getTime() + index * 30_000),
+    rawJson: '{}',
+    ...step
+  }))
+}
+
+describe('armed idle inside a session that moved', () => {
+  const departure = new Date(start.getTime() + 24 * 60 * MINUTE)
+
+  it('counts the warm-up a remote start left under alarm', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(engineSessions).values([
+        session(vehicleId, 1, 20, { isStationary: false, distance: 12 })
+      ])
+      // Ten polls armed, then the driver walks out, disarms and drives off.
+      await database.insert(vehicleSnapshots).values(polls(vehicleId, departure, [
+        ...Array.from({ length: 11 }, () => ({ ignition: true, armed: true })),
+        ...Array.from({ length: 10 }, () => ({ ignition: true, armed: false }))
+      ]))
+      const summary = await idleSummary(database, vehicleId, start, end)
+      // Ten thirty-second intervals armed at both ends; the one where the alarm
+      // went off is dropped.
+      expect(summary.armedMinutes).toBeCloseTo(5)
+      expect(summary.stationaryMinutes).toBe(0)
+      expect(summary.minutes).toBeCloseTo(5)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('does not bill a stationary session twice for being armed', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(engineSessions).values([session(vehicleId, 1, 20)])
+      await database.insert(vehicleSnapshots).values(polls(vehicleId, departure,
+        Array.from({ length: 21 }, () => ({ ignition: true, armed: true }))))
+      const summary = await idleSummary(database, vehicleId, start, end)
+      expect(summary.armedMinutes).toBe(0)
+      expect(summary.stationaryMinutes).toBe(20)
+      expect(summary.minutes).toBe(20)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('ignores armed polls with the engine off', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(engineSessions).values([
+        session(vehicleId, 1, 20, { isStationary: false, distance: 12 })
+      ])
+      await database.insert(vehicleSnapshots).values(polls(vehicleId, departure,
+        Array.from({ length: 21 }, () => ({ ignition: false, armed: true }))))
+      const summary = await idleSummary(database, vehicleId, start, end)
+      expect(summary.armedMinutes).toBe(0)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('does not stretch a warm-up across a gap where the worker was down', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(engineSessions).values([
+        session(vehicleId, 1, 600, { isStationary: false, distance: 12 })
+      ])
+      await database.insert(vehicleSnapshots).values([
+        { vehicleId, ts: departure, rawJson: '{}', ignition: true, armed: true },
+        // Two hours later: the poll never ran, the engine did not idle through it.
+        { vehicleId, ts: new Date(departure.getTime() + 120 * MINUTE), rawJson: '{}', ignition: true, armed: true },
+        { vehicleId, ts: new Date(departure.getTime() + 120.5 * MINUTE), rawJson: '{}', ignition: true, armed: false }
+      ])
+      const summary = await idleSummary(database, vehicleId, start, end)
+      expect(summary.armedMinutes).toBeCloseTo(5)
+    } finally {
+      await database.$client.close()
+    }
+  })
+})
 
 describe('idleSummary', () => {
   it('counts only closed stationary sessions inside the period', async () => {

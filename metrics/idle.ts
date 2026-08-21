@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
-import { engineSessions, refuelEvents } from '../db/schema'
+import { engineSessions, refuelEvents, vehicleSnapshots } from '../db/schema'
 import { WARM_ENGINE_CELSIUS, idleCost, measureIdleRate, type IdleRate } from '../shared/idle-cost'
 
 // A warm-up is the engine running while the car stays put. What proves it stayed
@@ -25,6 +25,56 @@ export async function measureVehicleIdleRate(database: Database, vehicleId: numb
     fuelEnd: engineSessions.fuelEnd
   }).from(engineSessions).where(stationarySessions(vehicleId))
   return measureIdleRate(samples)
+}
+
+// While the engine runs the car is polled every 30 seconds, so a longer gap means
+// the worker was down rather than the engine idling through it.
+const MAX_POLL_GAP_MS = 5 * 60_000
+
+// A warm-up that ends in a trip hides inside a session that did move, and nothing
+// in the data marks the moment the car pulled away: the odometer reports in
+// chunks, `position.s` is always zero, and the cell-tower fix lags the car by
+// three to four minutes — measured at 5,1 l/h against 0,70 l/h of real idling,
+// which is driving, not standing.
+//
+// The alarm is the one exact answer. An armed car cannot be driven, so armed with
+// the engine running is a warm-up beyond argument. It only catches remote starts,
+// since warming up from the driver's seat means the door was opened and the alarm
+// is already off — but a remote start is precisely the warm-up that ends in a trip.
+async function armedIdleMinutes(database: Database, vehicleId: number, start: Date, end: Date) {
+  const rows = await database.all<{ minutes: number }>(sql`
+    with steps as (
+      select
+        ${vehicleSnapshots.ts} as ts,
+        ${vehicleSnapshots.ignition} as ignition,
+        ${vehicleSnapshots.armed} as armed,
+        lag(${vehicleSnapshots.ts}) over (order by ${vehicleSnapshots.ts}) as prev_ts,
+        lag(${vehicleSnapshots.ignition}) over (order by ${vehicleSnapshots.ts}) as prev_ignition,
+        lag(${vehicleSnapshots.armed}) over (order by ${vehicleSnapshots.ts}) as prev_armed
+      from ${vehicleSnapshots}
+      where ${vehicleSnapshots.vehicleId} = ${vehicleId}
+        and ${vehicleSnapshots.ts} >= ${start.getTime()}
+        and ${vehicleSnapshots.ts} < ${end.getTime()}
+        -- Sessions that never moved are counted whole from the session table, so
+        -- taking their armed minutes here as well would bill them twice.
+        and exists (
+          select 1 from ${engineSessions}
+          where ${engineSessions.vehicleId} = ${vehicleId}
+            and ${engineSessions.isOpen} = 0
+            and ${engineSessions.isStationary} = 0
+            and ${vehicleSnapshots.ts} >= ${engineSessions.startedAt}
+            and ${vehicleSnapshots.ts} <= ${engineSessions.endedAt}
+        )
+    )
+    -- Both ends of the interval must be armed and running. The poll that finds
+    -- the alarm already off is dropped rather than credited: disarming happened
+    -- somewhere inside that interval, and guessing where would only pad the bill.
+    select coalesce(sum(min(ts - prev_ts, ${MAX_POLL_GAP_MS})), 0) / 60000.0 as minutes
+    from steps
+    where prev_ts is not null and prev_ignition = 1 and prev_armed = 1
+      and ignition = 1 and armed = 1
+  `)
+  return Number(rows[0]?.minutes || 0)
 }
 
 export type FuelPriceSource = 'period' | 'latest' | null
@@ -62,6 +112,8 @@ export async function resolveFuelPrice(database: Database, vehicleId: number, st
 export const emptyIdleSummary = () => ({
   sessions: 0,
   minutes: 0,
+  stationaryMinutes: 0,
+  armedMinutes: 0,
   coldSessions: 0,
   coldMinutes: 0,
   warmSessions: 0,
@@ -105,10 +157,14 @@ export async function idleSummary(database: Database, vehicleId: number, start: 
 
   const rate = await measureVehicleIdleRate(database, vehicleId)
   const { pricePerLitre, priceSource } = await resolveFuelPrice(database, vehicleId, start, end)
-  const minutes = Number(totals?.minutes || 0)
+  const stationaryMinutes = Number(totals?.minutes || 0)
+  const armed = await armedIdleMinutes(database, vehicleId, start, end)
+  const minutes = stationaryMinutes + armed
 
   return {
     ...idleCost({ minutes, rate, pricePerLitre }),
+    stationaryMinutes,
+    armedMinutes: armed,
     sessions: Number(totals?.sessions || 0),
     coldSessions: Number(totals?.coldSessions || 0),
     coldMinutes: Number(totals?.coldMinutes || 0),

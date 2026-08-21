@@ -80,6 +80,9 @@ const idleSummaryNote = computed(() => {
   const parts = [`За месяц · ${duration(idle.minutes)} · ${number(idle.litres, 1)} л`]
   parts.push(`${number(idle.sessions)} ${warmupWord(idle.sessions)}`)
   if (idle.coldMinutes > 0) parts.push(`на холодную ${duration(idle.coldMinutes)}`)
+  // Only worth a word when it happened: the alarm stays on through a remote
+  // start, so this is the warm-up that ended in a trip rather than in shutdown.
+  if (idle.armedMinutes > 0) parts.push(`перед поездкой ${duration(idle.armedMinutes)}`)
   return parts.join(' · ')
 })
 // The rate is spelled out because it is the entire basis of the figure: idling

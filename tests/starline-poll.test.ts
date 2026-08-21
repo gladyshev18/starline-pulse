@@ -6,12 +6,21 @@ describe('normalizeDeviceResponse', () => {
     const result = normalizeDeviceResponse({ code: 200, data: {
       alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
       status: 1, position: { x: 37.6, y: 55.7 }, common: { battery: 12.4, battery_type: 'volt', ctemp: 22, etemp: 70, gsm_lvl: 19 },
-      obd: { mileage: 1234.5, fuel_litres: 31.2, fuel_percent: 62 }, state: { ign: true }
+      obd: { mileage: 1234.5, fuel_litres: 31.2, fuel_percent: 62 }, state: { ign: true, arm: false }
     } })
     expect(result).toMatchObject({
-      deviceId: '42', alias: 'Chery', online: true, ignition: true, mileage: 1234.5,
+      deviceId: '42', alias: 'Chery', online: true, ignition: true, armed: false, mileage: 1234.5,
       fuel: 31.2, fuelPercent: 62, fuelSource: 'litres', battery: 12.4, batteryType: 'volt', lat: 55.7, lon: 37.6
     })
+  })
+
+  // Armed with the engine running is the one unambiguous warm-up, so the flag has
+  // to survive the trip from the response into the snapshot.
+  it('keeps the alarm state, and does not invent one when it is missing', () => {
+    const base = { alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000, obd: {} }
+    expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true, arm: true } } }).armed).toBe(true)
+    expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true } } }).armed).toBeNull()
+    expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true, arm: null } } }).armed).toBeNull()
   })
 
   it('converts the percentage itself instead of trusting the API-floored litres', () => {

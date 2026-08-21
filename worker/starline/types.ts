@@ -38,7 +38,7 @@ export interface StarLineDeviceData {
     ts?: number | null
     [key: string]: unknown
   }
-  state?: { ign?: boolean | null, run?: boolean | null, ts?: number, [key: string]: unknown }
+  state?: { ign?: boolean | null, run?: boolean | null, arm?: boolean | null, ts?: number, [key: string]: unknown }
   alarm_state?: Record<string, unknown>
   event?: unknown
   r_start?: Record<string, unknown>
@@ -59,6 +59,7 @@ export interface NormalizedSnapshot {
   activityTs: Date | null
   online: boolean | null
   ignition: boolean | null
+  armed: boolean | null
   mileage: number | null
   mileageTs: Date | null
   fuel: number | null

@@ -78,6 +78,10 @@ export const vehicleSnapshots = sqliteTable('vehicle_snapshots', {
   activityTs: integer('activity_ts', { mode: 'timestamp_ms' }),
   online: integer('online', { mode: 'boolean' }),
   ignition: integer('ignition', { mode: 'boolean' }),
+  // Armed with the engine running can only mean a warm-up: an armed car cannot
+  // be driven. It is the one exact way to catch the warm-up that ends in a trip,
+  // because a remote start leaves the alarm on until the driver walks out.
+  armed: integer('armed', { mode: 'boolean' }),
   mileage: real('mileage'),
   mileageTs: integer('mileage_ts', { mode: 'timestamp_ms' }),
   fuel: real('fuel'),

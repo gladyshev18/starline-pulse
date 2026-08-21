@@ -106,9 +106,10 @@ function idleLines(idle: Awaited<ReturnType<typeof idleSummary>>) {
   if (!(idle.minutes > 0)) return ['• Прогревов не было']
   const spent = idle.cost == null ? '' : ` · ${money.format(idle.cost)}`
   const cold = idle.coldMinutes > 0 ? ` · на холодную ${duration(idle.coldMinutes)}` : ''
+  const armed = idle.armedMinutes > 0 ? ` · перед поездкой ${duration(idle.armedMinutes)}` : ''
   const rate = `${preciseDecimal.format(idle.rate.litresPerHour)} л/ч`
   return [
-    `• Прогревы: ${integer.format(idle.sessions)} · ${duration(idle.minutes)} · ${decimal.format(idle.litres)} л${spent}${cold}`,
+    `• Прогревы: ${integer.format(idle.sessions)} · ${duration(idle.minutes)} · ${decimal.format(idle.litres)} л${spent}${cold}${armed}`,
     `• Холостой ход: ${rate} ${idle.rate.source === 'measured' ? 'по замерам' : '(оценка)'}`
       + ` · ${idle.pricePerLitre == null ? 'цена литра неизвестна' : `${preciseDecimal.format(idle.pricePerLitre)} ₽/л`}`
   ]
