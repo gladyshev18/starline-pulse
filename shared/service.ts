@@ -8,14 +8,20 @@
 export const OIL_INTERVAL_KM = 10_000
 export const OIL_INTERVAL_MONTHS = 12
 
-// The kilometre interval quietly assumes a speed — the manual's ten thousand are
-// ten thousand kilometres of ordinary driving, not of standing still. Thirty
-// km/h is the equivalence behind the usual "one engine-hour is about thirty
-// kilometres" rule, and it is what turns a distance interval into a time one.
-// Raising it lengthens the engine-hour interval, so it is the single number to
-// tune if the manual gives engine hours outright.
-export const OIL_REFERENCE_SPEED_KMH = 30
-export const OIL_INTERVAL_MOTOR_HOURS = OIL_INTERVAL_KM / OIL_REFERENCE_SPEED_KMH
+// Not derived from the kilometre interval but taken from what oil actually
+// lasts. The figures agreed on across the trade: synthetic oil in ordinary use
+// holds 250-300 engine-hours, and in hard use — winter, city traffic, a
+// turbocharged engine — 200-250; semi-synthetic 250, mineral 150. This car sits
+// in the hard-use band: its own trip log shows 18.8 l/100 km in jams and about
+// 42 km per engine-hour overall. So 250 is the upper edge of the band it
+// belongs to rather than a guess, and it is the one number to change for a
+// different oil.
+export const OIL_INTERVAL_MOTOR_HOURS = 250
+
+// The average speed at which the two intervals would expire together. Below it
+// the engine-hours run out first and the odometer would send you for an oil
+// change too late; above it the distance interval is the conservative one.
+export const OIL_EQUIVALENT_SPEED_KMH = OIL_INTERVAL_KM / OIL_INTERVAL_MOTOR_HOURS
 
 export type OilClockName = 'km' | 'hours' | 'months'
 
@@ -78,9 +84,9 @@ export function oilClockGap(life: OilLife) {
 }
 
 // The distance this car actually covers per engine-hour. Compared against
-// OIL_REFERENCE_SPEED_KMH it says in one number whether its life is motorway or
-// traffic — and it is the honest way to check the assumption above rather than
-// taking the rule of thumb on faith.
+// OIL_EQUIVALENT_SPEED_KMH it says in one number which interval governs: the
+// trade's own conversion is 70-90 km/h on the motorway, 30-40 in a city without
+// jams and 10-20 in dense traffic.
 export function kmPerMotorHour(km: number | null, motorHours: number | null) {
   if (km == null || motorHours == null || !(motorHours > 0)) return null
   return km / motorHours

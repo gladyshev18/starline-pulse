@@ -15,6 +15,25 @@ const editingRefuel = ref<{
 } | null>(null)
 const detailsPending = ref(false)
 const detailsError = ref('')
+// The gauge reads in half litres, so one refuel disagreeing with its receipt by
+// exactly that is rounding. Only the average over several of them is the sensor.
+const driftHeadline = computed(() => {
+  const drift = data.value?.drift
+  if (!drift || drift.bias == null) return 'Пока не с чем сравнивать'
+  const direction = drift.bias > 0 ? 'завышает' : drift.bias < 0 ? 'занижает' : 'совпадает с чеками'
+  if (drift.bias === 0) return 'Совпадает с чеками'
+  return `Датчик ${direction} на ${number(Math.abs(drift.bias), 2)} л`
+})
+const driftNote = computed(() => {
+  const drift = data.value?.drift
+  if (!drift) return ''
+  const parts: string[] = []
+  if (drift.samples) parts.push(`${drift.samples} заправок с чеком`)
+  if (drift.uncertainty != null) parts.push(`± ${number(drift.uncertainty, 2)} л`)
+  if (drift.saturated) parts.push(`${drift.saturated} до полного бака не в счёт — датчик упирается в 100 %`)
+  if (!drift.systematic && drift.samples) parts.push('для поправки этого мало: расхождение пока в пределах округления')
+  return parts.join(' · ')
+})
 const details = reactive({ station: '', stationName: '', fuelType: '', pricePerLitre: '', totalAmount: '' })
 
 function number(value: number | null, digits = 1) {
@@ -164,6 +183,14 @@ async function uploadReceipt(refuelId: number, event: Event) {
       <p class="muted">Заправки пока не обнаружены. Они появятся здесь после увеличения уровня топлива.</p>
     </section>
     <div v-else class="refuel-list">
+      <section v-if="data.drift.samples || data.drift.saturated" class="card card--wide">
+        <div class="card__top">
+          <p class="metric-label">Точность датчика</p>
+          <span v-if="data.drift.systematic" class="metric-badge">систематическое</span>
+        </div>
+        <p class="metric metric--compact">{{ driftHeadline }}</p>
+        <p class="muted">{{ driftNote }}</p>
+      </section>
       <article v-for="refuel in data.items" :key="refuel.id" class="card refuel-card">
         <div class="refuel-card__summary">
           <div>

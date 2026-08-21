@@ -1,5 +1,6 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { serviceEvents, vehicleSnapshots } from '../../../db/schema'
+import { batteryHealth } from '../../../metrics/battery'
 import { emptyOilStatus, engineSummary, oilStatus } from '../../../metrics/engine'
 import { currentMoscowMonth, moscowMonthRange } from '../../utils/moscow-month'
 
@@ -11,6 +12,7 @@ export default defineEventHandler(async () => {
       vehicle: null,
       oil: emptyOilStatus(),
       engine: { counterMinutes: 0, sessionMinutes: 0, sessions: 0, unattributedMinutes: 0 },
+      battery: null,
       motorMinutes: null,
       mileage: null,
       events: []
@@ -38,6 +40,9 @@ export default defineEventHandler(async () => {
     vehicle,
     oil: await oilStatus(database, vehicle.id, now),
     engine: await engineSummary(database, vehicle.id, month.start, now),
+    // Degradation is a matter of years, so the trend is fitted over everything
+    // recorded rather than over the month on screen.
+    battery: await batteryHealth(database, vehicle.id, new Date(0), now),
     motorMinutes: counter?.motorMinutes ?? null,
     mileage: odometer?.mileage ?? null,
     events: await database.select().from(serviceEvents)

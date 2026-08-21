@@ -1,11 +1,12 @@
 import { desc, eq, inArray } from 'drizzle-orm'
 import { refuelEvents, refuelReceipts } from '../../db/schema'
 import { isReceiptConfirming } from '../../receipts/store'
+import { measureSensorDrift } from '../../shared/sensor-drift'
 
 export default defineEventHandler(async () => {
   const database = useAppDatabase()
   const vehicle = await database.query.vehicles.findFirst()
-  if (!vehicle) return { items: [] }
+  if (!vehicle) return { items: [], drift: measureSensorDrift([]) }
 
   const events = await database.select()
     .from(refuelEvents)
@@ -21,7 +22,18 @@ export default defineEventHandler(async () => {
     : []
   const receiptsByRefuel = Map.groupBy(receipts, receipt => receipt.refuelEventId)
 
+  // Every refuel a receipt has priced is one measurement of how far the gauge
+  // sits from the truth. Alone each is mostly rounding; together they calibrate.
+  const drift = measureSensorDrift(events
+    .filter(refuel => (receiptsByRefuel.get(refuel.id) || []).some(isReceiptConfirming))
+    .map(refuel => ({
+      sensorLitres: refuel.sensorLitresAdded,
+      receiptLitres: refuel.litresAdded,
+      percentAfter: refuel.percentAfter
+    })))
+
   return {
+    drift,
     items: events.map((refuel) => {
       const attached = receiptsByRefuel.get(refuel.id) || []
       const confirming = attached.filter(isReceiptConfirming)

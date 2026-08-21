@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS, OIL_REFERENCE_SPEED_KMH } from '~~/shared/service'
+import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS } from '~~/shared/service'
 
 const { data, status, refresh } = await useFetch('/api/service')
-const adding = ref(false)
 const pending = ref(false)
-const formError = ref('')
-const form = reactive({ performedAt: '', mileage: '', note: '' })
 
 function number(value: number | null | undefined, digits = 0) {
   if (value == null) return '—'
@@ -35,11 +32,33 @@ const oil = computed(() => data.value?.oil)
 // The whole point of the engine-hour clock is that it can disagree with the
 // odometer; saying which one the service is actually due on is the answer the
 // page exists to give.
+// The headline is the remaining resource in the units of the clock that governs,
+// because "осталось 47 %" tells you nothing you can act on and "осталось 201
+// моточас" does.
+// The remaining hours land on every one of the three Russian forms — 201 needs
+// «моточас», 202 needs «моточаса» — and the wrong one is impossible to miss.
+function motorHourWord(count: number) {
+  const tens = count % 100
+  const ones = count % 10
+  if (tens >= 11 && tens <= 14) return 'моточасов'
+  if (ones === 1) return 'моточас'
+  if (ones >= 2 && ones <= 4) return 'моточаса'
+  return 'моточасов'
+}
+function clockRemaining(item: { name: string, remaining: number } | null | undefined) {
+  if (!item) return '—'
+  if (item.name === 'km') return `${number(item.remaining)} км`
+  if (item.name === 'hours') {
+    const whole = Math.round(item.remaining)
+    return `${number(whole)} ${motorHourWord(whole)}`
+  }
+  return `${number(item.remaining, 1)} мес`
+}
 const oilHeadline = computed(() => {
   const life = oil.value?.life
   if (!life?.binding) return 'Замена не записана'
   if (life.overdue) return 'Пора менять масло'
-  return `Осталось ${percent(1 - life.binding.share)} ресурса`
+  return `Осталось ${clockRemaining(life.binding)}`
 })
 const oilNote = computed(() => {
   const life = oil.value?.life
@@ -66,37 +85,44 @@ const counterIncomplete = computed(() => {
   return engine.sessionMinutes > 0 && engine.counterMinutes < engine.sessionMinutes * 0.95
 })
 
-function resetForm() {
-  form.performedAt = new Date().toISOString().slice(0, 10)
-  form.mileage = ''
-  form.note = ''
-  formError.value = ''
+const battery = computed(() => data.value?.battery)
+// Degradation shows up over years, so for a long while the only honest headline
+// is how much of the record exists so far.
+const batteryHeadline = computed(() => {
+  const trend = battery.value
+  if (!trend || !trend.days) return 'Нет ночных замеров'
+  if (trend.currentVolts == null) return 'Данных пока мало'
+  return `${number(trend.currentVolts, 2)} В покоя`
+})
+function plural(count: number, one: string, few: string, many: string) {
+  const tens = count % 100
+  const ones = count % 10
+  if (tens >= 11 && tens <= 14) return many
+  if (ones === 1) return one
+  if (ones >= 2 && ones <= 4) return few
+  return many
 }
-function openForm() {
-  resetForm()
-  adding.value = true
-}
-function errorMessage(error: unknown) {
-  if (typeof error === 'object' && error) {
-    const value = error as { data?: { statusMessage?: string }, statusMessage?: string }
-    return value.data?.statusMessage || value.statusMessage || 'Не удалось сохранить запись'
+const batteryNote = computed(() => {
+  const trend = battery.value
+  if (!trend || !trend.days) return 'Напряжение покоя измеряется ночью, когда двигатель давно выключен.'
+  const collected = `${number(trend.days)} ${plural(trend.days, 'ночь', 'ночи', 'ночей')}`
+    + ` за ${number(trend.spanDays)} ${plural(Math.round(trend.spanDays), 'день', 'дня', 'дней')}`
+  if (!trend.confident) {
+    // Two different reasons look the same from outside, and only one of them is
+    // about waiting: a short record needs more nights, a flat one needs nothing.
+    const enough = trend.days >= 45 && trend.spanDays >= 60
+    return enough
+      ? `${collected} — заметного тренда нет, напряжение держится.`
+      : `${collected} — для вывода о тренде нужно около двух месяцев наблюдений.`
   }
-  return 'Не удалось сохранить запись'
-}
-async function save() {
-  if (pending.value) return
-  pending.value = true
-  formError.value = ''
-  try {
-    await $fetch('/api/service', { method: 'POST', body: { ...form } })
-    await refresh()
-    adding.value = false
-  } catch (error) {
-    formError.value = errorMessage(error)
-  } finally {
-    pending.value = false
-  }
-}
+  const perMonth = trend.slopePerMonth!
+  const direction = perMonth < 0 ? 'теряет' : 'набирает'
+  const forecast = trend.daysToWarning == null
+    ? ''
+    : ` · до 12,2 В около ${number(trend.daysToWarning / 30.437, 0)} мес`
+  return `${direction} ${number(Math.abs(perMonth), 3)} В в месяц ± ${number(trend.standardError!, 3)}${forecast}`
+})
+
 async function remove(id: number) {
   if (pending.value) return
   pending.value = true
@@ -113,7 +139,6 @@ async function remove(id: number) {
   <div>
     <header class="page-heading">
       <div><p class="eyebrow">Автомобиль</p><h1 class="page-title">Обслуживание</h1></div>
-      <button class="btn" type="button" @click="openForm">Записать замену масла</button>
     </header>
 
     <div v-if="status === 'pending'" class="card skeleton">Загрузка…</div>
@@ -131,8 +156,9 @@ async function remove(id: number) {
             <p class="oil-clock__label">{{ clockLabels[item.name] }}</p>
             <span class="oil-clock__track"><span class="oil-clock__bar" :style="{ width: `${Math.min(100, item.share * 100)}%` }" /></span>
             <p class="oil-clock__value">
-              <strong>{{ percent(item.share) }}</strong>
+              <strong>{{ item.remaining > 0 ? `осталось ${clockRemaining(item)}` : 'исчерпано' }}</strong>
               <span class="muted">
+                {{ percent(item.share) }} ·
                 {{ item.name === 'km' ? `${number(item.used)} из ${number(OIL_INTERVAL_KM)} км` : '' }}
                 {{ item.name === 'hours' ? `${number(item.used)} из ${number(OIL_INTERVAL_MOTOR_HOURS)} ч` : '' }}
                 {{ item.name === 'months' ? `${number(item.used, 1)} из ${OIL_INTERVAL_MONTHS} мес` : '' }}
@@ -143,7 +169,11 @@ async function remove(id: number) {
         <p v-if="clockAdvice" class="metric-meta">{{ clockAdvice }}</p>
         <p v-if="oil?.service" class="metric-meta">
           Последняя замена {{ date(oil.service.performedAt) }}<span v-if="oil.service.mileage"> на {{ number(oil.service.mileage) }} км</span>
-          <span v-if="oil.kmPerHour"> · с тех пор {{ number(oil.kmPerHour) }} км на моточас при опорных {{ OIL_REFERENCE_SPEED_KMH }}</span>
+          <span v-if="oil.kmPerHour"> · с тех пор {{ number(oil.kmPerHour) }} км на моточас, шкалы сходятся на {{ OIL_EQUIVALENT_SPEED_KMH }}</span>
+        </p>
+        <p class="metric-meta">
+          Интервал в моточасах взят не из пробега, а из ресурса масла: синтетика держит 250–300 моточасов в обычных условиях
+          и 200–250 в тяжёлых — зимой, в пробках, на турбомоторе.
         </p>
       </section>
 
@@ -162,6 +192,18 @@ async function remove(id: number) {
         </p>
         <p v-else-if="data && data.engine.unattributedMinutes > 0.5" class="metric-meta">
           {{ duration(data.engine.unattributedMinutes) }} работы двигателя не попало ни в одну сессию — на столько же занижены прогревы.
+        </p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <p class="metric-label">Аккумулятор</p>
+          <span v-if="battery?.confident && (battery.slopePerMonth || 0) < 0" class="metric-badge metric-badge--warn">снижается</span>
+        </div>
+        <p class="metric metric--compact">{{ batteryHeadline }}</p>
+        <p class="muted">{{ batteryNote }}</p>
+        <p v-if="battery?.ambientAdjusted" class="metric-meta">
+          Поправка на уличную температуру учтена: холод сам по себе роняет напряжение покоя, и без неё зима выглядела бы деградацией.
         </p>
       </section>
 
@@ -185,33 +227,5 @@ async function remove(id: number) {
       </section>
     </div>
 
-    <AppModal
-      :model-value="adding"
-      title="Замена масла"
-      eyebrow="Обслуживание"
-      :close-on-backdrop="!pending"
-      :close-on-escape="!pending"
-      @update:model-value="value => { if (!value && !pending) adding = false }"
-    >
-      <form id="service-form" class="refuel-details-form" @submit.prevent="save">
-        <div>
-          <label for="service-date">Дата замены</label>
-          <input id="service-date" v-model="form.performedAt" type="date" :disabled="pending">
-        </div>
-        <div>
-          <label for="service-mileage">Пробег, км</label>
-          <input id="service-mileage" v-model="form.mileage" inputmode="decimal" placeholder="возьмём из снимка" :disabled="pending">
-        </div>
-        <div class="refuel-details-form__wide">
-          <label for="service-note">Заметка</label>
-          <input id="service-note" v-model="form.note" maxlength="200" placeholder="Например, марка масла и фильтра" :disabled="pending">
-        </div>
-        <p v-if="formError" class="error refuel-details-form__wide">{{ formError }}</p>
-      </form>
-      <template #footer>
-        <button class="btn btn--secondary" type="button" :disabled="pending" @click="adding = false">Отмена</button>
-        <button class="btn" type="submit" form="service-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Записать' }}</button>
-      </template>
-    </AppModal>
   </div>
 </template>

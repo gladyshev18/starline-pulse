@@ -1,28 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import {
+  OIL_EQUIVALENT_SPEED_KMH,
   OIL_INTERVAL_KM,
   OIL_INTERVAL_MONTHS,
   OIL_INTERVAL_MOTOR_HOURS,
-  OIL_REFERENCE_SPEED_KMH,
   kmPerMotorHour,
   oilClockGap,
   oilLife
 } from '../shared/service'
 
 describe('oil intervals', () => {
-  it('derives the engine-hour interval from the distance one', () => {
+  // The engine-hour figure comes from what oil lasts, not from dividing the
+  // distance interval: synthetic holds 250-300 engine-hours in ordinary use and
+  // 200-250 in hard use, and this car lives in the hard-use band.
+  it('takes the engine-hour interval from the oil, not from the odometer', () => {
     expect(OIL_INTERVAL_KM).toBe(10_000)
-    expect(OIL_REFERENCE_SPEED_KMH).toBe(30)
-    expect(OIL_INTERVAL_MOTOR_HOURS).toBeCloseTo(333.33)
+    expect(OIL_INTERVAL_MOTOR_HOURS).toBe(250)
     expect(OIL_INTERVAL_MONTHS).toBe(12)
+  })
+
+  it('exposes the speed at which the two intervals expire together', () => {
+    expect(OIL_EQUIVALENT_SPEED_KMH).toBe(40)
   })
 })
 
 describe('oilLife', () => {
   it('is due on whichever clock runs out first', () => {
     // Six thousand kilometres is well inside the interval, but the engine ran
-    // 300 hours to cover them: this car crawls, and the oil is nearly spent.
-    const crawling = oilLife({ km: 6000, motorHours: 300, months: 5 })
+    // 225 hours to cover them: this car crawls, and the oil is nearly spent.
+    const crawling = oilLife({ km: 6000, motorHours: 225, months: 5 })
     expect(crawling.binding?.name).toBe('hours')
     expect(crawling.share).toBeCloseTo(0.9)
     expect(crawling.overdue).toBe(false)
