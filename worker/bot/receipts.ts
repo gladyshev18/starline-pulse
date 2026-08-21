@@ -214,7 +214,14 @@ async function handleIncomingFile(context: Context, database: Database) {
     receivedAt: new Date(message.date * 1000),
     pendingChatId: context.chat?.id.toString() || null
   })
-  return reply(context, 'Файл сохранён. QR-кода на нём нет — что это?', kindKeyboard(created.id))
+  // A photo attachment is Telegram's own preview: about 1280 pixels on the long
+  // side whatever the camera took. On an act that is the difference between a
+  // legible table and a guess at whether the odometer reads 18 082 or 18 682, so
+  // the hint is worth making every time one arrives compressed.
+  const hint = photo && !document
+    ? '\n\n📎 Это сжатая копия — мелкий текст в таблице может не прочитаться. Для акта лучше отправить тем же фото, но <b>как файл</b>: скрепка → выбрать снимок → «Отправить как файл».'
+    : ''
+  return reply(context, `Файл сохранён. QR-кода на нём нет — что это?${hint}`, kindKeyboard(created.id))
 }
 
 async function classifyDocument(context: Context, database: Database, id: number, kind: 'fuel' | 'act') {
