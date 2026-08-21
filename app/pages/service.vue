@@ -23,6 +23,17 @@ function duration(minutes: number | null | undefined) {
   const rest = rounded % 60
   return whole ? `${whole} ч ${rest} мин` : `${rest} мин`
 }
+function money(value: number | null | undefined) {
+  if (value == null) return '—'
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value)
+}
+function errorMessage(error: unknown) {
+  if (typeof error === 'object' && error) {
+    const value = error as { data?: { statusMessage?: string }, statusMessage?: string }
+    return value.data?.statusMessage || value.statusMessage || 'Не удалось сохранить'
+  }
+  return 'Не удалось сохранить'
+}
 function percent(share: number | null | undefined) {
   return share == null ? '—' : `${number(share * 100, 0)} %`
 }
@@ -152,6 +163,111 @@ const batteryNote = computed(() => {
   return `${direction} ${number(Math.abs(perMonth), 3)} В в месяц ± ${number(trend.standardError!, 3)}${forecast}`
 })
 
+type ServiceDocumentRow = NonNullable<typeof documents.value>['items'][number]
+
+const editing = ref<ServiceDocumentRow | null>(null)
+const documentError = ref('')
+const documentForm = reactive({
+  performedAt: '',
+  mileage: '',
+  totalAmount: '',
+  vendor: '',
+  orderNumber: '',
+  note: '',
+  createOilEvent: true
+})
+
+function parsedDetails(item: ServiceDocumentRow) {
+  if (!item.parsedJson) return null
+  try {
+    return JSON.parse(item.parsedJson) as {
+      confidence?: number
+      attempts?: number
+      mentionsOil?: boolean
+      mileageSource?: string | null
+      votes?: Record<string, number>
+      disputed?: Record<string, boolean>
+    }
+  } catch {
+    return null
+  }
+}
+
+function documentState(item: ServiceDocumentRow) {
+  if (item.serviceEventId) return 'подтверждён'
+  if (!item.parsedAt) return 'распознаётся…'
+  return 'не подтверждён'
+}
+
+// What the recognition made of a field, so the form says which values it stands
+// behind and which are a single shaky read the person should check first.
+function fieldHint(field: 'orderNumber' | 'performedAt' | 'mileage' | 'totalAmount') {
+  const details = editing.value ? parsedDetails(editing.value) : null
+  if (!details) return ''
+  if (field === 'mileage' && details.mileageSource === 'snapshots') return 'из истории пробега машины'
+  const votes = details.votes?.[field] ?? 0
+  if (!votes) return 'не распознано — впишите вручную'
+  if (details.disputed?.[field]) return 'распознано неуверенно — проверьте'
+  return votes > 1 ? `распознано, ${votes} совпадения` : 'распознано одним проходом'
+}
+
+const parseSummary = computed(() => {
+  const item = editing.value
+  if (!item) return ''
+  if (!item.parsedAt) return 'Распознавание ещё не закончилось — обновите страницу через минуту.'
+  const details = parsedDetails(item)
+  if (!details?.attempts) return 'Распознать не удалось: заполните поля вручную.'
+  return `Распознано с ${details.attempts} проходов, уверенность ${details.confidence ?? '—'}.`
+})
+
+function toDateInput(value: string | Date | null | undefined) {
+  if (!value) return ''
+  // The stored moment is midday Moscow, so the Moscow calendar day is the one to
+  // put in the field whatever the browser's timezone is.
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(new Date(value))
+}
+
+function openDocument(item: ServiceDocumentRow) {
+  editing.value = item
+  documentError.value = ''
+  documentForm.performedAt = toDateInput(item.performedAt)
+  documentForm.mileage = item.mileage == null ? '' : String(item.mileage)
+  documentForm.totalAmount = item.totalAmount == null ? '' : String(item.totalAmount)
+  documentForm.vendor = item.vendor || ''
+  documentForm.orderNumber = item.orderNumber || ''
+  documentForm.note = item.note || ''
+  documentForm.createOilEvent = parsedDetails(item)?.mentionsOil !== false
+}
+
+async function reparseDocument() {
+  if (!editing.value || pending.value) return
+  pending.value = true
+  documentError.value = ''
+  try {
+    await $fetch(`/api/service-documents/${editing.value.id}/parse`, { method: 'POST' })
+    documentError.value = 'Отправил на повторное распознавание — займёт около минуты.'
+  } catch (error) {
+    documentError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+
+async function confirmDocument() {
+  if (!editing.value || pending.value) return
+  pending.value = true
+  documentError.value = ''
+  try {
+    await $fetch(`/api/service-documents/${editing.value.id}/confirm`, { method: 'POST', body: { ...documentForm } })
+    await Promise.all([refreshDocuments(), refresh()])
+    editing.value = null
+  } catch (error) {
+    documentError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+
 async function removeDocument(id: number) {
   if (pending.value) return
   pending.value = true
@@ -254,7 +370,7 @@ async function remove(id: number) {
           <div>
             <p class="metric-label">Документы по ТО</p>
             <p class="muted">
-              Пришлите акт боту — он сохранит его здесь. Разбор содержимого пока не делается.
+              Пришлите акт боту — он сохранит его здесь и распознает.
               Отправляйте <b>как файл</b>: обычное фото Telegram сжимает до 1280 px, и мелкий текст в таблице теряется.
             </p>
           </div>
@@ -262,14 +378,18 @@ async function remove(id: number) {
         <p v-if="!documents?.items.length" class="muted">Документов пока нет.</p>
         <div v-else class="table-wrap">
           <table>
-            <thead><tr><th>Получен</th><th>Тип</th><th>Файл</th><th>Размер</th><th /></tr></thead>
+            <thead><tr><th>Получен</th><th>Дата работ</th><th>Пробег</th><th>Сумма</th><th>Файл</th><th /></tr></thead>
             <tbody>
               <tr v-for="item in documents.items" :key="item.id">
                 <td>{{ date(item.receivedAt) }}</td>
-                <td>{{ item.kind === 'act' ? 'Акт по ТО' : 'Не отмечен' }}</td>
+                <td>{{ item.performedAt ? date(item.performedAt) : documentState(item) }}</td>
+                <td>{{ item.mileage == null ? '—' : `${number(item.mileage)} км` }}</td>
+                <td>{{ item.totalAmount == null ? '—' : money(item.totalAmount) }}</td>
                 <td><a :href="`/api/service-documents/${item.id}`" target="_blank" rel="noopener">{{ item.originalName || 'файл' }}</a></td>
-                <td>{{ item.size == null ? '—' : `${number(item.size / 1024)} КБ` }}</td>
-                <td><button class="btn btn--secondary" type="button" :disabled="pending" @click="removeDocument(item.id)">Удалить</button></td>
+                <td class="document-actions">
+                  <button class="btn" type="button" :disabled="pending" @click="openDocument(item)">Проверить</button>
+                  <button class="btn btn--secondary" type="button" :disabled="pending" @click="removeDocument(item.id)">Удалить</button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -296,5 +416,55 @@ async function remove(id: number) {
       </section>
     </div>
 
+    <AppModal
+      :model-value="Boolean(editing)"
+      title="Данные из акта"
+      :eyebrow="editing ? date(editing.receivedAt) : ''"
+      :close-on-backdrop="!pending"
+      :close-on-escape="!pending"
+      @update:model-value="value => { if (!value && !pending) editing = null }"
+    >
+      <p class="muted document-form__summary">{{ parseSummary }}</p>
+      <form id="document-form" class="refuel-details-form" @submit.prevent="confirmDocument">
+        <div>
+          <label for="doc-date">Дата работ</label>
+          <input id="doc-date" v-model="documentForm.performedAt" type="date" :disabled="pending" required>
+          <span class="document-form__hint">{{ fieldHint('performedAt') }}</span>
+        </div>
+        <div>
+          <label for="doc-mileage">Пробег, км</label>
+          <input id="doc-mileage" v-model="documentForm.mileage" inputmode="numeric" :disabled="pending">
+          <span class="document-form__hint">{{ fieldHint('mileage') }}</span>
+        </div>
+        <div>
+          <label for="doc-total">Сумма, ₽</label>
+          <input id="doc-total" v-model="documentForm.totalAmount" inputmode="decimal" :disabled="pending">
+          <span class="document-form__hint">{{ fieldHint('totalAmount') }}</span>
+        </div>
+        <div>
+          <label for="doc-order">Заказ-наряд №</label>
+          <input id="doc-order" v-model="documentForm.orderNumber" maxlength="60" :disabled="pending">
+          <span class="document-form__hint">{{ fieldHint('orderNumber') }}</span>
+        </div>
+        <div class="refuel-details-form__wide">
+          <label for="doc-vendor">Исполнитель</label>
+          <input id="doc-vendor" v-model="documentForm.vendor" maxlength="120" placeholder="Например, Автосалон Глобус" :disabled="pending">
+        </div>
+        <div class="refuel-details-form__wide">
+          <label for="doc-note">Заметка</label>
+          <input id="doc-note" v-model="documentForm.note" maxlength="300" placeholder="Что делали, какое масло" :disabled="pending">
+        </div>
+        <label class="refuel-details-form__wide document-form__check">
+          <input v-model="documentForm.createOilEvent" type="checkbox" :disabled="pending">
+          <span>Это замена масла — начать отсчёт ресурса с этой даты</span>
+        </label>
+        <p v-if="documentError" class="error refuel-details-form__wide">{{ documentError }}</p>
+      </form>
+      <template #footer>
+        <button class="btn btn--secondary" type="button" :disabled="pending" @click="reparseDocument">Распознать заново</button>
+        <button class="btn btn--secondary" type="button" :disabled="pending" @click="editing = null">Отмена</button>
+        <button class="btn" type="submit" form="document-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Подтвердить' }}</button>
+      </template>
+    </AppModal>
   </div>
 </template>

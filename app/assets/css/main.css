@@ -247,6 +247,11 @@ button { color: inherit; }
 .card--half { grid-column: span 6; }
 .card--table { grid-column: 1 / -1; min-height: 0; }
 .metric-badge--warn { border-color: color-mix(in srgb, var(--danger) 30%, transparent); background: var(--danger-soft); color: var(--danger); }
+.document-actions { display: flex; gap: 8px; white-space: nowrap; }
+.document-form__summary { margin: 0 0 16px; font-size: .78rem; }
+.document-form__hint { display: block; margin-top: 5px; color: var(--muted); font-size: .7rem; }
+.document-form__check { display: flex; align-items: center; gap: 10px; font-size: .82rem; }
+.document-form__check input { width: auto; }
 .speed-rows { display: grid; gap: 16px; margin-top: 22px; }
 .speed-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: center; gap: 16px; }
 .speed-row__head { display: flex; min-width: 0; flex-direction: column; gap: 2px; font-size: .82rem; }

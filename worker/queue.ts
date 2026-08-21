@@ -2,6 +2,7 @@ import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { jobs } from '../db/schema'
 import { ingestReceiptMail } from '../receipts/mail/ingest'
+import { parseActDocument } from '../receipts/act-job'
 import { notifyAllowedChats } from './bot'
 import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
@@ -109,6 +110,11 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     const reminder = await buildFuelReminder(database)
     if (reminder) await notifyAllowedChats(reminder, { html: true, sound: true })
     return { nextFuelReminder: true }
+  }
+  if (job.type === 'service:parse_act') {
+    const documentId = Number(payload.documentId)
+    if (!Number.isInteger(documentId)) throw new Error('INVALID_PARSE_ACT_PAYLOAD')
+    await parseActDocument(database, documentId)
   }
   if (job.type === 'receipts:imap_poll') {
     const summary = await ingestReceiptMail(database, receiptsMailConfig)

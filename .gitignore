@@ -10,3 +10,6 @@ fixtures/starline-device.json
 *.log
 .DS_Store
 .claude/settings.local.json
+
+# Языковые модели tesseract подкачиваются в рабочий каталог
+*.traineddata

@@ -36,6 +36,7 @@
     "mailparser": "^3.9.15",
     "nuxt": "4.5.1",
     "nuxt-auth-utils": "0.5.30",
+    "tesseract.js": "^7.0.0",
     "tsx": "^4.21.0",
     "undici": "^7.29.0",
     "vue-echarts": "^8.0.1"

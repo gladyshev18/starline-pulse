@@ -27,7 +27,7 @@ export const telegramRecipients = sqliteTable('telegram_recipients', {
 
 export const jobs = sqliteTable('jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll'] }).notNull(),
+  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll', 'service:parse_act'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
@@ -248,8 +248,12 @@ export const serviceDocuments = sqliteTable('service_documents', {
   totalAmount: real('total_amount'),
   mileage: real('mileage'),
   note: text('note'),
+  orderNumber: text('order_number'),
   // Null while the document has only been stored; set when a parser has read it.
   parsedAt: integer('parsed_at', { mode: 'timestamp_ms' }),
+  // What OCR made of each field and how many passes agreed, so the form can show
+  // which values were read confidently and which are a single shaky guess.
+  parsedJson: text('parsed_json'),
   originalName: text('original_name'),
   storedName: text('stored_name'),
   mimeType: text('mime_type'),

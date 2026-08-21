@@ -14,6 +14,7 @@ import {
   rejectReceiptMatch,
   type ReceiptFile
 } from '../../receipts/store'
+import { scheduleActParse } from '../../receipts/act-job'
 import {
   createServiceDocument,
   detachServiceDocument,
@@ -232,8 +233,14 @@ async function classifyDocument(context: Context, database: Database, id: number
   }
   if (kind === 'act') {
     await markServiceDocumentKind(database, id, 'act')
+    // Recognition takes the better part of a minute, so it goes to the queue and
+    // the answer does not wait for it.
+    await scheduleActParse(database, id)
     await context.answerCallbackQuery('Записал как акт')
-    return context.editMessageText('🔧 Сохранил как акт по ТО. Разбор содержимого добавим позже.', replyOptions)
+    return context.editMessageText(
+      '🔧 Сохранил как акт по ТО. Распознаю данные — проверить и подтвердить их можно на странице «ТО».',
+      replyOptions
+    )
   }
 
   // The file lives in the service pile until now; the receipt store owns the

@@ -58,6 +58,51 @@ export async function deleteServiceDocument(database: Database, id: number) {
   return removed
 }
 
+export interface ParsedActFields {
+  orderNumber: string | null
+  performedAt: Date | null
+  mileage: number | null
+  totalAmount: number | null
+  vendor: string | null
+  note: string | null
+}
+
+// The reading is written down as a draft, never as fact: OCR gets the header of
+// this form right and the table wrong, so the row below is what the confirmation
+// dialog opens with, not what the car's history is built from.
+export async function saveParsedAct(database: Database, id: number, input: {
+  fields: Partial<ParsedActFields>
+  details: unknown
+}) {
+  const [updated] = await database.update(serviceDocuments).set({
+    orderNumber: input.fields.orderNumber ?? null,
+    performedAt: input.fields.performedAt ?? null,
+    mileage: input.fields.mileage ?? null,
+    totalAmount: input.fields.totalAmount ?? null,
+    vendor: input.fields.vendor ?? null,
+    parsedAt: new Date(),
+    parsedJson: JSON.stringify(input.details),
+    updatedAt: new Date()
+  }).where(eq(serviceDocuments.id, id)).returning()
+  return updated ?? null
+}
+
+// What the person confirmed, which outranks anything that was recognised.
+export async function applyConfirmedAct(database: Database, id: number, fields: ParsedActFields & { serviceEventId: number | null }) {
+  const [updated] = await database.update(serviceDocuments).set({
+    kind: 'act',
+    orderNumber: fields.orderNumber,
+    performedAt: fields.performedAt,
+    mileage: fields.mileage,
+    totalAmount: fields.totalAmount,
+    vendor: fields.vendor,
+    note: fields.note,
+    serviceEventId: fields.serviceEventId,
+    updatedAt: new Date()
+  }).where(eq(serviceDocuments.id, id)).returning()
+  return updated ?? null
+}
+
 export async function listServiceDocuments(database: Database, limit = 100): Promise<ServiceDocument[]> {
   return database.select().from(serviceDocuments).orderBy(desc(serviceDocuments.receivedAt)).limit(limit)
 }
