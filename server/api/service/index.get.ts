@@ -11,7 +11,14 @@ export default defineEventHandler(async () => {
     return {
       vehicle: null,
       oil: emptyOilStatus(),
-      engine: { counterMinutes: 0, sessionMinutes: 0, sessions: 0, unattributedMinutes: 0 },
+      engine: {
+        counterMinutes: 0,
+        sessionMinutes: 0,
+        sessions: 0,
+        untrackedIdleMinutes: 0,
+        untrackedMovingMinutes: 0,
+        untrackedTrips: [] as Awaited<ReturnType<typeof engineSummary>>['untrackedTrips']
+      },
       battery: null,
       motorMinutes: null,
       mileage: null,

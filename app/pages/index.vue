@@ -83,6 +83,9 @@ const idleSummaryNote = computed(() => {
   // Only worth a word when it happened: the alarm stays on through a remote
   // start, so this is the warm-up that ended in a trip rather than in shutdown.
   if (idle.armedMinutes > 0) parts.push(`перед поездкой ${duration(idle.armedMinutes)}`)
+  // Warm-ups the session tracker never saw: only the engine-hour counter caught
+  // them, so they have no session to be counted among the ones above.
+  if (idle.untrackedMinutes > 0.5) parts.push(`мимо сессий ${duration(idle.untrackedMinutes)}`)
   return parts.join(' · ')
 })
 // The rate is spelled out because it is the entire basis of the figure: idling

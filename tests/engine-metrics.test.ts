@@ -78,41 +78,118 @@ describe('engineMinutesBetween', () => {
 })
 
 describe('engineSummary', () => {
-  it('shows the engine time no session accounted for', async () => {
+  // Five-minute snapshots; the session covers the first two of them, so only the
+  // engine time reported after it ended fell outside every session.
+  const session = (vehicleId: number, minutes: number, extra: Record<string, unknown> = {}) => ({
+    vehicleId,
+    startedAt: start,
+    endedAt: new Date(start.getTime() + minutes * MINUTE),
+    durationMinutes: minutes,
+    isOpen: false,
+    ...extra
+  })
+
+  it('counts a warm-up the poller slept through as engine time nobody saw', async () => {
     const { database, vehicleId } = await setup()
     try {
+      // The engine ran ten minutes between the third and fourth snapshot without
+      // the odometer moving: a start and a stop that both fell between polls.
       await database.insert(vehicleSnapshots).values(counter(vehicleId, [
-        { motorMinutes: 1000 }, { motorMinutes: 1050 }
+        { motorMinutes: 1000, mileage: 500 }, { motorMinutes: 1005, mileage: 500 },
+        { motorMinutes: 1005, mileage: 500 }, { motorMinutes: 1015, mileage: 500 }
       ]))
-      await database.insert(engineSessions).values({
-        vehicleId,
-        startedAt: new Date(start.getTime() + MINUTE),
-        endedAt: new Date(start.getTime() + 41 * MINUTE),
-        durationMinutes: 40,
-        isOpen: false
-      })
+      await database.insert(engineSessions).values(session(vehicleId, 5))
       expect(await engineSummary(database, vehicleId, start, end)).toMatchObject({
-        counterMinutes: 50,
-        sessionMinutes: 40,
-        sessions: 1,
-        unattributedMinutes: 10
+        counterMinutes: 15,
+        sessionMinutes: 5,
+        untrackedIdleMinutes: 10,
+        untrackedMovingMinutes: 0
       })
     } finally {
       await database.$client.close()
     }
   })
 
-  it('does not report negative leftovers when rounding puts sessions ahead', async () => {
+  it('calls the same stretch a trip when the odometer moved over it', async () => {
     const { database, vehicleId } = await setup()
     try {
       await database.insert(vehicleSnapshots).values(counter(vehicleId, [
-        { motorMinutes: 1000 }, { motorMinutes: 1010 }
+        { motorMinutes: 1000, mileage: 500 }, { motorMinutes: 1005, mileage: 500 },
+        { motorMinutes: 1005, mileage: 500 }, { motorMinutes: 1015, mileage: 504 }
       ]))
-      await database.insert(engineSessions).values({
-        vehicleId, startedAt: new Date(start.getTime() + MINUTE), endedAt: new Date(start.getTime() + 12 * MINUTE),
-        durationMinutes: 11, isOpen: false
+      await database.insert(engineSessions).values(session(vehicleId, 5))
+      const summary = await engineSummary(database, vehicleId, start, end)
+      expect(summary).toMatchObject({ untrackedIdleMinutes: 0, untrackedMovingMinutes: 10 })
+      expect(summary.untrackedTrips).toHaveLength(1)
+      expect(summary.untrackedTrips[0]).toMatchObject({ minutes: 10, distance: 4 })
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  // Silence is not proof the car stood still, and the standing figure is what
+  // the overview bills fuel against.
+  it('treats a silent odometer as movement rather than as idling', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(vehicleSnapshots).values(counter(vehicleId, [
+        { motorMinutes: 1000, mileage: 500 }, { motorMinutes: 1005, mileage: 500 },
+        { motorMinutes: 1005, mileage: 500 }, { motorMinutes: 1015 }
+      ]))
+      await database.insert(engineSessions).values(session(vehicleId, 5))
+      const summary = await engineSummary(database, vehicleId, start, end)
+      expect(summary).toMatchObject({ untrackedIdleMinutes: 0, untrackedMovingMinutes: 10 })
+      expect(summary.untrackedTrips[0]).toMatchObject({ distance: null })
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  // The counter ticks in whole minutes and the poller sees each ignition edge a
+  // little late, so it routinely reports more than a session's own stopwatch.
+  // That difference belongs to the session, not to a warm-up nobody saw.
+  it('leaves the counter running ahead of a session inside that session', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(vehicleSnapshots).values(counter(vehicleId, [
+        { motorMinutes: 1000, mileage: 500 }, { motorMinutes: 1010, mileage: 500 }
+      ]))
+      await database.insert(engineSessions).values(session(vehicleId, 5))
+      expect(await engineSummary(database, vehicleId, start, end)).toMatchObject({
+        counterMinutes: 10,
+        sessionMinutes: 5,
+        untrackedIdleMinutes: 0,
+        untrackedMovingMinutes: 0
       })
-      expect((await engineSummary(database, vehicleId, start, end)).unattributedMinutes).toBe(0)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('counts a session still running and one straddling the boundary by their share of the window', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(vehicleSnapshots).values(counter(vehicleId, [
+        { motorMinutes: 1000, mileage: 500 }, { motorMinutes: 1010, mileage: 500 }
+      ]))
+      await database.insert(engineSessions).values([
+        // Started ten minutes before the window and ended four minutes into it.
+        {
+          vehicleId,
+          startedAt: new Date(start.getTime() - 10 * MINUTE),
+          endedAt: new Date(start.getTime() + 4 * MINUTE),
+          durationMinutes: 14,
+          isOpen: false
+        },
+        // Still running: no stored duration to fall back on.
+        { vehicleId, startedAt: new Date(start.getTime() + 5 * MINUTE), isOpen: true }
+      ])
+      const windowEnd = new Date(start.getTime() + 9 * MINUTE)
+      expect(await engineSummary(database, vehicleId, start, windowEnd)).toMatchObject({
+        sessionMinutes: 8,
+        untrackedIdleMinutes: 0,
+        untrackedMovingMinutes: 0
+      })
     } finally {
       await database.$client.close()
     }

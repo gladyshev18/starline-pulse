@@ -2,6 +2,7 @@ import { and, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../db/schema'
 import { WARM_ENGINE_CELSIUS, idleCost, measureIdleRate, type IdleRate } from '../shared/idle-cost'
+import { engineMinutesOutsideSessions } from './engine'
 
 // A warm-up is the engine running while the car stays put. What proves it stayed
 // put is the odometer: it reports in chunks of ten to twenty kilometres, but it
@@ -114,6 +115,7 @@ export const emptyIdleSummary = () => ({
   minutes: 0,
   stationaryMinutes: 0,
   armedMinutes: 0,
+  untrackedMinutes: 0,
   coldSessions: 0,
   coldMinutes: 0,
   warmSessions: 0,
@@ -159,12 +161,20 @@ export async function idleSummary(database: Database, vehicleId: number, start: 
   const { pricePerLitre, priceSource } = await resolveFuelPrice(database, vehicleId, start, end)
   const stationaryMinutes = Number(totals?.minutes || 0)
   const armed = await armedIdleMinutes(database, vehicleId, start, end)
-  const minutes = stationaryMinutes + armed
+  // The third source of idling is the engine time no session saw at all — a
+  // start and a stop that both fell between two polls. The engine-hour counter
+  // caught it even though the session tracker did not, and the odometer stayed
+  // put across it, which is the definition of a warm-up. The stretches that did
+  // move the car are left out here: they are trips, and they belong to the
+  // service page rather than to this bill.
+  const loose = await engineMinutesOutsideSessions(database, vehicleId, start, end)
+  const minutes = stationaryMinutes + armed + loose.stationaryMinutes
 
   return {
     ...idleCost({ minutes, rate, pricePerLitre }),
     stationaryMinutes,
     armedMinutes: armed,
+    untrackedMinutes: loose.stationaryMinutes,
     sessions: Number(totals?.sessions || 0),
     coldSessions: Number(totals?.coldSessions || 0),
     coldMinutes: Number(totals?.coldMinutes || 0),

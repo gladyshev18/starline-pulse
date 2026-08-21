@@ -151,6 +151,29 @@ describe('idleSummary', () => {
     }
   })
 
+  // The engine-hour counter catches a start and a stop that both fell between
+  // two polls; the odometer says which of it was a warm-up and which was a trip
+  // the tracker slept through.
+  it('bills the engine time no session saw when the car did not move over it', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(engineSessions).values([session(vehicleId, 2, 10)])
+      const quiet = new Date(start.getTime() + 8 * 24 * 60 * MINUTE)
+      await database.insert(vehicleSnapshots).values([
+        { vehicleId, ts: quiet, rawJson: '{}', motorMinutes: 1000, mileage: 500 },
+        { vehicleId, ts: new Date(quiet.getTime() + 30 * MINUTE), rawJson: '{}', motorMinutes: 1007, mileage: 500 },
+        // Seven more minutes of engine, but this time the car went five kilometres.
+        { vehicleId, ts: new Date(quiet.getTime() + 60 * MINUTE), rawJson: '{}', motorMinutes: 1014, mileage: 505 }
+      ])
+      const summary = await idleSummary(database, vehicleId, start, end)
+      expect(summary.untrackedMinutes).toBe(7)
+      expect(summary.stationaryMinutes).toBe(10)
+      expect(summary.minutes).toBe(17)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   it('splits the time by how cold the engine was, keeping unread sessions in the total', async () => {
     const { database, vehicleId } = await setup()
     try {

@@ -86,6 +86,34 @@ const counterIncomplete = computed(() => {
   return engine.sessionMinutes > 0 && engine.counterMinutes < engine.sessionMinutes * 0.95
 })
 
+// Engine time that fell between two polls entirely. Which of it counts as a
+// warm-up is settled by the odometer, so the two halves are named apart: the
+// standing one is already on the overview's idling bill, and the moving one is a
+// trip that never became a session and never will.
+const untrackedNote = computed(() => {
+  const engine = data.value?.engine
+  if (!engine) return ''
+  const parts: string[] = []
+  if (engine.untrackedIdleMinutes > 0.5) parts.push(`${duration(engine.untrackedIdleMinutes)} на месте — учтены в прогревах`)
+  if (engine.untrackedMovingMinutes > 0.5) parts.push(`${duration(engine.untrackedMovingMinutes)} с пробегом — этого в поездках нет`)
+  if (!parts.length) return ''
+  return `Мимо сессий прошло ${duration(engine.untrackedIdleMinutes + engine.untrackedMovingMinutes)}: ${parts.join(', ')}.`
+})
+// A stretch nobody recorded has no trip to open, so the only way to recognise it
+// is to spell out when it was and how far the odometer moved over it.
+function dateTime(value: string | Date) {
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+const untrackedTrips = computed(() => (data.value?.engine.untrackedTrips || [])
+  .filter(item => item.minutes > 0.5)
+  .map(item => ({
+    key: String(item.startedAt),
+    label: `${dateTime(item.startedAt)} — ${dateTime(item.endedAt)}`,
+    detail: item.distance == null
+      ? `${duration(item.minutes)}, одометр молчал`
+      : `${duration(item.minutes)}, ${number(item.distance, 1)} км`
+  })))
+
 const battery = computed(() => data.value?.battery)
 // Degradation shows up over years, so for a long while the only honest headline
 // is how much of the record exists so far.
@@ -201,9 +229,12 @@ async function remove(id: number) {
         <p v-if="counterIncomplete" class="metric-meta">
           Счётчик заполнен не на весь месяц, поэтому сравнивать его с сессиями пока не с чем.
         </p>
-        <p v-else-if="data && data.engine.unattributedMinutes > 0.5" class="metric-meta">
-          {{ duration(data.engine.unattributedMinutes) }} работы двигателя не попало ни в одну сессию — на столько же занижены прогревы.
-        </p>
+        <template v-else-if="untrackedNote">
+          <p class="metric-meta">{{ untrackedNote }}</p>
+          <p v-for="item in untrackedTrips" :key="item.key" class="metric-meta">
+            {{ item.label }} · {{ item.detail }}
+          </p>
+        </template>
       </section>
 
       <section class="card card--wide">
