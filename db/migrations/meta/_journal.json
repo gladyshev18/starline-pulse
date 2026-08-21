@@ -85,6 +85,13 @@
       "when": 1787303373536,
       "tag": "0011_low_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787304718355,
+      "tag": "0012_superb_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

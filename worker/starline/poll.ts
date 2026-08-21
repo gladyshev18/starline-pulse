@@ -72,7 +72,7 @@ export function normalizeDeviceResponse(raw: StarLineDataResponse): NormalizedSn
     battery: finite(data.common?.battery), batteryType: batteryType === 'volt' || batteryType === 'percent' ? batteryType : null,
     commonTs: timestamp(data.common?.ts), engineTemp: finite(data.common?.etemp), cabinTemp: finite(data.common?.ctemp),
     lat: finite(data.position?.y), lon: finite(data.position?.x), positionTs: timestamp(data.position?.ts),
-    gsmLevel: finite(data.common?.gsm_lvl), rawJson: diagnosticJson(raw)
+    gsmLevel: finite(data.common?.gsm_lvl), motorMinutes: finite(data.state?.motohrs), rawJson: diagnosticJson(raw)
   }
 }
 
@@ -107,7 +107,8 @@ export async function pollVehicle(database: Database) {
     fuel: normalized.fuel, fuelPercent: normalized.fuelPercent, fuelTs: normalized.fuelTs, fuelSource: normalized.fuelSource,
     battery: normalized.battery, batteryType: normalized.batteryType, commonTs: normalized.commonTs,
     engineTemp: normalized.engineTemp, cabinTemp: normalized.cabinTemp, lat: normalized.lat, lon: normalized.lon,
-    positionTs: normalized.positionTs, gsmLevel: normalized.gsmLevel, rawJson: normalized.rawJson
+    positionTs: normalized.positionTs, gsmLevel: normalized.gsmLevel, motorMinutes: normalized.motorMinutes,
+    rawJson: normalized.rawJson
   }).returning()
 
   const usage = config.starlineMode === 'live' ? await getDailyUsage(database) : { remaining: 1000 }

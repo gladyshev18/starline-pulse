@@ -97,6 +97,10 @@ export const vehicleSnapshots = sqliteTable('vehicle_snapshots', {
   lon: real('lon'),
   positionTs: integer('position_ts', { mode: 'timestamp_ms' }),
   gsmLevel: integer('gsm_level'),
+  // The alarm's own engine-hour counter, in minutes. Unlike anything derived
+  // from polling it cannot miss a start, so it is the ground truth for how long
+  // the engine actually ran — and the clock oil ages by.
+  motorMinutes: integer('motor_minutes'),
   rawJson: text('raw_json').notNull()
 }, table => [index('snapshots_vehicle_ts_idx').on(table.vehicleId, table.ts)])
 
@@ -213,6 +217,21 @@ export const refuelReceipts = sqliteTable('refuel_receipts', {
   uniqueIndex('refuel_receipts_external_message_id_unique').on(table.externalMessageId)
 ])
 
+// Oil ages on three clocks at once — distance, engine time and the calendar —
+// and only the first two are in the car. Recording what the odometer and the
+// engine-hour counter read at the moment of service is what makes a countdown
+// possible at all; without it neither number means anything on its own.
+export const serviceEvents = sqliteTable('service_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  kind: text('kind', { enum: ['oil'] }).notNull().default('oil'),
+  performedAt: integer('performed_at', { mode: 'timestamp_ms' }).notNull(),
+  mileage: real('mileage'),
+  motorMinutes: integer('motor_minutes'),
+  note: text('note'),
+  ...timestamps
+}, table => [index('service_events_vehicle_kind_idx').on(table.vehicleId, table.kind, table.performedAt)])
+
 export const imapState = sqliteTable('imap_state', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   mailbox: text('mailbox').notNull(),
@@ -227,3 +246,4 @@ export type Job = typeof jobs.$inferSelect
 export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect
 export type RefuelEvent = typeof refuelEvents.$inferSelect
 export type RefuelReceipt = typeof refuelReceipts.$inferSelect
+export type ServiceEvent = typeof serviceEvents.$inferSelect

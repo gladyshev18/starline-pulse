@@ -38,7 +38,7 @@ export interface StarLineDeviceData {
     ts?: number | null
     [key: string]: unknown
   }
-  state?: { ign?: boolean | null, run?: boolean | null, arm?: boolean | null, ts?: number, [key: string]: unknown }
+  state?: { ign?: boolean | null, run?: boolean | null, arm?: boolean | null, motohrs?: number | null, ts?: number, [key: string]: unknown }
   alarm_state?: Record<string, unknown>
   event?: unknown
   r_start?: Record<string, unknown>
@@ -75,5 +75,6 @@ export interface NormalizedSnapshot {
   lon: number | null
   positionTs: Date | null
   gsmLevel: number | null
+  motorMinutes: number | null
   rawJson: string
 }

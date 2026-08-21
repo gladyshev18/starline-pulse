@@ -68,6 +68,7 @@ onBeforeUnmount(() => {
         <NuxtLink to="/trips">Поездки</NuxtLink>
         <NuxtLink to="/refuels">Заправки</NuxtLink>
         <NuxtLink to="/receipts">Чеки</NuxtLink>
+        <NuxtLink to="/service">ТО</NuxtLink>
         <NuxtLink to="/api-logs">API</NuxtLink>
         <span class="nav__separator" aria-hidden="true" />
         <ThemeToggle />

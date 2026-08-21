@@ -246,6 +246,19 @@ button { color: inherit; }
 .card--wide { grid-column: span 12; min-height: 198px; }
 .card--half { grid-column: span 6; }
 .card--table { grid-column: 1 / -1; min-height: 0; }
+.metric-badge--warn { border-color: color-mix(in srgb, var(--danger) 30%, transparent); background: var(--danger-soft); color: var(--danger); }
+.oil-clocks { display: grid; gap: 14px; margin-top: 22px; }
+.oil-clock { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.oil-clock__label { margin: 0; color: var(--muted); font-size: .75rem; font-weight: 620; }
+.oil-clock__track { height: 8px; border-radius: 999px; background: var(--surface); overflow: hidden; }
+.oil-clock__bar { display: block; height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.oil-clock--binding .oil-clock__bar { background: var(--accent); }
+.oil-clock--binding .oil-clock__label { color: var(--accent-ink); }
+.oil-clock__value { display: flex; align-items: baseline; gap: 9px; margin: 0; font-size: .78rem; white-space: nowrap; }
+@media (max-width: 620px) {
+  .oil-clock { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .oil-clock__value { white-space: normal; }
+}
 .card__top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .card__top .eyebrow { margin: 0; }
 .metric-label { margin: 0; color: var(--muted); font-size: .8rem; font-weight: 620; }
