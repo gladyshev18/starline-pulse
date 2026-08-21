@@ -1,5 +1,8 @@
 import { and, asc, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import { refuelEvents, trips, vehicleSnapshots } from '../../db/schema'
+import { ambientTemperature, speedBreakdown } from '../../metrics/consumption'
+import { resolveFuelPrice } from '../../metrics/idle'
+import { costPerKilometre, summariseBySpeed } from '../../shared/consumption'
 import { fuelBalance } from '../../shared/fuel'
 import { currentMoscowMonth, moscowMonthRange } from '../utils/moscow-month'
 
@@ -41,8 +44,12 @@ export default defineEventHandler(async (event) => {
       tankStart: null,
       tankEnd: null,
       refuelled: 0,
-      tripsFuelUsed: 0
-    }
+      tripsFuelUsed: 0,
+      costPerKm: null,
+      pricePerLitre: null
+    },
+    bySpeed: summariseBySpeed([]),
+    ambient: { average: null, min: null, max: null, days: 0, daily: [] }
   }
 
   const tripDay = sql<string>`strftime('%Y-%m-%d', ${trips.startedAt} / 1000, 'unixepoch', '+3 hours')`
@@ -136,6 +143,8 @@ export default defineEventHandler(async (event) => {
     tripsFuelUsed: totals.tripsFuelUsed
   })
 
+  const { pricePerLitre } = await resolveFuelPrice(database, vehicle.id, range.start, range.end)
+
   return {
     month: range.month,
     currentMonth: currentMoscowMonth(),
@@ -150,7 +159,13 @@ export default defineEventHandler(async (event) => {
       tankStart: balance.tankStart,
       tankEnd: balance.tankEnd,
       refuelled: balance.refuelled,
-      tripsFuelUsed: totals.tripsFuelUsed
-    }
+      tripsFuelUsed: totals.tripsFuelUsed,
+      // Priced off the balance rather than the trips, so the kilometre carries
+      // the idling and the litres no trip ever claimed.
+      costPerKm: costPerKilometre(balance.fuelUsed, totals.distance, pricePerLitre),
+      pricePerLitre
+    },
+    bySpeed: await speedBreakdown(database, vehicle.id, range.start, range.end),
+    ambient: await ambientTemperature(database, vehicle.id, range.start, range.end)
   }
 })
