@@ -1,27 +1,12 @@
 <script setup lang="ts">
+import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
+
 const route = useRoute()
 
-function currentMonth() {
-  const now = new Date(Date.now() + 3 * 60 * 60_000)
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
-}
-
-function validMonth(value: unknown) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) return null
-  const [year, month] = value.split('-').map(Number)
-  return year && month && month >= 1 && month <= 12 ? value : null
-}
-
-function shiftMonth(value: string, amount: number) {
-  const [year, month] = value.split('-').map(Number)
-  const date = new Date(Date.UTC(year!, month! - 1 + amount, 1))
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
-}
-
-const month = computed(() => validMonth(route.query.month) || currentMonth())
+const month = computed(() => moscowMonthRange(route.query.month)?.month || currentMoscowMonth())
 const { data, status } = await useFetch('/api/history', { query: computed(() => ({ month: month.value })) })
 const chartMode = ref<'daily' | 'odometer'>('daily')
-const canGoNext = computed(() => month.value < (data.value?.currentMonth || currentMonth()))
+const canGoNext = computed(() => month.value < (data.value?.currentMonth || currentMoscowMonth()))
 const hasData = computed(() => Boolean(data.value?.daily.some(item => item.distance > 0 || item.fuelUsed > 0)))
 const hasOdometerData = computed(() => (data.value?.odometer.length || 0) > 1)
 const odometerStart = computed(() => data.value?.odometer[0]?.mileage)
@@ -31,12 +16,7 @@ const odometerDistance = computed(() => {
   return Math.max(0, odometerEnd.value - odometerStart.value)
 })
 
-const monthTitle = computed(() => {
-  const [year, monthNumber] = month.value.split('-').map(Number)
-  const title = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' })
-    .format(new Date(Date.UTC(year!, monthNumber! - 1, 1)))
-  return title[0]?.toUpperCase() + title.slice(1)
-})
+const monthTitle = computed(() => formatMonthTitle(month.value))
 
 function number(value: number | null | undefined, digits = 1) {
   return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
@@ -81,13 +61,13 @@ const speedSpread = computed(() => {
   return ratio >= 1.2 ? ratio : null
 })
 
-useHead({ title: computed(() => `История — ${monthTitle.value} — Chery Pulse`) })
+useHead({ title: computed(() => `Статистика — ${monthTitle.value} — Chery Pulse`) })
 </script>
 
 <template>
   <div>
     <header class="page-heading history-heading">
-      <div><p class="eyebrow">Статистика</p><h1 class="page-title">История</h1></div>
+      <div><p class="eyebrow">Автомобиль</p><h1 class="page-title">Статистика</h1></div>
       <nav class="month-switcher" aria-label="Выбор месяца">
         <NuxtLink
           class="icon-button month-switcher__arrow"

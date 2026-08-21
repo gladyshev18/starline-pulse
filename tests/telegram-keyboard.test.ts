@@ -5,8 +5,9 @@ describe('Telegram bot keyboard', () => {
   it('contains all primary actions in a compact layout', () => {
     expect(mainKeyboard.keyboard.map(row => row.map(button => typeof button === 'string' ? button : button.text))).toEqual([
       [buttonLabels.status, buttonLabels.fuel],
-      [buttonLabels.last, buttonLabels.day],
-      [buttonLabels.week, buttonLabels.month]
+      [buttonLabels.last, buttonLabels.stats],
+      [buttonLabels.day, buttonLabels.week],
+      [buttonLabels.month]
     ])
   })
 

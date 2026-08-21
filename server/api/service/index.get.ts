@@ -2,7 +2,7 @@ import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { serviceEvents, vehicleSnapshots } from '../../../db/schema'
 import { batteryHealth } from '../../../metrics/battery'
 import { emptyOilStatus, engineSummary, oilStatus } from '../../../metrics/engine'
-import { currentMoscowMonth, moscowMonthRange } from '../../utils/moscow-month'
+import { currentMoscowMonth, moscowMonthRange } from '../../../shared/moscow-month'
 
 export default defineEventHandler(async () => {
   const database = useAppDatabase()

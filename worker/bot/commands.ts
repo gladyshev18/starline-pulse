@@ -3,9 +3,11 @@ import type { Bot, Context } from 'grammy'
 import type { Database } from '../../db/client'
 import { telegramRecipients, trips, vehicleSnapshots } from '../../db/schema'
 import { FUEL_TANK_CAPACITY_LITRES, fuelToFull } from '../../shared/fuel'
+import { parseMonthInput } from '../../shared/moscow-month'
 import { config, normalizeTelegramUsername } from '../config'
 import { buttonLabels, mainKeyboard } from './keyboard'
 import { buildReport, type ReportPeriod } from './reports'
+import { buildMonthStats } from './stats'
 
 const decimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const date = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow' })
@@ -34,6 +36,20 @@ async function report(context: Context, database: Database, period: ReportPeriod
   return reply(context, await buildReport(database, period))
 }
 
+const MONTH_HINT = 'Не понял месяц. Напишите <code>/stats июль</code>, <code>/stats 07.2026</code> или <code>/stats 2026-07</code>.'
+
+// The month arrows live on the message itself, so the statistics reply carries an
+// inline keyboard instead of the main one. The main keyboard is persistent and
+// stays on screen regardless.
+async function showStats(context: Context, database: Database, requested?: string) {
+  const month = requested ? parseMonthInput(requested) : null
+  if (requested && !month) return reply(context, MONTH_HINT)
+
+  const stats = await buildMonthStats(database, month)
+  if (!stats) return reply(context, MONTH_HINT)
+  return context.reply(stats.text, { ...replyOptions, reply_markup: stats.keyboard })
+}
+
 export function registerCommands(bot: Bot, database: Database) {
   bot.command('start', async (context: Context) => {
     const username = normalizeTelegramUsername(context.from?.username)
@@ -56,7 +72,9 @@ export function registerCommands(bot: Bot, database: Database) {
       'Chat ID определён и сохранён автоматически.',
       '',
       'Все автоматические сообщения приходят без звука.',
-      'Выберите нужное действие на клавиатуре ниже.'
+      'Выберите нужное действие на клавиатуре ниже.',
+      '',
+      'Статистика за другой месяц: <code>/stats июль</code>, <code>/stats 07.2026</code> или стрелками под сообщением.'
     ].join('\n'))
   })
 
@@ -106,6 +124,8 @@ export function registerCommands(bot: Bot, database: Database) {
   bot.command('fuel', showFuelToFull)
   bot.command('last', showLastTrips)
 
+  bot.command('stats', context => showStats(context, database, context.match?.trim()))
+
   bot.command('day', context => report(context, database, 'daily'))
   bot.command('week', context => report(context, database, 'weekly'))
   bot.command('month', context => report(context, database, 'monthly'))
@@ -113,7 +133,23 @@ export function registerCommands(bot: Bot, database: Database) {
   bot.hears(buttonLabels.status, showStatus)
   bot.hears(buttonLabels.fuel, showFuelToFull)
   bot.hears(buttonLabels.last, showLastTrips)
+  bot.hears(buttonLabels.stats, context => showStats(context, database))
   bot.hears(buttonLabels.day, context => report(context, database, 'daily'))
   bot.hears(buttonLabels.week, context => report(context, database, 'weekly'))
   bot.hears(buttonLabels.month, context => report(context, database, 'monthly'))
+
+  // Stepping a month redraws the message in place rather than adding another one,
+  // so browsing back through the year leaves a single card in the chat.
+  bot.callbackQuery(/^stats:(\d{4}-\d{2})$/, async (context) => {
+    const [, month] = context.match as RegExpMatchArray
+    const stats = await buildMonthStats(database, month)
+    if (!stats) return context.answerCallbackQuery('Такого месяца нет')
+    await context.answerCallbackQuery()
+    try {
+      await context.editMessageText(stats.text, { ...replyOptions, reply_markup: stats.keyboard })
+    } catch (error) {
+      // Telegram rejects an edit that changes nothing; the card is already right.
+      if (!/message is not modified/i.test(error instanceof Error ? error.message : '')) throw error
+    }
+  })
 }
