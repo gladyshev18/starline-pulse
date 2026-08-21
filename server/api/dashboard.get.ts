@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
 import { engineSessions, refuelEvents, trips, vehicleSnapshots, vehicles } from '../../db/schema'
+import { emptyIdleSummary, idleSummary } from '../../metrics/idle'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
 
@@ -35,7 +36,7 @@ export default defineEventHandler(async () => {
     vehicle: null,
     snapshot: null,
     month: { distance: 0, fuelUsed: 0, consumption: null, trips: 0 },
-    daily: [], today: { distance: 0, fuelUsed: 0 }, engine: { stationaryMinutes: 0, warmupMinutes: 0, sessions: 0 },
+    daily: [], today: { distance: 0, fuelUsed: 0 }, engine: { sessions: 0 }, idle: emptyIdleSummary(),
     refuels: { count: 0, litres: 0, recent: [] }, batteryTrend: [],
     fuelCost: { amount: null, refuels: 0, unknown: 0, pricePerLitre: null }
   }
@@ -61,11 +62,9 @@ export default defineEventHandler(async () => {
   }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), gte(trips.startedAt, dailyStart)))
     .groupBy(tripDay).orderBy(tripDay)
 
-  const [engine] = await database.select({
-    sessions: count(),
-    stationaryMinutes: sql<number>`coalesce(sum(case when ${engineSessions.isStationary} = 1 then ${engineSessions.durationMinutes} else 0 end), 0)`,
-    warmupMinutes: sql<number>`coalesce(sum(${engineSessions.warmupMinutes}), 0)`
-  }).from(engineSessions).where(and(eq(engineSessions.vehicleId, vehicle.id), eq(engineSessions.isOpen, false), gte(engineSessions.startedAt, monthStart)))
+  const [engine] = await database.select({ sessions: count() })
+    .from(engineSessions).where(and(eq(engineSessions.vehicleId, vehicle.id), eq(engineSessions.isOpen, false), gte(engineSessions.startedAt, monthStart)))
+  const idle = await idleSummary(database, vehicle.id, monthStart, new Date())
 
   // The sum stays null until at least one refuel of the month has a price on it:
   // «0 ₽» would read as a month without fuel spending rather than one without
@@ -108,11 +107,8 @@ export default defineEventHandler(async () => {
     month: { distance, fuelUsed, consumption: distance > 0 ? fuelUsed / distance * 100 : null, trips: Number(month?.trips || 0) },
     daily,
     today: { distance: todayMetrics.distance, fuelUsed: todayMetrics.fuelUsed },
-    engine: {
-      sessions: Number(engine?.sessions || 0),
-      stationaryMinutes: Number(engine?.stationaryMinutes || 0),
-      warmupMinutes: Number(engine?.warmupMinutes || 0)
-    },
+    engine: { sessions: Number(engine?.sessions || 0) },
+    idle,
     refuels: { count: refuelsCount, litres: Number(refuelSummary?.litres || 0), recent: recentRefuels },
     batteryTrend: batteryRows.map(row => ({ day: row.day, min: Number(row.min), max: Number(row.max), average: Number(row.average) })),
     fuelCost: {

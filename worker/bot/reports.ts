@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, refuelReceipts, trips, vehicleSnapshots } from '../../db/schema'
+import { idleSummary } from '../../metrics/idle'
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
 
@@ -62,6 +63,7 @@ export function nextReportRun(period: ReportPeriod, now = new Date()) {
 const decimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const integer = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 })
+const preciseDecimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const dateOnly = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })
 const dateTime = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
@@ -95,6 +97,23 @@ function engineState(online: boolean | null, ignition: boolean | null) {
   return 'состояние неизвестно'
 }
 
+// Idling moves the tank by less than the sensor's half-litre step, so the litres
+// are inferred from a rate measured across every stationary session on record
+// rather than read off the gauge. The second line names that rate and says
+// whether it is the car's own or a stand-in, because the roubles are only as
+// good as it is.
+function idleLines(idle: Awaited<ReturnType<typeof idleSummary>>) {
+  if (!(idle.minutes > 0)) return ['• Прогревов не было']
+  const spent = idle.cost == null ? '' : ` · ${money.format(idle.cost)}`
+  const cold = idle.coldMinutes > 0 ? ` · на холодную ${duration(idle.coldMinutes)}` : ''
+  const rate = `${preciseDecimal.format(idle.rate.litresPerHour)} л/ч`
+  return [
+    `• Прогревы: ${integer.format(idle.sessions)} · ${duration(idle.minutes)} · ${decimal.format(idle.litres)} л${spent}${cold}`,
+    `• Холостой ход: ${rate} ${idle.rate.source === 'measured' ? 'по замерам' : '(оценка)'}`
+      + ` · ${idle.pricePerLitre == null ? 'цена литра неизвестна' : `${preciseDecimal.format(idle.pricePerLitre)} ₽/л`}`
+  ]
+}
+
 export async function buildReport(database: Database, period: ReportPeriod, now = new Date()) {
   const vehicle = await database.query.vehicles.findFirst()
   const { start, end } = completedReportRange(period, now)
@@ -108,14 +127,12 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     minutes: sql<number>`coalesce(sum(case when ${trips.endedAt} is not null then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else 0 end), 0)`
   }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), bounds))
 
-  const [engineSummary] = await database.select({
-    sessions: count(),
-    stationaryMinutes: sql<number>`coalesce(sum(case when ${engineSessions.isStationary} = 1 then ${engineSessions.durationMinutes} else 0 end), 0)`,
-    warmupMinutes: sql<number>`coalesce(sum(${engineSessions.warmupMinutes}), 0)`
-  }).from(engineSessions).where(and(
-    eq(engineSessions.vehicleId, vehicle.id), eq(engineSessions.isOpen, false),
-    gte(engineSessions.startedAt, start), lt(engineSessions.startedAt, end)
-  ))
+  const [engineSummary] = await database.select({ sessions: count() })
+    .from(engineSessions).where(and(
+      eq(engineSessions.vehicleId, vehicle.id), eq(engineSessions.isOpen, false),
+      gte(engineSessions.startedAt, start), lt(engineSessions.startedAt, end)
+    ))
+  const idle = await idleSummary(database, vehicle.id, start, end)
 
   const [refuelSummary] = await database.select({
     count: count(),
@@ -173,7 +190,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     '',
     '🔥 <b>Двигатель</b>',
     `• Сессий: ${integer.format(Number(engineSummary?.sessions || 0))}`,
-    `• Прогрев: ${duration(Number(engineSummary?.warmupMinutes || 0))} · без движения: ${duration(Number(engineSummary?.stationaryMinutes || 0))}`,
+    ...idleLines(idle),
     '',
     '⛽ <b>Заправки</b>',
     `• ${integer.format(Number(refuelSummary?.count || 0))} · ${decimal.format(Number(refuelSummary?.litres || 0))} л${refuelAmount == null ? '' : ` · ${money.format(refuelAmount)}`}`,

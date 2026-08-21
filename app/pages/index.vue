@@ -59,6 +59,44 @@ const fuelCostNote = computed(() => {
   if (cost.unknown > 0) parts.push(`у ${number(cost.unknown)} нет суммы`)
   return parts.join(' · ')
 })
+function warmupWord(count: number) {
+  const tens = count % 100
+  const ones = count % 10
+  if (tens >= 11 && tens <= 14) return 'прогревов'
+  if (ones === 1) return 'прогрев'
+  if (ones >= 2 && ones <= 4) return 'прогрева'
+  return 'прогревов'
+}
+// The headline is money, but a car whose refuels have no receipt yet has no
+// price to multiply by, and an hour of idling is still worth showing.
+const idleHeadline = computed(() => {
+  const idle = data.value?.idle
+  if (!idle) return '—'
+  return idle.cost == null ? duration(idle.minutes) : money(idle.cost)
+})
+const idleSummaryNote = computed(() => {
+  const idle = data.value?.idle
+  if (!idle) return ''
+  const parts = [`За месяц · ${duration(idle.minutes)} · ${number(idle.litres, 1)} л`]
+  parts.push(`${number(idle.sessions)} ${warmupWord(idle.sessions)}`)
+  if (idle.coldMinutes > 0) parts.push(`на холодную ${duration(idle.coldMinutes)}`)
+  return parts.join(' · ')
+})
+// The rate is spelled out because it is the entire basis of the figure: idling
+// moves the tank by less than the sensor's half-litre step, so the litres are
+// inferred from many sessions at once and never read off a gauge.
+const idleBasis = computed(() => {
+  const idle = data.value?.idle
+  if (!idle) return ''
+  const parts = [idle.rate.source === 'measured'
+    ? `${number(idle.rate.litresPerHour, 2)} л/ч по замерам за ${duration(idle.rate.minutes)}`
+    : `${number(idle.rate.litresPerHour, 2)} л/ч — оценка, своих замеров пока мало`]
+  if (idle.cost != null && idle.costUncertainty != null) parts.push(`±${money(idle.costUncertainty)}`)
+  if (idle.pricePerLitre == null) parts.push('цена литра неизвестна')
+  else if (idle.priceSource === 'latest') parts.push(`${money(idle.pricePerLitre, 2)}/л с прошлой заправки`)
+  else parts.push(`${money(idle.pricePerLitre, 2)}/л`)
+  return parts.join(' · ')
+})
 const maxDailyDistance = computed(() => Math.max(1, ...(data.value?.daily || []).map(item => item.distance)))
 function dailyBarHeight(distance: number) {
   return `${distance > 0 ? Math.max(6, distance / maxDailyDistance.value * 100) : 2}%`
@@ -120,7 +158,11 @@ function duration(minutes: number | null | undefined) {
       </section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">За месяц</p></div><p class="metric">{{ number(data?.month.distance, 1) }} <small>км</small></p><p class="muted">{{ number(data?.month.trips) }} поездок · {{ number(data?.month.fuelUsed, 1) }} л · {{ number(data?.month.consumption, 1) }} л/100 км</p></section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">Затраты на бензин</p></div><p class="metric metric--compact">{{ money(data?.fuelCost.amount) }}</p><p class="muted">За месяц · {{ fuelCostNote }}</p></section>
-      <section class="card card--half"><div class="card__top"><p class="metric-label">Работа без движения</p></div><p class="metric metric--compact">{{ duration(data?.engine.stationaryMinutes) }}</p><p class="muted">За месяц · до начала движения {{ duration(data?.engine.warmupMinutes) }} · сессий двигателя {{ number(data?.engine.sessions) }}</p></section>
+      <section class="card card--half">
+        <div class="card__top"><p class="metric-label">Прогревы</p><span v-if="data?.idle.rate.source === 'measured'" class="metric-badge">по замерам</span></div>
+        <p class="metric metric--compact">{{ idleHeadline }}</p>
+        <div class="metric-card__footer"><p class="muted">{{ idleSummaryNote }}</p><p class="metric-meta">{{ idleBasis }}</p></div>
+      </section>
       <section class="card card--half"><div class="card__top"><p class="metric-label">Заправки</p></div><p class="metric">{{ number(data?.refuels.litres, 1) }} <small>л</small></p><p class="muted">{{ number(data?.refuels.count) }} за месяц<span v-if="data?.refuels.recent[0]"> · последняя {{ date(data.refuels.recent[0].detectedAt) }}</span></p></section>
       <section class="card card--wide battery-card">
         <div class="card__top"><div><p class="metric-label">АКБ за 7 дней</p><p class="muted">Дневные минимумы, средние и максимумы</p></div></div>

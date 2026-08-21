@@ -127,7 +127,13 @@ export const engineSessions = sqliteTable('engine_sessions', {
   fuelEnd: real('fuel_end'),
   distance: real('distance'),
   durationMinutes: real('duration_minutes'),
+  // Not the time spent warming up: the odometer reports in chunks of ten to
+  // twenty kilometres every ten minutes or so, so the first reported increase
+  // says when the OBD next spoke, not when the car pulled away. Whether a
+  // session was a warm-up is decided by the coolant temperature below.
   warmupMinutes: real('warmup_minutes'),
+  engineTempStart: real('engine_temp_start'),
+  engineTempEnd: real('engine_temp_end'),
   isStationary: integer('is_stationary', { mode: 'boolean' }),
   isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
 }, table => [index('engine_sessions_vehicle_started_idx').on(table.vehicleId, table.startedAt)])

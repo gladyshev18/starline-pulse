@@ -37,7 +37,8 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
       vehicleId,
       startedAt: snapshotTime(current),
       mileageStart: current.mileage,
-      fuelStart: current.fuel
+      fuelStart: current.fuel,
+      engineTempStart: current.engineTemp
     }).returning()
   }
   if (!session) return
@@ -60,6 +61,7 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
     firstMovementAt,
     mileageEnd,
     fuelEnd: current.fuel,
+    engineTempEnd: current.engineTemp,
     distance,
     durationMinutes: elapsedMinutes(session.startedAt, endedAt),
     warmupMinutes: firstMovementAt ? elapsedMinutes(session.startedAt, firstMovementAt) : null,

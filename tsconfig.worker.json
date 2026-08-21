@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["db/**/*.ts", "receipts/**/*.ts", "shared/**/*.ts", "worker/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "drizzle.config.ts"]
+  "include": ["db/**/*.ts", "metrics/**/*.ts", "receipts/**/*.ts", "shared/**/*.ts", "worker/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "drizzle.config.ts"]
 }
