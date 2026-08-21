@@ -20,7 +20,9 @@
   --surface: #ffffff;
   --surface-subtle: #eef5f1;
   --ink: #13231c;
-  --muted: #6d7c74;
+  /* Dark enough to clear 4.5:1 on both --surface and --surface-subtle, which is
+     where the small print actually sits. */
+  --muted: #64736b;
   --line: #dfe9e4;
   --line-strong: #cadbd2;
   --accent: #10a976;
@@ -300,7 +302,7 @@ button { color: inherit; }
 .metric-meta { margin: 17px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .metric-card__footer { margin-top: 17px; }
 .metric-card__footer .metric-meta { margin-top: 0; }
-.metric-card__footer .metric-meta--primary { margin-bottom: 4px; color: var(--text); font-weight: 650; }
+.metric-card__footer .metric-meta--primary { margin-bottom: 4px; color: var(--ink); font-weight: 650; }
 .metric-meta--stale { color: var(--danger); }
 .card > .muted { margin-bottom: 0; font-size: .82rem; }
 
@@ -373,7 +375,7 @@ tbody tr:hover { background: var(--surface-subtle); }
 .trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
 .trip-consumption { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
 .trip-comment-cell { width: 34%; min-width: 240px; white-space: normal; }
-.trip-comment-button { max-width: 360px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+.trip-comment-button { max-width: 360px; min-height: 24px; padding: 3px 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
 .trip-comment-button:hover { color: var(--accent-ink); }
 .trip-comment-button:focus-visible { border-radius: 4px; outline: 2px solid var(--accent); outline-offset: 4px; }
 .trip-comment-button--empty { color: var(--accent-ink); font-weight: 650; }
@@ -389,11 +391,18 @@ tbody tr:hover { background: var(--surface-subtle); }
 .refuels-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .refuels-heading__note { max-width: 310px; margin: 0 0 5px; color: var(--muted); font-size: .78rem; text-align: right; }
 .refuels-empty { display: block; }
-.refuel-list { display: grid; gap: 14px; }
+/* The children are `.card`, and a card carries a column span meant for the
+   dashboard's twelve-column grid. Left to itself this list would inherit those
+   spans as implicit columns and stand the refuels three to a row, off the side
+   of a page that cannot scroll sideways. One column, one card per row. */
+.refuel-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.refuel-list > .card { grid-column: 1 / -1; }
 .refuel-card { display: grid; min-height: 0; grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr); gap: 30px; padding: 28px; }
 .refuel-card__summary { display: flex; flex-direction: column; justify-content: space-between; gap: 30px; }
 .refuel-card__top { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
-.refuel-edit, .refuel-calculate { padding: 0; border: 0; background: transparent; color: var(--accent-ink); cursor: pointer; font-size: .7rem; font-weight: 700; }
+/* Text buttons, but still buttons: the line box alone is 17px tall, under the
+   24px a finger needs, so they carry the rest as height around the label. */
+.refuel-edit, .refuel-calculate { display: inline-flex; min-height: 24px; align-items: center; padding: 0; border: 0; background: transparent; color: var(--accent-ink); cursor: pointer; font-size: .7rem; font-weight: 700; text-align: left; }
 .refuel-edit:hover, .refuel-calculate:hover { text-decoration: underline; }
 .refuel-edit:focus-visible, .refuel-calculate:focus-visible { border-radius: 3px; outline: 2px solid var(--accent); outline-offset: 3px; }
 .refuel-card__amount { margin: 15px 0 0; font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 340; line-height: .95; letter-spacing: -.055em; }
@@ -584,6 +593,12 @@ tbody tr:hover { background: var(--surface-subtle); }
     right: 0;
     left: 0;
     gap: 2px;
+    /* The panel hangs off a sticky header, so scrolling the page cannot bring
+       its lower rows into view. On a phone held sideways the last links would
+       otherwise sit below the fold for good — the panel scrolls instead. */
+    max-height: calc(100dvh - 120px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 9px;
     border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
     border-radius: 18px;
