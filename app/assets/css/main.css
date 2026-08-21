@@ -406,6 +406,9 @@ tbody tr:hover { background: var(--surface-subtle); }
 .refuel-edit:hover, .refuel-calculate:hover { text-decoration: underline; }
 .refuel-edit:focus-visible, .refuel-calculate:focus-visible { border-radius: 3px; outline: 2px solid var(--accent); outline-offset: 3px; }
 .refuel-card__amount { margin: 15px 0 0; font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 340; line-height: .95; letter-spacing: -.055em; }
+/* The badge is a lone inline-flex between two blocks that both carry their own
+   spacing, so it has to hold the gap above it as well as below. */
+.refuel-flags + .station-badge { margin-top: 13px; }
 .station-badge + .refuel-card__amount { margin-top: 13px; }
 .refuel-card__amount small { color: var(--muted); font-size: .32em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 .refuel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }

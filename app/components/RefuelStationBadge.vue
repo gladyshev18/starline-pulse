@@ -7,13 +7,15 @@ defineProps<{
 
 <template>
   <span class="station-badge" :class="`station-badge--${station}`">
+    <!-- Марки нарисованы здесь, а не взяты у сетей: узнаваемы по фирменному
+         цвету и форме, но официальными знаками не являются. -->
     <svg v-if="station === 'rosneft'" viewBox="0 0 32 32" aria-hidden="true">
-      <path fill="#f4c900" d="M5 4h22v7l-4 3v12l-7 4-7-4V14l-4-3z" />
-      <path fill="#171717" d="m9 7 14 0v3H9zm3 6h11v3H12zm0 6h8v3h-8zm0 6h5v3h-5z" />
+      <circle cx="16" cy="16" r="13" fill="#ffcc00" />
+      <path fill="#141414" d="M4.6 20.6C9 10.5 19.5 6.5 27 9.5 19 13.5 12 18.5 8.5 25z" />
     </svg>
     <svg v-else-if="station === 'lukoil'" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="6" fill="#d71920" />
-      <path fill="#fff" d="M7 7h5v13h5v5H7zm12 0h6v5h-3v3h3v5h-6z" />
+      <circle cx="16" cy="16" r="13" fill="#e01f26" />
+      <path fill="#fff" d="M16 7.4c-3.4 4-5.5 6.9-5.5 9.6a5.5 5.5 0 0 0 11 0c0-2.7-2.1-5.6-5.5-9.6z" />
     </svg>
     <svg v-else viewBox="0 0 32 32" aria-hidden="true">
       <path d="M8 27V6h12v21M8 11h12M11 16h6M20 10h3l3 4v10a2 2 0 0 1-4 0v-7" />
