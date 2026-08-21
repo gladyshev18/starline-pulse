@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { InlineKeyboard, type Bot, type Context } from 'grammy'
 import type { Database } from '../../db/client'
-import { refuelEvents, refuelReceipts, type RefuelReceipt } from '../../db/schema'
+import { refuelEvents, refuelReceipts, serviceDocuments, type RefuelReceipt } from '../../db/schema'
 import { missingReceiptField, normalizeReceiptFields, parseNumericAnswer } from '../../receipts/fields'
 import { readReceiptQr } from '../../receipts/qr'
 import {
@@ -11,9 +11,24 @@ import {
   findReceiptByContentHash,
   isReceiptConfirming,
   linkReceiptToRefuel,
-  rejectReceiptMatch
+  rejectReceiptMatch,
+  type ReceiptFile
 } from '../../receipts/store'
-import { MAX_RECEIPT_SIZE, receiptContentHash, receiptFileNameFor, saveReceiptFile } from '../../receipts/storage'
+import {
+  createServiceDocument,
+  detachServiceDocument,
+  findServiceDocumentByContentHash,
+  getServiceDocumentStorageDir,
+  markServiceDocumentKind
+} from '../../receipts/service-documents'
+import {
+  MAX_RECEIPT_SIZE,
+  getReceiptStorageDir,
+  moveReceiptFile,
+  receiptContentHash,
+  receiptFileNameFor,
+  saveReceiptFile
+} from '../../receipts/storage'
 import { config } from '../config'
 import { mainKeyboard } from './keyboard'
 import { telegramFetch } from './proxy'
@@ -96,7 +111,41 @@ async function finishReceipt(context: Context, database: Database, receipt: Refu
   return reply(context, `🧾 <b>${escapeHtml(receiptSummary(fresh || receipt))}</b>\n\n${outcome.text}`, outcome.keyboard)
 }
 
-async function handleReceiptFile(context: Context, database: Database) {
+function kindKeyboard(documentId: number) {
+  return new InlineKeyboard()
+    .text('⛽ Чек на топливо', `doc:fuel:${documentId}`)
+    .text('🔧 Акт по ТО', `doc:act:${documentId}`)
+}
+
+async function createFuelReceipt(context: Context, database: Database, input: {
+  file: ReceiptFile
+  fiscal: Awaited<ReturnType<typeof readReceiptQr>>
+  sentAt: Date
+}) {
+  const { receipt } = await createReceipt(database, {
+    source: 'telegram',
+    dataSource: input.fiscal ? 'qr' : 'manual',
+    file: input.file,
+    pendingChatId: context.chat?.id.toString() || null,
+    fields: normalizeReceiptFields({
+      // Without a QR code the send time is the closest thing to a purchase time,
+      // and the matcher only needs it to be in the right hours.
+      purchasedAt: input.fiscal?.purchasedAt || input.sentAt,
+      totalAmount: input.fiscal?.totalAmount ?? null,
+      fiscalDocNumber: input.fiscal?.fiscalDocNumber ?? null,
+      fiscalSign: input.fiscal?.fiscalSign ?? null
+    })
+  })
+  return receipt
+}
+
+// A photo can be a fuel receipt or a service act, and nothing in the picture says
+// which until an act parser exists. A fiscal QR settles it — only a till prints
+// one, and every fuel receipt has it — so that path stays automatic. Everything
+// else is stored unclassified and the question is asked, because guessing would
+// either bury acts in the fuel receipts or start asking for litres about a
+// gearbox oil change.
+async function handleIncomingFile(context: Context, database: Database) {
   const message = context.message
   if (!message) return
   const document = message.document
@@ -110,13 +159,19 @@ async function handleReceiptFile(context: Context, database: Database) {
   } catch (error) {
     const code = error instanceof Error ? error.message : ''
     if (code === 'RECEIPT_TOO_LARGE') return reply(context, 'Файл больше 15 МБ — пришлите фото поменьше.')
-    console.error('Telegram receipt download failed', error)
+    console.error('Telegram file download failed', error)
     return reply(context, 'Не удалось забрать файл из Telegram. Попробуйте ещё раз.')
   }
 
   const contentHash = receiptContentHash(downloaded.data)
   const duplicate = await findReceiptByContentHash(database, contentHash)
   if (duplicate) return reply(context, `Этот чек уже сохранён: ${escapeHtml(receiptSummary(duplicate))}.`)
+  const duplicateDocument = await findServiceDocumentByContentHash(database, contentHash)
+  if (duplicateDocument) {
+    return duplicateDocument.kind === 'act'
+      ? reply(context, 'Этот документ уже сохранён как акт по ТО.')
+      : reply(context, 'Этот файл уже загружен, но ещё не отмечен.', kindKeyboard(duplicateDocument.id))
+  }
 
   let fileName: string
   try {
@@ -125,31 +180,76 @@ async function handleReceiptFile(context: Context, database: Database) {
     return reply(context, 'Такой файл не подходит: пришлите фото, PDF или HTML-чек.')
   }
 
-  let saved: Awaited<ReturnType<typeof saveReceiptFile>>
-  try {
-    saved = await saveReceiptFile({ data: downloaded.data, originalName: fileName })
-  } catch (error) {
-    console.error('Telegram receipt storage failed', error)
-    return reply(context, 'Не удалось сохранить файл чека.')
+  const isImage = fileName.match(/\.(jpg|jpeg|png|gif|webp|avif|heic|heif)$/i) != null
+  const fiscal = isImage ? await readReceiptQr(downloaded.data) : null
+
+  if (fiscal) {
+    let saved: ReceiptFile
+    try {
+      saved = await saveReceiptFile({ data: downloaded.data, originalName: fileName })
+    } catch (error) {
+      console.error('Telegram receipt storage failed', error)
+      return reply(context, 'Не удалось сохранить файл чека.')
+    }
+    const receipt = await createFuelReceipt(context, database, { file: saved, fiscal, sentAt: new Date(message.date * 1000) })
+    await reply(context, `Прочитал QR-код: ${escapeHtml(receiptSummary(receipt))}.`)
+    return finishReceipt(context, database, receipt)
   }
 
-  const fiscal = saved.mimeType.startsWith('image/') ? await readReceiptQr(downloaded.data) : null
-  const { receipt } = await createReceipt(database, {
-    source: 'telegram',
-    dataSource: fiscal ? 'qr' : 'manual',
-    file: saved,
-    pendingChatId: context.chat?.id.toString() || null,
-    fields: normalizeReceiptFields({
-      // Without a QR code the send time is the closest thing to a purchase time,
-      // and the matcher only needs it to be in the right hours.
-      purchasedAt: fiscal?.purchasedAt || new Date(message.date * 1000),
-      totalAmount: fiscal?.totalAmount ?? null,
-      fiscalDocNumber: fiscal?.fiscalDocNumber ?? null,
-      fiscalSign: fiscal?.fiscalSign ?? null
+  let stored: ReceiptFile
+  try {
+    stored = await saveReceiptFile({
+      data: downloaded.data,
+      originalName: fileName,
+      storageDir: getServiceDocumentStorageDir()
     })
-  })
+  } catch (error) {
+    console.error('Telegram document storage failed', error)
+    return reply(context, 'Не удалось сохранить файл.')
+  }
 
-  if (fiscal) await reply(context, `Прочитал QR-код: ${escapeHtml(receiptSummary(receipt))}.`)
+  const created = await createServiceDocument(database, {
+    file: stored,
+    source: 'telegram',
+    receivedAt: new Date(message.date * 1000),
+    pendingChatId: context.chat?.id.toString() || null
+  })
+  return reply(context, 'Файл сохранён. QR-кода на нём нет — что это?', kindKeyboard(created.id))
+}
+
+async function classifyDocument(context: Context, database: Database, id: number, kind: 'fuel' | 'act') {
+  const existing = await database.query.serviceDocuments.findFirst({ where: eq(serviceDocuments.id, id) })
+  if (!existing) {
+    await context.answerCallbackQuery('Файл не найден')
+    return
+  }
+  if (kind === 'act') {
+    await markServiceDocumentKind(database, id, 'act')
+    await context.answerCallbackQuery('Записал как акт')
+    return context.editMessageText('🔧 Сохранил как акт по ТО. Разбор содержимого добавим позже.', replyOptions)
+  }
+
+  // The file lives in the service pile until now; the receipt store owns the
+  // other folder, so the file moves and only the row is dropped.
+  if (!existing.storedName || !existing.mimeType || existing.size == null || !existing.contentHash) {
+    await context.answerCallbackQuery('Файл повреждён')
+    return
+  }
+  await moveReceiptFile(existing.storedName, getServiceDocumentStorageDir(), getReceiptStorageDir())
+  await detachServiceDocument(database, id)
+  const receipt = await createFuelReceipt(context, database, {
+    file: {
+      originalName: existing.originalName || existing.storedName,
+      storedName: existing.storedName,
+      mimeType: existing.mimeType,
+      size: existing.size,
+      contentHash: existing.contentHash
+    },
+    fiscal: null,
+    sentAt: existing.receivedAt
+  })
+  await context.answerCallbackQuery('Записал как чек')
+  await context.editMessageText('⛽ Сохранил как чек на топливо.', replyOptions)
   return finishReceipt(context, database, receipt)
 }
 
@@ -200,7 +300,12 @@ async function showUnconfirmedRefuels(context: Context, database: Database) {
 export function registerReceiptHandlers(bot: Bot, database: Database) {
   bot.command('receipts', context => showUnconfirmedRefuels(context, database))
 
-  bot.on(['message:photo', 'message:document'], context => handleReceiptFile(context, database))
+  bot.on(['message:photo', 'message:document'], context => handleIncomingFile(context, database))
+
+  bot.callbackQuery(/^doc:(fuel|act):(\d+)$/, async (context) => {
+    const [, action, rawId] = context.match as RegExpMatchArray
+    return classifyDocument(context, database, Number(rawId), action as 'fuel' | 'act')
+  })
 
   bot.callbackQuery(/^receipt:(link|reject):(\d+)(?::(\d+))?$/, async (context) => {
     const [, action, rawReceiptId, rawRefuelId] = context.match as RegExpMatchArray

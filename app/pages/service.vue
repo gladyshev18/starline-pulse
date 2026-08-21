@@ -2,6 +2,7 @@
 import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS } from '~~/shared/service'
 
 const { data, status, refresh } = await useFetch('/api/service')
+const { data: documents, refresh: refreshDocuments } = await useFetch('/api/service-documents')
 const pending = ref(false)
 
 function number(value: number | null | undefined, digits = 0) {
@@ -123,6 +124,16 @@ const batteryNote = computed(() => {
   return `${direction} ${number(Math.abs(perMonth), 3)} В в месяц ± ${number(trend.standardError!, 3)}${forecast}`
 })
 
+async function removeDocument(id: number) {
+  if (pending.value) return
+  pending.value = true
+  try {
+    await $fetch(`/api/service-documents/${id}`, { method: 'DELETE' })
+    await refreshDocuments()
+  } finally {
+    pending.value = false
+  }
+}
 async function remove(id: number) {
   if (pending.value) return
   pending.value = true
@@ -205,6 +216,30 @@ async function remove(id: number) {
         <p v-if="battery?.ambientAdjusted" class="metric-meta">
           Поправка на уличную температуру учтена: холод сам по себе роняет напряжение покоя, и без неё зима выглядела бы деградацией.
         </p>
+      </section>
+
+      <section class="card card--wide card--table">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Документы по ТО</p>
+            <p class="muted">Пришлите фото акта боту — он сохранит его здесь. Разбор содержимого пока не делается.</p>
+          </div>
+        </div>
+        <p v-if="!documents?.items.length" class="muted">Документов пока нет.</p>
+        <div v-else class="table-wrap">
+          <table>
+            <thead><tr><th>Получен</th><th>Тип</th><th>Файл</th><th>Размер</th><th /></tr></thead>
+            <tbody>
+              <tr v-for="item in documents.items" :key="item.id">
+                <td>{{ date(item.receivedAt) }}</td>
+                <td>{{ item.kind === 'act' ? 'Акт по ТО' : 'Не отмечен' }}</td>
+                <td><a :href="`/api/service-documents/${item.id}`" target="_blank" rel="noopener">{{ item.originalName || 'файл' }}</a></td>
+                <td>{{ item.size == null ? '—' : `${number(item.size / 1024)} КБ` }}</td>
+                <td><button class="btn btn--secondary" type="button" :disabled="pending" @click="removeDocument(item.id)">Удалить</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="card card--wide card--table">

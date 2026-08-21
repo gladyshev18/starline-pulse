@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, extname, resolve, sep } from 'node:path'
 
 export const MAX_RECEIPT_SIZE = 15 * 1024 * 1024
@@ -102,6 +102,23 @@ export async function saveReceiptFile(input: {
     size: input.data.length,
     contentHash: receiptContentHash(input.data)
   }
+}
+
+// A document filed in the wrong pile has to change folders without changing its
+// name: the stored name is what the database row points at. Rename fails across
+// devices, which is exactly what a mounted volume can be, so copying is the
+// fallback rather than the error.
+export async function moveReceiptFile(storedName: string, fromDir: string, toDir: string) {
+  const from = resolveReceiptPath(storedName, fromDir)
+  await mkdir(toDir, { recursive: true })
+  const to = resolveReceiptPath(storedName, toDir)
+  try {
+    await rename(from, to)
+  } catch {
+    await copyFile(from, to)
+    await unlink(from).catch(() => undefined)
+  }
+  return storedName
 }
 
 export async function removeReceiptFile(storedName: string, storageDir?: string) {

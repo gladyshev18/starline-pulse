@@ -232,6 +232,37 @@ export const serviceEvents = sqliteTable('service_events', {
   ...timestamps
 }, table => [index('service_events_vehicle_kind_idx').on(table.vehicleId, table.kind, table.performedAt)])
 
+// A photo sent to the bot is either a fuel receipt or a service act, and until
+// the act parser exists nothing in the picture says which. So the file is stored
+// first and classified after: an unanswered document stays `unknown` rather than
+// being guessed into the wrong pile, and the parsed columns wait empty for the
+// parser that will fill them.
+export const serviceDocuments = sqliteTable('service_documents', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  serviceEventId: integer('service_event_id').references(() => serviceEvents.id),
+  kind: text('kind', { enum: ['unknown', 'act'] }).notNull().default('unknown'),
+  source: text('source', { enum: ['telegram', 'manual'] }).notNull().default('telegram'),
+  receivedAt: integer('received_at', { mode: 'timestamp_ms' }).notNull(),
+  performedAt: integer('performed_at', { mode: 'timestamp_ms' }),
+  vendor: text('vendor'),
+  totalAmount: real('total_amount'),
+  mileage: real('mileage'),
+  note: text('note'),
+  // Null while the document has only been stored; set when a parser has read it.
+  parsedAt: integer('parsed_at', { mode: 'timestamp_ms' }),
+  originalName: text('original_name'),
+  storedName: text('stored_name'),
+  mimeType: text('mime_type'),
+  size: integer('size'),
+  contentHash: text('content_hash'),
+  pendingChatId: text('pending_chat_id'),
+  ...timestamps
+}, table => [
+  index('service_documents_kind_idx').on(table.kind, table.receivedAt),
+  index('service_documents_content_hash_idx').on(table.contentHash),
+  uniqueIndex('service_documents_stored_name_unique').on(table.storedName)
+])
+
 export const imapState = sqliteTable('imap_state', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   mailbox: text('mailbox').notNull(),
@@ -247,3 +278,4 @@ export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect
 export type RefuelEvent = typeof refuelEvents.$inferSelect
 export type RefuelReceipt = typeof refuelReceipts.$inferSelect
 export type ServiceEvent = typeof serviceEvents.$inferSelect
+export type ServiceDocument = typeof serviceDocuments.$inferSelect
