@@ -26,6 +26,7 @@ COPY deploy/tasks/package.json deploy/tasks/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY --chown=node:node db ./db
 COPY --chown=node:node shared ./shared
+COPY --chown=node:node metrics ./metrics
 COPY --chown=node:node receipts ./receipts
 COPY --chown=node:node worker ./worker
 COPY --chown=node:node scripts ./scripts
