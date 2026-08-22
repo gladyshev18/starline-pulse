@@ -28,7 +28,9 @@ export default defineNuxtConfig({
   nitro: {
     preset: 'node-server'
   },
-  typescript: { strict: true, typeCheck: true },
+  // Проверку типов вынесли из сборки: vue-tsc внутри `nuxt build` съедал 22
+  // секунды и дублировал `npm run typecheck`, который CI гоняет параллельно.
+  typescript: { strict: true, typeCheck: false },
   app: {
     head: {
       htmlAttrs: { lang: 'ru' },

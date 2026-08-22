@@ -52,7 +52,7 @@ rollback() {
   else
     rm -f "$CURRENT_ENV"
   fi
-  previous_compose up -d --no-build web worker caddy || true
+  previous_compose up -d --no-build --no-deps web worker caddy || true
 }
 
 echo "Pulling immutable images"
@@ -91,12 +91,12 @@ mv "$NEXT_ENV" "$CURRENT_ENV"
 chmod 600 "$CURRENT_ENV"
 
 echo "Starting the new release"
-if ! docker compose --env-file "$CURRENT_ENV" up -d --no-build --remove-orphans --wait --wait-timeout 120 web worker; then
+if ! docker compose --env-file "$CURRENT_ENV" up -d --no-build --no-deps --remove-orphans --wait --wait-timeout 120 web worker; then
   rollback
   exit 1
 fi
 
-if ! docker compose --env-file "$CURRENT_ENV" up -d --no-build caddy; then
+if ! docker compose --env-file "$CURRENT_ENV" up -d --no-build --no-deps caddy; then
   rollback
   exit 1
 fi
