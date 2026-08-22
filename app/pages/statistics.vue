@@ -4,7 +4,7 @@ import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, s
 const route = useRoute()
 
 const month = computed(() => moscowMonthRange(route.query.month)?.month || currentMoscowMonth())
-const { data, status } = await useFetch('/api/history', { query: computed(() => ({ month: month.value })) })
+const { data, status } = await useFetch('/api/statistics', { query: computed(() => ({ month: month.value })) })
 const chartMode = ref<'daily' | 'odometer'>('daily')
 const chartModes = [
   { value: 'daily', label: 'По дням' },
@@ -170,7 +170,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         <div class="card__top">
           <div>
             <p class="metric-label">За рулём</p>
-            <p class="muted">Пробег по водителям — по тем поездкам, на которые ответили в боте</p>
+            <p class="muted">Пробег и деньги по водителям — по тем поездкам, на которые ответили в боте, поэтому в сумме они меньше израсходованного за месяц</p>
           </div>
         </div>
         <p v-if="!hasDrivers" class="muted empty-note">За этот месяц никто не отметился за рулём.</p>
@@ -182,7 +182,10 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
             </div>
             <span class="speed-row__track"><span class="speed-row__bar" :style="{ width: `${row.share * 100}%` }" /></span>
             <p class="speed-row__value">
-              <strong>{{ number(row.distance) }} км</strong>
+              <strong>
+                {{ number(row.distance) }} км
+                <template v-if="row.cost != null"> · {{ money(row.cost, 0) }}</template>
+              </strong>
               <span class="muted">
                 {{ number(row.trips, 0) }} поездок · {{ duration(row.minutes) }}
                 <template v-if="row.consumption != null"> · {{ number(row.consumption) }} л/100 км</template>
@@ -199,7 +202,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         <div class="card__top">
           <div>
             <p class="metric-label">Куда уходит бензин</p>
-            <p class="muted">Расход по средней скорости поездки — единственное, что в данных отличает пробку от трассы</p>
+            <p class="muted">Расход по средней скорости поездки — единственное, что в данных отличает пробку от трассы. Деньги посчитаны по литрам самой корзины</p>
           </div>
         </div>
         <p v-if="!speedRows.length" class="muted empty-note">За этот месяц нет поездок с известным расходом.</p>
@@ -215,6 +218,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
                 {{ number(item.consumption) }}
                 <template v-if="item.consumptionUncertainty"> ± {{ number(item.consumptionUncertainty) }}</template>
                 л/100 км
+                <template v-if="item.cost != null"> · {{ money(item.cost, 0) }}</template>
               </strong>
               <span class="muted">{{ number(item.trips, 0) }} поездок · {{ number(item.distance) }} км · {{ number(item.fuelUsed) }} л</span>
             </p>

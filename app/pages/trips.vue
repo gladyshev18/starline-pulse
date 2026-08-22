@@ -36,6 +36,11 @@ function litres(value: number | null) {
 function unresolved(value: number | null) {
   return value != null && Math.abs(value) < 0.5
 }
+// Копейки тут не значат ничего: цена литра сама выведена из чеков за месяц.
+function money(value: number | null | undefined) {
+  if (value == null) return '—'
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value)
+}
 function pageLink(targetPage: number) {
   return { query: { page: targetPage, ...(selectedDay.value ? { day: selectedDay.value } : {}) } }
 }
@@ -82,27 +87,34 @@ async function saveComment() {
         <div>
           <p class="metric-label">Журнал поездок</p>
           <p v-if="selectedDay" class="muted trips-filter-note">За {{ day(selectedDay) }}</p>
+          <!-- Пояснение стоит один раз, а не в каждой строке: основание у всех
+               поездок одно, и повторённое двадцать раз оно только распирало
+               таблицу и мешало читать. -->
+          <p class="muted trips-filter-note">Стоимость — километры поездки по цене километра за её месяц</p>
         </div>
         <AppButton v-if="selectedDay" variant="secondary" to="/trips">Все поездки</AppButton>
       </div>
       <p v-if="status === 'pending'">Загрузка…</p>
       <div v-else-if="!data?.items.length" class="muted">{{ selectedDay ? 'За выбранный день завершённых поездок нет.' : 'Завершённых поездок пока нет.' }}</div>
       <div v-else class="table-wrap">
-        <table>
-          <thead><tr><th>Дата</th><th>Дальность</th><th>Длительность</th><th>Ср. скорость</th><th>Расход топлива</th><th>За рулём</th><th>Комментарий</th></tr></thead>
-          <tbody>
-            <tr v-for="trip in data.items" :key="trip.id">
-              <td>{{ date(trip.startedAt) }}</td>
-              <td>{{ number(trip.distance) }} км</td>
-              <td>{{ duration(trip.durationMinutes) }}</td>
-              <td>{{ number(trip.averageSpeed) }} км/ч</td>
-              <td>
-                {{ litres(trip.fuelUsed) }}
-                <span v-if="!unresolved(trip.fuelUsed)" class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
-                <span v-else class="trip-consumption muted">ниже точности датчика</span>
+        <table role="table">
+          <thead role="rowgroup"><tr role="row"><th role="columnheader">Дата</th><th role="columnheader">Дальность</th><th role="columnheader">Длительность</th><th role="columnheader">Ср. скорость</th><th role="columnheader">Расход топлива</th><th role="columnheader">Стоимость</th><th role="columnheader">За рулём</th><th role="columnheader">Комментарий</th></tr></thead>
+          <tbody role="rowgroup">
+            <tr v-for="trip in data.items" :key="trip.id" role="row">
+              <td role="cell" data-label="Дата">{{ date(trip.startedAt) }}</td>
+              <td role="cell" data-label="Дальность">{{ number(trip.distance) }} км</td>
+              <td role="cell" data-label="Длительность">{{ duration(trip.durationMinutes) }}</td>
+              <td role="cell" data-label="Ср. скорость">{{ number(trip.averageSpeed) }} км/ч</td>
+              <td role="cell" data-label="Расход топлива">
+                <span class="cell-stack">
+                  {{ litres(trip.fuelUsed) }}
+                  <span v-if="!unresolved(trip.fuelUsed)" class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
+                  <span v-else class="trip-consumption muted">ниже точности датчика</span>
+                </span>
               </td>
-              <td :class="{ muted: !trip.driver }">{{ trip.driver || '—' }}</td>
-              <td class="trip-comment-cell">
+              <td role="cell" data-label="Стоимость">{{ money(trip.cost) }}</td>
+              <td role="cell" data-label="За рулём" :class="{ muted: !trip.driver }">{{ trip.driver || '—' }}</td>
+              <td role="cell" data-label="Комментарий" class="trip-comment-cell">
                 <button
                   class="trip-comment-button"
                   :class="{ 'trip-comment-button--empty': !trip.comment }"

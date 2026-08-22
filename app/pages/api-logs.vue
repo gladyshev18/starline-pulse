@@ -132,16 +132,16 @@ onBeforeUnmount(() => {
       <p v-if="status === 'pending'" class="muted">Загрузка журнала…</p>
       <p v-else-if="!data?.items.length" class="muted">По выбранным условиям записей нет.</p>
       <div v-else class="table-wrap">
-        <table class="log-table">
-          <thead><tr><th>Время</th><th>Метод</th><th>Endpoint</th><th>Статус</th><th>Время ответа</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="item in data.items" :key="item.id" :class="{ 'is-selected': selected?.id === item.id }">
-              <td>{{ date(item.createdAt) }}</td>
-              <td><span class="method-badge">{{ item.method }}</span></td>
-              <td class="endpoint-cell">{{ item.endpoint }}</td>
-              <td><span class="status-badge" :class="item.status >= 200 && item.status < 400 ? 'status-badge--ok' : 'status-badge--error'">{{ statusLabel(item.status) }}</span></td>
-              <td>{{ item.durationMs == null ? '—' : `${item.durationMs} мс` }}</td>
-              <td><AppButton variant="link" :disabled="detailPending" @click="openDetails(item.id)">Детали</AppButton></td>
+        <table class="log-table" role="table">
+          <thead role="rowgroup"><tr role="row"><th role="columnheader">Время</th><th role="columnheader">Метод</th><th role="columnheader">Endpoint</th><th role="columnheader">Статус</th><th role="columnheader">Время ответа</th><th role="columnheader"></th></tr></thead>
+          <tbody role="rowgroup">
+            <tr v-for="item in data.items" :key="item.id" role="row" :class="{ 'is-selected': selected?.id === item.id }">
+              <td role="cell" data-label="Время">{{ date(item.createdAt) }}</td>
+              <td role="cell" data-label="Метод"><span class="method-badge">{{ item.method }}</span></td>
+              <td role="cell" data-label="Endpoint" class="endpoint-cell">{{ item.endpoint }}</td>
+              <td role="cell" data-label="Статус"><span class="status-badge" :class="item.status >= 200 && item.status < 400 ? 'status-badge--ok' : 'status-badge--error'">{{ statusLabel(item.status) }}</span></td>
+              <td role="cell" data-label="Время ответа">{{ item.durationMs == null ? '—' : `${item.durationMs} мс` }}</td>
+              <td role="cell"><AppButton variant="link" :disabled="detailPending" @click="openDetails(item.id)">Детали</AppButton></td>
             </tr>
           </tbody>
         </table>

@@ -65,7 +65,7 @@ onBeforeUnmount(() => {
       </AppIconButton>
       <nav id="site-nav" class="nav" :class="{ 'nav--open': menuOpen }" aria-label="Основная навигация">
         <NuxtLink to="/">Обзор</NuxtLink>
-        <NuxtLink to="/history">Статистика</NuxtLink>
+        <NuxtLink to="/statistics">Статистика</NuxtLink>
         <NuxtLink to="/trips">Поездки</NuxtLink>
         <NuxtLink to="/refuels">Заправки</NuxtLink>
         <NuxtLink to="/receipts">Чеки</NuxtLink>

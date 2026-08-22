@@ -377,16 +377,16 @@ async function remove(id: number) {
         </div>
         <p v-if="!documents?.items.length" class="muted">Документов пока нет.</p>
         <div v-else class="table-wrap">
-          <table>
-            <thead><tr><th>Получен</th><th>Дата работ</th><th>Пробег</th><th>Сумма</th><th>Файл</th><th /></tr></thead>
-            <tbody>
-              <tr v-for="item in documents.items" :key="item.id">
-                <td>{{ date(item.receivedAt) }}</td>
-                <td>{{ item.performedAt ? date(item.performedAt) : documentState(item) }}</td>
-                <td>{{ item.mileage == null ? '—' : `${number(item.mileage)} км` }}</td>
-                <td>{{ item.totalAmount == null ? '—' : money(item.totalAmount) }}</td>
-                <td><a :href="`/api/service-documents/${item.id}`" target="_blank" rel="noopener">{{ item.originalName || 'файл' }}</a></td>
-                <td class="document-actions">
+          <table role="table">
+            <thead role="rowgroup"><tr role="row"><th role="columnheader">Получен</th><th role="columnheader">Дата работ</th><th role="columnheader">Пробег</th><th role="columnheader">Сумма</th><th role="columnheader">Файл</th><th role="columnheader" /></tr></thead>
+            <tbody role="rowgroup">
+              <tr v-for="item in documents.items" :key="item.id" role="row">
+                <td role="cell" data-label="Получен">{{ date(item.receivedAt) }}</td>
+                <td role="cell" data-label="Дата работ">{{ item.performedAt ? date(item.performedAt) : documentState(item) }}</td>
+                <td role="cell" data-label="Пробег">{{ item.mileage == null ? '—' : `${number(item.mileage)} км` }}</td>
+                <td role="cell" data-label="Сумма">{{ item.totalAmount == null ? '—' : money(item.totalAmount) }}</td>
+                <td role="cell" data-label="Файл"><a :href="`/api/service-documents/${item.id}`" target="_blank" rel="noopener">{{ item.originalName || 'файл' }}</a></td>
+                <td role="cell" class="document-actions">
                   <AppButton size="small" :disabled="pending" @click="openDocument(item)">Проверить</AppButton>
                   <AppButton variant="secondary" size="small" :disabled="pending" @click="removeDocument(item.id)">Удалить</AppButton>
                 </td>
@@ -400,15 +400,15 @@ async function remove(id: number) {
         <div class="card__top"><p class="metric-label">Журнал замен</p></div>
         <p v-if="!data?.events.length" class="muted">Записей пока нет.</p>
         <div v-else class="table-wrap">
-          <table>
-            <thead><tr><th>Дата</th><th>Пробег</th><th>Моточасы</th><th>Заметка</th><th /></tr></thead>
-            <tbody>
-              <tr v-for="item in data.events" :key="item.id">
-                <td>{{ date(item.performedAt) }}</td>
-                <td>{{ number(item.mileage) }} км</td>
-                <td>{{ hours(item.motorMinutes) }}</td>
-                <td>{{ item.note || '—' }}</td>
-                <td><AppButton variant="secondary" size="small" :disabled="pending" @click="remove(item.id)">Удалить</AppButton></td>
+          <table role="table">
+            <thead role="rowgroup"><tr role="row"><th role="columnheader">Дата</th><th role="columnheader">Пробег</th><th role="columnheader">Моточасы</th><th role="columnheader">Заметка</th><th role="columnheader" /></tr></thead>
+            <tbody role="rowgroup">
+              <tr v-for="item in data.events" :key="item.id" role="row">
+                <td role="cell" data-label="Дата">{{ date(item.performedAt) }}</td>
+                <td role="cell" data-label="Пробег">{{ number(item.mileage) }} км</td>
+                <td role="cell" data-label="Моточасы">{{ hours(item.motorMinutes) }}</td>
+                <td role="cell" data-label="Заметка">{{ item.note || '—' }}</td>
+                <td role="cell"><AppButton variant="secondary" size="small" :disabled="pending" @click="remove(item.id)">Удалить</AppButton></td>
               </tr>
             </tbody>
           </table>

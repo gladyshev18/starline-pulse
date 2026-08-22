@@ -417,6 +417,9 @@ tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
 .trip-consumption { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
+/* Значение и подпись под ним — один элемент сетки: без обёртки они разъезжаются
+   по разным колонкам карточной раскладки на телефоне. */
+.cell-stack { display: block; }
 .trip-comment-cell { width: 34%; min-width: 240px; white-space: normal; }
 .trip-comment-button { max-width: 360px; min-height: 24px; padding: 3px 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
 .trip-comment-button:hover { color: var(--accent-ink); }
@@ -676,6 +679,43 @@ tbody tr:hover { background: var(--surface-subtle); }
   .receipt-file { grid-template-columns: minmax(50px, auto) minmax(0, 1fr); }
   .receipt-file__action { display: none; }
 }
+/* Таблица шириной в восемь столбцов на экране в 360 точек — это прокрутка, в
+   которой шапка уезжает первой, и оставшиеся числа уже не к чему привязать.
+   Поэтому строка становится карточкой, а подпись столбца переезжает в саму
+   ячейку через data-label: читать можно сверху вниз, ничего не двигая.
+
+   Смена display стирает у таблицы её роли, поэтому в разметке они проставлены
+   явно (role="table" и далее) — иначе для скринридера остались бы просто
+   вложенные блоки. */
+@media (max-width: 820px) {
+  .table-wrap { overflow-x: visible; margin-inline: 0; }
+  .table-wrap table, .table-wrap thead, .table-wrap tbody,
+  .table-wrap tr, .table-wrap th, .table-wrap td { display: block; }
+  .table-wrap thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .table-wrap tbody tr { margin-bottom: 10px; padding: 2px 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+  .table-wrap tbody tr:last-child { margin-bottom: 0; }
+  .table-wrap td {
+    display: grid; align-items: baseline; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+    gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--line); white-space: normal;
+    /* Имя файла или endpoint — одно длинное слово без пробелов, и оно распирает
+       карточку ровно так же, как это делала таблица. */
+    overflow-wrap: anywhere;
+  }
+  .table-wrap tr td:last-child { border-bottom: 0; }
+  .table-wrap td::before {
+    content: attr(data-label); color: var(--muted); font-size: .66rem; font-weight: 700;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  /* Ячейка с одними кнопками подписи не имеет — ей вся ширина. */
+  .table-wrap td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
+  .table-wrap td:not([data-label])::before { content: none; }
+  .table-wrap .trip-comment-cell { width: auto; min-width: 0; }
+  .table-wrap .trip-comment-button { max-width: none; }
+  .table-wrap .endpoint-cell { max-width: none; overflow-wrap: anywhere; }
+  .table-wrap .document-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .table-wrap .document-actions .btn { flex: 1 1 auto; }
+}
+
 /* Fourteen columns share the card width here, which is narrower than "20.08"
    renders — the labels were being ellipsised down to "2…". The day alone fits. */
 @media (max-width: 430px) {

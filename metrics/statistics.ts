@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { refuelEvents, trips, vehicleSnapshots } from '../db/schema'
-import { costPerKilometre, summariseBySpeed } from '../shared/consumption'
+import { costPerKilometre, fuelCost, summariseBySpeed } from '../shared/consumption'
 import { summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
@@ -9,6 +9,13 @@ import { ambientTemperature, speedBreakdown } from './consumption'
 import { resolveFuelPrice } from './idle'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
+
+// Рубли приклеиваются к строке разбивки по её же литрам — см. `fuelCost`. Обе
+// разбивки проходят через это, включая пустую статистику, иначе у страницы
+// оказалось бы два разных набора полей на одно и то же место.
+function priced<T extends { fuelUsed: number }>(rows: T[], pricePerLitre: number | null) {
+  return rows.map(row => ({ ...row, cost: fuelCost(row.fuelUsed, pricePerLitre) }))
+}
 
 function fillMonth(month: string, days: number, rows: DailyRow[]) {
   const values = new Map(rows.map(row => [row.day, {
@@ -44,8 +51,8 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
       costPerKm: null,
       pricePerLitre: null
     },
-    bySpeed: summariseBySpeed([]),
-    byDriver: summariseByDriver([]),
+    bySpeed: priced(summariseBySpeed([]), null),
+    byDriver: priced(summariseByDriver([]), null),
     ambient: { average: null, min: null, max: null, days: 0, daily: [] }
   }
 }
@@ -190,14 +197,14 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     },
     // Литры здесь — по завершённым поездкам, а не по баку: прогревы и то, что
     // не досталось ни одной поездке, за руль никто не сажал.
-    byDriver: summariseByDriver(driverRows.map(row => ({
+    byDriver: priced(summariseByDriver(driverRows.map(row => ({
       driver: row.driver,
       trips: Number(row.trips || 0),
       distance: Number(row.distance || 0),
       fuelUsed: Number(row.fuelUsed || 0),
       minutes: Number(row.minutes || 0)
-    }))),
-    bySpeed: await speedBreakdown(database, vehicle.id, range.start, range.end),
+    }))), pricePerLitre),
+    bySpeed: priced(await speedBreakdown(database, vehicle.id, range.start, range.end), pricePerLitre),
     ambient: await ambientTemperature(database, vehicle.id, range.start, range.end)
   }
 }

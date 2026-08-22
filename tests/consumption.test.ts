@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { averageSpeed, bucketForSpeed, costPerKilometre, movingMinutes, summariseBySpeed } from '../shared/consumption'
+import { averageSpeed, bucketForSpeed, costPerKilometre, movingMinutes, summariseBySpeed, tripCost } from '../shared/consumption'
 
 describe('averageSpeed', () => {
   it('is distance over time, because nothing else in the data is', () => {
@@ -105,6 +105,32 @@ describe('summariseBySpeed', () => {
       { distance: 20, fuelUsed: 2, durationMinutes: null }
     ])
     expect(buckets.reduce((sum, item) => sum + item.trips, 0)).toBe(3)
+  })
+})
+
+describe('tripCost', () => {
+  it('prices a trip by the kilometre of its month', () => {
+    expect(tripCost(23, 6.36)).toBeCloseTo(146.28, 2)
+  })
+
+  it('has no answer without a distance or a price', () => {
+    expect(tripCost(null, 6.36)).toBeNull()
+    expect(tripCost(23, null)).toBeNull()
+    expect(tripCost(0, 6.36)).toBeNull()
+    expect(tripCost(23, 0)).toBeNull()
+  })
+
+  it('sums back to what the month burned', () => {
+    // Ради этого стоимость и считается через километр, а не через литры самой
+    // поездки: у половины поездок расход тонет в округлении датчика, а в сумме
+    // деньги обязаны сойтись с баком.
+    const distances = [23, 117, 5, 2, 0.5]
+    const monthDistance = distances.reduce((sum, value) => sum + value, 0)
+    const monthFuel = 61.31
+    const price = 69.12
+    const perKm = costPerKilometre(monthFuel, monthDistance, price)!
+    const total = distances.reduce((sum, distance) => sum + (tripCost(distance, perKm) ?? 0), 0)
+    expect(total).toBeCloseTo(monthFuel * price, 6)
   })
 })
 

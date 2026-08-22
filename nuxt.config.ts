@@ -17,6 +17,11 @@ export default defineNuxtConfig({
   // это имя файла: путь в него не подмешивается, поэтому <AppButton> остаётся
   // <AppButton>, а не превращается в <UiAppButton>.
   components: [{ path: '~/components', pathPrefix: false }],
+  // Страница называется «Статистика», а жила по адресу /history. Адрес переехал
+  // к названию, но старый остаётся рабочим: он уже разошёлся по закладкам.
+  routeRules: {
+    '/history': { redirect: { to: '/statistics', statusCode: 301 } }
+  },
   ssr: true,
   runtimeConfig: {
     databaseUrl: databaseUrl(),

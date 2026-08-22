@@ -111,3 +111,32 @@ export function costPerKilometre(fuelUsed: number | null, distance: number | nul
   if (!(distance > 0) || !(pricePerLitre > 0)) return null
   return fuelUsed * pricePerLitre / distance
 }
+
+// Что стоила поездка. Литры берутся не свои, а через километр месяца, и это
+// осознанно: собственный расход поездки — разность двух показаний с шагом
+// 0,5 л, и у половины поездок он тонет в округлении. Умножить такой ноль на
+// цену значило бы объявить дорогу бесплатной.
+//
+// Побочно выходит то, чего иначе не добиться: сумма стоимостей всех поездок
+// месяца в точности равна тому, что за месяц сожжено, — потому что километр
+// посчитан по баку, а километры поездок в сумме дают весь пробег.
+//
+// Цена этого — поездка по трассе и поездка в пробке равной длины стоят
+// одинаково. Развести их можно было бы расходом своей корзины, но у той свой
+// доверительный интервал, и сумма перестала бы сходиться.
+// Что стоят литры. Каждый блок статистики оценивается в деньгах по тем самым
+// литрам, которые он и показывает: тогда рубли под столбиком нельзя получить
+// иначе, чем умножив то, что рядом написано, на цену. Разбивки считают литры по
+// завершённым поездкам, поэтому в сумме они меньше израсходованного за месяц —
+// ровно настолько, насколько меньше и сами литры.
+export function fuelCost(litres: number | null, pricePerLitre: number | null) {
+  if (litres == null || pricePerLitre == null) return null
+  if (!Number.isFinite(litres) || !(pricePerLitre > 0)) return null
+  return Math.max(0, litres) * pricePerLitre
+}
+
+export function tripCost(distance: number | null, costPerKm: number | null) {
+  if (distance == null || costPerKm == null) return null
+  if (!(distance > 0) || !(costPerKm > 0)) return null
+  return distance * costPerKm
+}
