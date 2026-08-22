@@ -2,6 +2,7 @@ import { InlineKeyboard } from 'grammy'
 import type { Database } from '../../db/client'
 import { monthStatistics, type MonthStatistics } from '../../metrics/statistics'
 import { currentMoscowMonth, monthTitle, moscowMonthRange, shiftMonth } from '../../shared/moscow-month'
+import { plural } from '../../shared/plural'
 import { barChart, dayScale, sparkline, type BarRow } from '../../shared/text-chart'
 
 const decimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -18,14 +19,6 @@ function escapeHtml(value: string) {
 
 function number(value: number | null | undefined, suffix: string) {
   return value == null ? '—' : `${decimal.format(value)} ${suffix}`
-}
-
-function plural(count: number, one: string, few: string, many: string) {
-  const value = Math.abs(Math.round(count))
-  if (value % 100 >= 11 && value % 100 <= 14) return many
-  const last = value % 10
-  if (last === 1) return one
-  return last >= 2 && last <= 4 ? few : many
 }
 
 function monthLabel(month: string) {

@@ -2,12 +2,15 @@ import { and, count, desc, eq, gte, inArray, isNotNull, lt, notExists, sql } fro
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, refuelReceipts, trips, vehicleSnapshots } from '../../db/schema'
 import { idleSummary } from '../../metrics/idle'
+import { plural } from '../../shared/plural'
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
 const DAY_MS = 24 * 60 * 60_000
-const REPORT_HOUR = 15
+// Вечер, а не середина дня: к этому часу день уже прожит, и отчёт за сегодня
+// читается по свежим следам, а не сутками позже.
+const REPORT_HOUR = 21
 
 const periodTitle: Record<ReportPeriod, string> = {
   daily: 'Ежедневный отчёт',
@@ -29,10 +32,13 @@ function moscowCalendar(now: Date) {
   }
 }
 
-export function completedReportRange(period: ReportPeriod, now = new Date()) {
+// Ежедневный отчёт приходит вечером того же дня, поэтому считает сутки с
+// полуночи по текущий момент. Недельный и месячный по-прежнему подводят итог
+// уже закрытому периоду.
+export function reportRange(period: ReportPeriod, now = new Date()) {
   const calendar = moscowCalendar(now)
   const today = fromMoscowCalendar(calendar.year, calendar.month, calendar.day)
-  if (period === 'daily') return { start: new Date(today.getTime() - DAY_MS), end: today }
+  if (period === 'daily') return { start: today, end: new Date(now.getTime()) }
   if (period === 'weekly') {
     const daysSinceMonday = (calendar.weekDay + 6) % 7
     const end = new Date(today.getTime() - daysSinceMonday * DAY_MS)
@@ -42,13 +48,16 @@ export function completedReportRange(period: ReportPeriod, now = new Date()) {
   return { start: fromMoscowCalendar(calendar.year, calendar.month - 1, 1), end }
 }
 
+export function nextMoscowHourRun(hour: number, now = new Date()) {
+  const calendar = moscowCalendar(now)
+  let candidate = fromMoscowCalendar(calendar.year, calendar.month, calendar.day, hour)
+  if (candidate <= now) candidate = new Date(candidate.getTime() + DAY_MS)
+  return candidate
+}
+
 export function nextReportRun(period: ReportPeriod, now = new Date()) {
   const calendar = moscowCalendar(now)
-  if (period === 'daily') {
-    let candidate = fromMoscowCalendar(calendar.year, calendar.month, calendar.day, REPORT_HOUR)
-    if (candidate <= now) candidate = new Date(candidate.getTime() + DAY_MS)
-    return candidate
-  }
+  if (period === 'daily') return nextMoscowHourRun(REPORT_HOUR, now)
   if (period === 'weekly') {
     const daysUntilMonday = (8 - calendar.weekDay) % 7
     let candidate = fromMoscowCalendar(calendar.year, calendar.month, calendar.day + daysUntilMonday, REPORT_HOUR)
@@ -66,6 +75,7 @@ const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB
 const preciseDecimal = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const dateOnly = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })
 const dateTime = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+const timeOnly = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
 function escapeHtml(value: string) {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -80,8 +90,9 @@ function duration(minutes: number) {
 }
 
 function rangeLabel(start: Date, end: Date, period: ReportPeriod) {
+  // День ещё не кончился, поэтому в заголовке видно, по какой час он посчитан.
+  if (period === 'daily') return `${dateOnly.format(start)} · по ${timeOnly.format(end)}`
   const inclusiveEnd = new Date(end.getTime() - 1)
-  if (period === 'daily') return dateOnly.format(start)
   return `${dateOnly.format(start)} — ${dateOnly.format(inclusiveEnd)}`
 }
 
@@ -117,9 +128,31 @@ function idleLines(idle: Awaited<ReturnType<typeof idleSummary>>) {
   ]
 }
 
+type DriverRow = { driver: string | null, trips: number, distance: number, fuel: number, minutes: number }
+
+// Имя за рулём записывает бот сразу после поездки, и на вопрос могли не
+// ответить — такие поездки собираются в одну строку и уходят в самый низ, чтобы
+// не мешать сравнивать водителей между собой.
+function driverLines(rows: DriverRow[]) {
+  if (!rows.length) return []
+  const sorted = [...rows].sort((left, right) => {
+    if (!left.driver !== !right.driver) return left.driver ? -1 : 1
+    return right.distance - left.distance
+  })
+  return sorted.map((row) => {
+    const consumption = row.distance > 0 && row.fuel > 0 ? row.fuel / row.distance * 100 : null
+    const name = row.driver ? escapeHtml(row.driver) : 'Не указан'
+    return `• ${name}: ${decimal.format(row.distance)} км`
+      + ` · ${integer.format(row.trips)} ${plural(row.trips, 'поездка', 'поездки', 'поездок')}`
+      + ` · ${duration(row.minutes)}`
+      + (row.fuel > 0 ? ` · ${decimal.format(row.fuel)} л` : '')
+      + (consumption == null ? '' : ` · ${decimal.format(consumption)} л/100 км`)
+  })
+}
+
 export async function buildReport(database: Database, period: ReportPeriod, now = new Date()) {
   const vehicle = await database.query.vehicles.findFirst()
-  const { start, end } = completedReportRange(period, now)
+  const { start, end } = reportRange(period, now)
   if (!vehicle) return `🚗 <b>${periodTitle[period]}</b>\n<i>${rangeLabel(start, end, period)}</i>\n\nДанных об автомобиле пока нет.`
 
   const bounds = and(gte(trips.startedAt, start), lt(trips.startedAt, end))
@@ -129,6 +162,15 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     fuel: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
     minutes: sql<number>`coalesce(sum(case when ${trips.endedAt} is not null then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else 0 end), 0)`
   }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), bounds))
+
+  const driverRows = await database.select({
+    driver: trips.driver,
+    trips: count(),
+    distance: sql<number>`coalesce(sum(${trips.distance}), 0)`,
+    fuel: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
+    minutes: sql<number>`coalesce(sum(case when ${trips.endedAt} is not null then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else 0 end), 0)`
+  }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), bounds))
+    .groupBy(trips.driver)
 
   const [engineSummary] = await database.select({ sessions: count() })
     .from(engineSessions).where(and(
@@ -167,8 +209,16 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     orderBy: desc(vehicleSnapshots.ts)
   })
 
+  const tripCount = Number(tripSummary?.count || 0)
   const distance = Number(tripSummary?.distance || 0)
   const fuel = Number(tripSummary?.fuel || 0)
+  const drivers = driverLines(driverRows.map(row => ({
+    driver: row.driver?.trim() || null,
+    trips: Number(row.trips || 0),
+    distance: Number(row.distance || 0),
+    fuel: Number(row.fuel || 0),
+    minutes: Number(row.minutes || 0)
+  })))
   const consumption = distance > 0 && fuel > 0 ? fuel / distance * 100 : null
   const refuelAmount = refuelSummary?.amount == null ? null : Number(refuelSummary.amount)
   const unconfirmed = Number(unconfirmedSummary?.count || 0)
@@ -187,9 +237,10 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     `<i>${rangeLabel(start, end, period)}</i>`,
     '',
     '🛣 <b>Поездки</b>',
-    `• ${integer.format(Number(tripSummary?.count || 0))} поездок · ${decimal.format(distance)} км`,
+    `• ${integer.format(tripCount)} ${plural(tripCount, 'поездка', 'поездки', 'поездок')} · ${decimal.format(distance)} км`,
     `• В пути: ${duration(Number(tripSummary?.minutes || 0))}`,
     `• Израсходовано: ${decimal.format(fuel)} л${consumption == null ? '' : ` · ${decimal.format(consumption)} л/100 км`}`,
+    ...(drivers.length ? ['', '🧑 <b>За рулём</b>', ...drivers] : []),
     '',
     '🔥 <b>Двигатель</b>',
     `• Сессий: ${integer.format(Number(engineSummary?.sessions || 0))}`,
@@ -202,7 +253,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     '🔋 <b>АКБ за период</b>',
     batteryLine,
     '',
-    '📍 <b>Состояние к концу периода</b>',
+    `📍 <b>${period === 'daily' ? 'Состояние сейчас' : 'Состояние к концу периода'}</b>`,
     ...stateLines
   ].join('\n')
 }
