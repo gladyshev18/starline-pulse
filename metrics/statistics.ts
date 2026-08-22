@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { refuelEvents, trips, vehicleSnapshots } from '../db/schema'
 import { costPerKilometre, summariseBySpeed } from '../shared/consumption'
+import { summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
 import { ambientTemperature, speedBreakdown } from './consumption'
@@ -44,6 +45,7 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
       pricePerLitre: null
     },
     bySpeed: summariseBySpeed([]),
+    byDriver: summariseByDriver([]),
     ambient: { average: null, min: null, max: null, days: 0, daily: [] }
   }
 }
@@ -69,6 +71,19 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     gte(trips.startedAt, range.start),
     lt(trips.startedAt, range.end)
   )).groupBy(tripDay).orderBy(tripDay)
+
+  const driverRows = await database.select({
+    driver: trips.driver,
+    trips: count(),
+    distance: sql<number>`coalesce(sum(${trips.distance}), 0)`,
+    fuelUsed: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
+    minutes: sql<number>`coalesce(sum(case when ${trips.endedAt} is not null then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else 0 end), 0)`
+  }).from(trips).where(and(
+    eq(trips.vehicleId, vehicle.id),
+    eq(trips.isOpen, false),
+    gte(trips.startedAt, range.start),
+    lt(trips.startedAt, range.end)
+  )).groupBy(trips.driver)
 
   const mileageDay = sql<string>`strftime('%Y-%m-%d', ${vehicleSnapshots.ts} / 1000, 'unixepoch', '+3 hours')`
   const mileageRows = await database.select({
@@ -173,6 +188,15 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
       costPerKm: costPerKilometre(balance.fuelUsed, totals.distance, pricePerLitre),
       pricePerLitre
     },
+    // Литры здесь — по завершённым поездкам, а не по баку: прогревы и то, что
+    // не досталось ни одной поездке, за руль никто не сажал.
+    byDriver: summariseByDriver(driverRows.map(row => ({
+      driver: row.driver,
+      trips: Number(row.trips || 0),
+      distance: Number(row.distance || 0),
+      fuelUsed: Number(row.fuelUsed || 0),
+      minutes: Number(row.minutes || 0)
+    }))),
     bySpeed: await speedBreakdown(database, vehicle.id, range.start, range.end),
     ambient: await ambientTemperature(database, vehicle.id, range.start, range.end)
   }

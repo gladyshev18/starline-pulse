@@ -42,6 +42,18 @@ function money(value: number | null | undefined, digits = 2) {
 function celsius(value: number | null | undefined) {
   return value == null ? '—' : `${number(value, 0)} °C`
 }
+function duration(minutes: number | null | undefined) {
+  if (!minutes) return '0 мин'
+  const rounded = Math.round(minutes)
+  const hours = Math.floor(rounded / 60)
+  const rest = rounded % 60
+  return hours ? `${hours} ч ${rest} мин` : `${rest} мин`
+}
+
+const driverRows = computed(() => data.value?.byDriver || [])
+// Пока на вопрос бота ни разу не ответили, разбивка состоит из одной строки
+// «Не указан» — это не сравнение водителей, а сообщение, что данных нет.
+const hasDrivers = computed(() => driverRows.value.some(row => row.driver))
 
 const speedRows = computed(() => (data.value?.bySpeed || []).filter(item => item.trips > 0))
 // A bar chart of consumption needs a ceiling, and the jam bucket is always the
@@ -143,6 +155,35 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         />
         <p v-if="chartMode === 'daily' && !hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
         <p v-if="chartMode === 'odometer' && !hasOdometerData" class="muted history-empty">За этот месяц недостаточно показаний одометра.</p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">За рулём</p>
+            <p class="muted">Пробег по водителям — по тем поездкам, на которые ответили в боте</p>
+          </div>
+        </div>
+        <p v-if="!hasDrivers" class="muted empty-note">За этот месяц никто не отметился за рулём.</p>
+        <div v-else class="speed-rows">
+          <div v-for="row in driverRows" :key="row.driver || 'unknown'" class="speed-row">
+            <div class="speed-row__head">
+              <strong :class="{ muted: !row.driver }">{{ row.driver || 'Не указан' }}</strong>
+              <span class="muted">{{ number(row.share * 100, 0) }}% пробега</span>
+            </div>
+            <span class="speed-row__track"><span class="speed-row__bar" :style="{ width: `${row.share * 100}%` }" /></span>
+            <p class="speed-row__value">
+              <strong>{{ number(row.distance) }} км</strong>
+              <span class="muted">
+                {{ number(row.trips, 0) }} поездок · {{ duration(row.minutes) }}
+                <template v-if="row.consumption != null"> · {{ number(row.consumption) }} л/100 км</template>
+              </span>
+            </p>
+          </div>
+        </div>
+        <p v-if="hasDrivers" class="metric-meta">
+          Литры здесь — по завершённым поездкам, поэтому в сумме их меньше, чем израсходовано за месяц: прогревы за руль никто не сажал.
+        </p>
       </section>
 
       <section class="card card--wide">

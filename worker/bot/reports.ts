@@ -2,6 +2,7 @@ import { and, count, desc, eq, gte, inArray, isNotNull, lt, notExists, sql } fro
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, refuelReceipts, trips, vehicleSnapshots } from '../../db/schema'
 import { idleSummary } from '../../metrics/idle'
+import { summariseByDriver, type DriverTotals } from '../../shared/drivers'
 import { plural } from '../../shared/plural'
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
@@ -128,25 +129,14 @@ function idleLines(idle: Awaited<ReturnType<typeof idleSummary>>) {
   ]
 }
 
-type DriverRow = { driver: string | null, trips: number, distance: number, fuel: number, minutes: number }
-
-// Имя за рулём записывает бот сразу после поездки, и на вопрос могли не
-// ответить — такие поездки собираются в одну строку и уходят в самый низ, чтобы
-// не мешать сравнивать водителей между собой.
-function driverLines(rows: DriverRow[]) {
-  if (!rows.length) return []
-  const sorted = [...rows].sort((left, right) => {
-    if (!left.driver !== !right.driver) return left.driver ? -1 : 1
-    return right.distance - left.distance
-  })
-  return sorted.map((row) => {
-    const consumption = row.distance > 0 && row.fuel > 0 ? row.fuel / row.distance * 100 : null
+function driverLines(rows: DriverTotals[]) {
+  return rows.map((row) => {
     const name = row.driver ? escapeHtml(row.driver) : 'Не указан'
     return `• ${name}: ${decimal.format(row.distance)} км`
       + ` · ${integer.format(row.trips)} ${plural(row.trips, 'поездка', 'поездки', 'поездок')}`
       + ` · ${duration(row.minutes)}`
-      + (row.fuel > 0 ? ` · ${decimal.format(row.fuel)} л` : '')
-      + (consumption == null ? '' : ` · ${decimal.format(consumption)} л/100 км`)
+      + (row.fuelUsed > 0 ? ` · ${decimal.format(row.fuelUsed)} л` : '')
+      + (row.consumption == null ? '' : ` · ${decimal.format(row.consumption)} л/100 км`)
   })
 }
 
@@ -167,7 +157,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     driver: trips.driver,
     trips: count(),
     distance: sql<number>`coalesce(sum(${trips.distance}), 0)`,
-    fuel: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
+    fuelUsed: sql<number>`coalesce(sum(${trips.fuelUsed}), 0)`,
     minutes: sql<number>`coalesce(sum(case when ${trips.endedAt} is not null then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else 0 end), 0)`
   }).from(trips).where(and(eq(trips.vehicleId, vehicle.id), eq(trips.isOpen, false), bounds))
     .groupBy(trips.driver)
@@ -212,13 +202,13 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
   const tripCount = Number(tripSummary?.count || 0)
   const distance = Number(tripSummary?.distance || 0)
   const fuel = Number(tripSummary?.fuel || 0)
-  const drivers = driverLines(driverRows.map(row => ({
-    driver: row.driver?.trim() || null,
+  const drivers = driverLines(summariseByDriver(driverRows.map(row => ({
+    driver: row.driver,
     trips: Number(row.trips || 0),
     distance: Number(row.distance || 0),
-    fuel: Number(row.fuel || 0),
+    fuelUsed: Number(row.fuelUsed || 0),
     minutes: Number(row.minutes || 0)
-  })))
+  }))))
   const consumption = distance > 0 && fuel > 0 ? fuel / distance * 100 : null
   const refuelAmount = refuelSummary?.amount == null ? null : Number(refuelSummary.amount)
   const unconfirmed = Number(unconfirmedSummary?.count || 0)

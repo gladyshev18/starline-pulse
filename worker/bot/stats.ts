@@ -1,6 +1,7 @@
 import { InlineKeyboard } from 'grammy'
 import type { Database } from '../../db/client'
 import { monthStatistics, type MonthStatistics } from '../../metrics/statistics'
+import { hasNamedDriver } from '../../shared/drivers'
 import { currentMoscowMonth, monthTitle, moscowMonthRange, shiftMonth } from '../../shared/moscow-month'
 import { plural } from '../../shared/plural'
 import { barChart, dayScale, sparkline, type BarRow } from '../../shared/text-chart'
@@ -82,6 +83,26 @@ function speedChart(stats: MonthStatistics) {
   }))))
 }
 
+// Столбики — километры, а расход вынесен в подпись: у водителей он различается
+// на десятые доли, и такой бар рядом с соседним выглядел бы одинаковым. Литры
+// тут по поездкам, поэтому в сумме они меньше израсходованного за месяц — про
+// это говорит общая подпись под сообщением.
+function driverChart(stats: MonthStatistics) {
+  const rows = stats.byDriver
+  if (!hasNamedDriver(rows)) return []
+  const consumption = rows
+    .filter(row => row.consumption != null)
+    .map(row => `${row.driver || 'не указан'} — ${decimal.format(row.consumption!)}`)
+  return [
+    ...block('За рулём, км', barChart(rows.map(row => ({
+      label: row.driver || 'Не указан',
+      value: row.distance,
+      note: `${integer.format(row.distance)} км`
+    })))),
+    ...(consumption.length ? [`<i>Расход, л/100 км: ${escapeHtml(consumption.join(' · '))}</i>`] : [])
+  ]
+}
+
 function odometerLine(stats: MonthStatistics) {
   const first = stats.odometer[0]
   const last = stats.odometer.at(-1)
@@ -133,6 +154,7 @@ export function buildStatsMessage(stats: MonthStatistics, now = new Date()) {
     return [...head, '', '<i>За этот месяц поездок пока нет.</i>'].join('\n')
   }
 
+  const drivers = driverChart(stats)
   const speed = speedChart(stats)
   return [
     ...head,
@@ -140,6 +162,7 @@ export function buildStatsMessage(stats: MonthStatistics, now = new Date()) {
     ...dailyChart(stats, daysShown),
     '',
     ...block('По неделям, км', barChart(weekRows(stats.daily, daysShown))),
+    ...(drivers.length ? ['', ...drivers] : []),
     ...(speed.length ? ['', ...speed] : []),
     '',
     `<i>${fuelNote(totals)}</i>`
