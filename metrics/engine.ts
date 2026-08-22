@@ -7,6 +7,41 @@ import { kmPerMotorHour, oilClockGap, oilLife } from '../shared/service'
 // than the engine having run: even a whole night of idling stays under it.
 const MAX_MOTOR_STEP_MINUTES = 720
 
+// While the engine runs the car is polled every 30 seconds, so a longer gap means
+// the worker was down rather than the engine idling through it.
+export const MAX_POLL_GAP_MS = 5 * 60_000
+
+// Minutes inside a window with the engine running and the alarm still armed. An
+// armed car cannot be driven, so this is warm-up time however it is framed —
+// billed as idling by the month, and taken out of the moving time a trip's
+// average speed is measured over.
+//
+// Both ends of an interval must be armed and running. The poll that finds the
+// alarm already off is dropped rather than credited: disarming happened
+// somewhere inside that interval, and guessing where would only pad the total.
+export async function armedMinutesBetween(database: Database, vehicleId: number, start: Date, end: Date) {
+  const rows = await database.all<{ minutes: number }>(sql`
+    with steps as (
+      select
+        ${vehicleSnapshots.ts} as ts,
+        ${vehicleSnapshots.ignition} as ignition,
+        ${vehicleSnapshots.armed} as armed,
+        lag(${vehicleSnapshots.ts}) over (order by ${vehicleSnapshots.ts}) as prev_ts,
+        lag(${vehicleSnapshots.ignition}) over (order by ${vehicleSnapshots.ts}) as prev_ignition,
+        lag(${vehicleSnapshots.armed}) over (order by ${vehicleSnapshots.ts}) as prev_armed
+      from ${vehicleSnapshots}
+      where ${vehicleSnapshots.vehicleId} = ${vehicleId}
+        and ${vehicleSnapshots.ts} >= ${start.getTime()}
+        and ${vehicleSnapshots.ts} <= ${end.getTime()}
+    )
+    select coalesce(sum(min(ts - prev_ts, ${MAX_POLL_GAP_MS})), 0) / 60000.0 as minutes
+    from steps
+    where prev_ts is not null and prev_ignition = 1 and prev_armed = 1
+      and ignition = 1 and armed = 1
+  `)
+  return Number(rows[0]?.minutes || 0)
+}
+
 // The counter only ever climbs, so engine time is the sum of its increments.
 // Reading the difference between the first and last value instead would swallow
 // a reset whole — `motorhours_reset` is in this device's function list — and a

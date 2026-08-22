@@ -25,6 +25,17 @@ function duration(value: number | null) {
   if (!hours) return `${rest} мин`
   return rest ? `${hours} ч ${rest} мин` : `${hours} ч`
 }
+// Датчик умеет только целые проценты бака, то есть пол-литра, и разность двух
+// таких показаний тонет в округлении — половина поездок показывает ровно ноль,
+// а изредка и небольшой минус. Писать «0 л» значило бы утверждать, что бензин не
+// расходовался; честнее сказать, что столько датчик не различает.
+function litres(value: number | null) {
+  if (value == null) return '—'
+  return Math.abs(value) < 0.5 ? '< 0,5 л' : `${number(value)} л`
+}
+function unresolved(value: number | null) {
+  return value != null && Math.abs(value) < 0.5
+}
 function pageLink(targetPage: number) {
   return { query: { page: targetPage, ...(selectedDay.value ? { day: selectedDay.value } : {}) } }
 }
@@ -86,8 +97,9 @@ async function saveComment() {
               <td>{{ duration(trip.durationMinutes) }}</td>
               <td>{{ number(trip.averageSpeed) }} км/ч</td>
               <td>
-                {{ number(trip.fuelUsed) }} л
-                <span class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
+                {{ litres(trip.fuelUsed) }}
+                <span v-if="!unresolved(trip.fuelUsed)" class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
+                <span v-else class="trip-consumption muted">ниже точности датчика</span>
               </td>
               <td :class="{ muted: !trip.driver }">{{ trip.driver || '—' }}</td>
               <td class="trip-comment-cell">

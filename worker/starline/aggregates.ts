@@ -2,17 +2,13 @@ import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../../db/schema'
 import { applyReceiptsToRefuel, rematchPendingReceipts } from '../../receipts/store'
-import { hasMileageIncreased } from './trips'
+import { hasMileageIncreased, snapshotTime } from './trips'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
 
 const REFUEL_MIN_LITRES = 3
 const REFUEL_MIN_PERCENT = 5
 const REFUEL_MERGE_WINDOW_MS = 30 * 60_000
-
-function snapshotTime(snapshot: Snapshot) {
-  return snapshot.activityTs ?? snapshot.ts
-}
 
 function elapsedMinutes(start: Date, end: Date) {
   return Math.max(0, end.getTime() - start.getTime()) / 60_000

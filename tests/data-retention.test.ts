@@ -5,6 +5,16 @@ import { describe, expect, it } from 'vitest'
 const protectedTables = ['api_calls', 'vehicle_snapshots', 'trips'] as const
 const sourceRoots = ['db', 'scripts', 'server', 'worker'] as const
 
+// Разовый пересчёт истории — единственное место, которому позволено убрать
+// строку из trips, и только потому, что убирает он не историю. Поездки, которые
+// он удаляет, машина не совершала: их завела досылка одометра по уже стоящей
+// машине, и за всё их время двигатель не проработал ни минуты. Ни снапшотов, ни
+// сессий скрипт не трогает — а именно там лежит то, что нельзя восстановить.
+// Запись с комментарием или именем водителя он не удаляет никогда: за ней стоит
+// человек, а не вывод алгоритма. Живой путь опроса по-прежнему только дописывает
+// километры в уже существующую поездку и ничего не стирает.
+const allowedToDelete = new Set([join('worker', 'starline', 'recompute.ts')])
+
 async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true })
   const files = await Promise.all(entries.map(async (entry) => {
@@ -21,6 +31,7 @@ describe('data retention', () => {
     const violations: string[] = []
 
     for (const file of files) {
+      if (allowedToDelete.has(file)) continue
       const source = await readFile(file, 'utf8')
       for (const table of protectedTables) {
         const schemaName = table.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())

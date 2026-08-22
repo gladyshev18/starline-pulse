@@ -13,6 +13,7 @@ export async function speedBreakdown(database: Database, vehicleId: number, star
   const rows = await database.select({
     distance: trips.distance,
     fuelUsed: trips.fuelUsed,
+    armedMinutes: trips.armedMinutes,
     durationMinutes: sql<number | null>`case when ${trips.endedAt} is not null
       then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else null end`
   }).from(trips).where(and(
@@ -24,6 +25,7 @@ export async function speedBreakdown(database: Database, vehicleId: number, star
   return summariseBySpeed(rows.map(row => ({
     distance: row.distance,
     fuelUsed: row.fuelUsed,
+    armedMinutes: row.armedMinutes,
     durationMinutes: row.durationMinutes == null ? null : Number(row.durationMinutes)
   })))
 }

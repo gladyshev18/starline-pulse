@@ -119,6 +119,10 @@ export const trips = sqliteTable('trips', {
   lonStart: real('lon_start'),
   latEnd: real('lat_end'),
   lonEnd: real('lon_end'),
+  // Минуты внутри поездки, когда двигатель работал на охране. На охране ехать
+  // нельзя, значит это прогрев, и средняя скорость считается без них — иначе
+  // автозапуск за десять минут до выезда превращает трассу в город.
+  armedMinutes: real('armed_minutes'),
   comment: text('comment'),
   // Имя того, кто вёл: бот спрашивает об этом сразу после завершения поездки.
   driver: text('driver'),

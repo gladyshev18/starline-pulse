@@ -63,17 +63,26 @@ function speedRange(item: { name: string, upTo: number }, index: number) {
   const from = index === 0 ? 0 : speedRows.value[index - 1]!.upTo
   return Number.isFinite(item.upTo) ? `${from}–${item.upTo} км/ч` : `от ${from} км/ч`
 }
-const cheapest = computed(() => speedRows.value.reduce<number | null>((best, item) => {
-  if (item.consumption == null) return best
-  return best == null || item.consumption < best ? item.consumption : best
-}, null))
-const dearest = computed(() => speedRows.value.reduce<number | null>((worst, item) => {
-  if (item.consumption == null) return worst
-  return worst == null || item.consumption > worst ? item.consumption : worst
-}, null))
+type SpeedRow = { consumption: number | null, consumptionUncertainty: number | null }
+function extreme(pick: (candidate: number, current: number) => boolean) {
+  return computed(() => speedRows.value.reduce<SpeedRow | null>((found, item) => {
+    if (item.consumption == null) return found
+    if (found?.consumption == null || pick(item.consumption, found.consumption)) return item
+    return found
+  }, null))
+}
+const cheapest = extreme((candidate, current) => candidate < current)
+const dearest = extreme((candidate, current) => candidate > current)
+// Обе корзины измерены с точностью до округления датчика, и на трёх поездках
+// интервал легко перекрывает саму разницу. Пока разрыв не больше сложенных
+// погрешностей, это не «дороже», а шум, и объявлять его нечестно.
 const speedSpread = computed(() => {
-  if (cheapest.value == null || dearest.value == null || cheapest.value <= 0) return null
-  const ratio = dearest.value / cheapest.value
+  const low = cheapest.value?.consumption
+  const high = dearest.value?.consumption
+  if (low == null || high == null || low <= 0) return null
+  const error = (cheapest.value?.consumptionUncertainty || 0) + (dearest.value?.consumptionUncertainty || 0)
+  if (high - low <= error) return null
+  const ratio = high / low
   return ratio >= 1.2 ? ratio : null
 })
 
@@ -202,7 +211,11 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
             </div>
             <span class="speed-row__track"><span class="speed-row__bar" :style="{ width: `${(item.consumption || 0) / worstConsumption * 100}%` }" /></span>
             <p class="speed-row__value">
-              <strong>{{ number(item.consumption) }} л/100 км</strong>
+              <strong>
+                {{ number(item.consumption) }}
+                <template v-if="item.consumptionUncertainty"> ± {{ number(item.consumptionUncertainty) }}</template>
+                л/100 км
+              </strong>
               <span class="muted">{{ number(item.trips, 0) }} поездок · {{ number(item.distance) }} км · {{ number(item.fuelUsed) }} л</span>
             </p>
           </div>

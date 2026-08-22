@@ -1,3 +1,5 @@
+import { FUEL_SENSOR_STEP_LITRES } from './fuel'
+
 // Average speed is the only thing in the data that says what kind of driving a
 // trip was: `position.s` is always zero, so distance over duration is what is
 // left — and it turns out to separate the traffic jam from the motorway cleanly,
@@ -16,6 +18,10 @@ export interface ConsumptionTrip {
   distance: number | null
   fuelUsed: number | null
   durationMinutes: number | null
+  // Minutes the engine ran with the alarm still armed. An armed car cannot be
+  // driven, so this is a warm-up sitting inside the trip rather than time spent
+  // covering ground.
+  armedMinutes?: number | null
 }
 
 export interface SpeedBucket {
@@ -26,12 +32,40 @@ export interface SpeedBucket {
   distance: number
   fuelUsed: number
   consumption: number | null
+  // Every litre in the sum is a difference of two readings rounded to the
+  // sensor's step, and both roundings travel with it. A bucket holding a handful
+  // of trips carries an error bar wider than the gap to its neighbour, and
+  // without it the bars read as measurements rather than as estimates.
+  consumptionUncertainty: number | null
+}
+
+// A trip is bracketed by the ignition, so its duration holds the warm-up before
+// the car pulled away and whatever idling happened before the key came out.
+// Dividing distance by all of it reports a car slower than it drove, and speed
+// is the only thing that sorts a trip into a bucket at all. The armed minutes
+// are the one stretch the data can prove was not movement.
+export function movingMinutes(trip: ConsumptionTrip) {
+  if (trip.durationMinutes == null || !Number.isFinite(trip.durationMinutes)) return null
+  const armed = trip.armedMinutes != null && Number.isFinite(trip.armedMinutes) && trip.armedMinutes > 0
+    ? trip.armedMinutes
+    : 0
+  return Math.max(0, trip.durationMinutes - armed)
 }
 
 export function averageSpeed(trip: ConsumptionTrip) {
   if (trip.distance == null || !(trip.distance > 0)) return null
-  if (trip.durationMinutes == null || !(trip.durationMinutes > 0)) return null
-  return trip.distance / (trip.durationMinutes / 60)
+  const minutes = movingMinutes(trip)
+  if (minutes == null || !(minutes > 0)) return null
+  return trip.distance / (minutes / 60)
+}
+
+// Rounding to a fixed step leaves an error spread evenly across that step, whose
+// standard deviation is the step over the square root of twelve. Each trip
+// contributes two such readings, and independent errors accumulate as the square
+// root of their count rather than as the count.
+export function fuelSumUncertainty(trips: number) {
+  if (!(trips > 0)) return null
+  return FUEL_SENSOR_STEP_LITRES / Math.sqrt(12) * Math.sqrt(2 * trips)
 }
 
 export function bucketForSpeed(speed: number | null) {
@@ -57,12 +91,14 @@ export function summariseBySpeed(trips: ConsumptionTrip[]): SpeedBucket[] {
 
   return SPEED_BUCKETS.map(bucket => {
     const value = totals.get(bucket.name) ?? { trips: 0, distance: 0, fuelUsed: 0 }
+    const fuelError = fuelSumUncertainty(value.trips)
     return {
       name: bucket.name,
       label: bucket.label,
       upTo: bucket.upTo,
       ...value,
-      consumption: value.distance > 0 ? value.fuelUsed / value.distance * 100 : null
+      consumption: value.distance > 0 ? value.fuelUsed / value.distance * 100 : null,
+      consumptionUncertainty: value.distance > 0 && fuelError != null ? fuelError / value.distance * 100 : null
     }
   })
 }

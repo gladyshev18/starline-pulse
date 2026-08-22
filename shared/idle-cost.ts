@@ -1,9 +1,6 @@
-import { FUEL_TANK_CAPACITY_LITRES } from './fuel'
+import { FUEL_SENSOR_STEP_LITRES } from './fuel'
 
-// One percent of the tank is the smallest fuel change the car can report, so
-// every reading is rounded to this step and a difference of two readings drags
-// the rounding of both along with it.
-export const FUEL_SENSOR_STEP_LITRES = FUEL_TANK_CAPACITY_LITRES / 100
+export { FUEL_SENSOR_STEP_LITRES }
 
 // What separates a warm-up from simply sitting with the engine on. The coolant
 // holds 87-90 °C once the engine is at work and a restart minutes after a trip
@@ -41,6 +38,18 @@ export interface IdleRate {
   litres: number
 }
 
+// A session whose drop cannot be idling however the rounding fell: a refuel that
+// landed inside it, a stuck sensor, or a session that did move. The test is in
+// litres rather than in litres per hour because a rate cap would be a trap — a
+// two minute session is at the sensor's mercy, and rejecting it at 3 l/h would
+// throw away every short session whose rounding went up while keeping every one
+// whose rounding went down, dragging the whole estimate below the truth. Adding
+// a full step to the ceiling asks the only fair question: is this drop still too
+// large once rounding is given every benefit of the doubt?
+function isSymptom(durationMinutes: number, litres: number) {
+  return litres > durationMinutes / 60 * IDLE_RATE_MAX_LITRES_PER_HOUR + FUEL_SENSOR_STEP_LITRES
+}
+
 // Idling burns far less per minute than the sensor can resolve — a ten minute
 // warm-up moves the tank by about a tenth of one step — so no single session
 // measures anything. Only the pile of them does, and only because the rounding
@@ -54,9 +63,11 @@ export function measureIdleRate(samples: IdleRateSample[]): IdleRate {
     if (sample.fuelStart == null || sample.fuelEnd == null) continue
     // A tank that ends fuller than it started saw the pump, not the engine.
     if (sample.fuelEnd > sample.fuelStart) continue
+    const burned = sample.fuelStart - sample.fuelEnd
+    if (isSymptom(sample.durationMinutes, burned)) continue
     sessions++
     minutes += sample.durationMinutes
-    litres += sample.fuelStart - sample.fuelEnd
+    litres += burned
   }
 
   const fallback: IdleRate = {

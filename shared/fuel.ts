@@ -11,6 +11,29 @@ export function fuelFromPercent(percent: number | null | undefined) {
   return Math.min(100, Math.max(0, percent)) * FUEL_TANK_CAPACITY_LITRES / 100
 }
 
+// One percent of the tank is the smallest fuel change the car can report, so
+// every reading is rounded to this step and a difference of two readings drags
+// the rounding of both along with it.
+export const FUEL_SENSOR_STEP_LITRES = FUEL_TANK_CAPACITY_LITRES / 100
+
+// What a trip burned, as the tank saw it — and it is allowed to come out
+// negative. Both readings are rounded to the sensor's step, so a trip that
+// burned less than that step is as likely to measure slightly below zero as
+// slightly above it. Discarding only the negative half would cull exactly the
+// samples whose noise fell one way, and every average built on the survivors —
+// the speed buckets, the per-driver split — would read high. Kept signed, the
+// errors cancel in the sum instead.
+//
+// A rise larger than one step is not rounding but a refuel that landed inside
+// the trip, and how much of the tank went through the engine before it is
+// genuinely unknowable.
+export function tripFuelUsed(fuelStart: number | null | undefined, fuelEnd: number | null | undefined) {
+  if (fuelStart == null || fuelEnd == null) return null
+  if (!Number.isFinite(fuelStart) || !Number.isFinite(fuelEnd)) return null
+  const used = fuelStart - fuelEnd
+  return used >= -FUEL_SENSOR_STEP_LITRES ? used : null
+}
+
 export interface FuelBalanceInput {
   tankStart: number | null
   tankEnd: number | null

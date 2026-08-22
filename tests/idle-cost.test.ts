@@ -59,6 +59,30 @@ describe('measureIdleRate', () => {
     expect(withPump.litresPerHour).toBeCloseTo(0.7)
   })
 
+  it('drops a single session whose drop no idling engine could produce', () => {
+    // Полчаса и четыре литра — это 8 л/ч. Раньше диапазон проверялся только по
+    // итогу, и одна такая сессия растворялась в сумме, утаскивая оценку вверх.
+    const withSymptom = measureIdleRate([
+      ...longSample(40, 0.7),
+      { durationMinutes: 30, fuelStart: 40, fuelEnd: 36 }
+    ])
+    expect(withSymptom.sessions).toBe(40)
+    expect(withSymptom.litresPerHour).toBeCloseTo(0.7)
+  })
+
+  it('keeps a short session whose whole drop is one step of rounding', () => {
+    // Полторы минуты и полшага датчика дают формальные 20 л/ч, но это ровно то,
+    // что округление и должно давать. Отбраковка по литрам в час выкинула бы все
+    // короткие сессии, где округление ушло вверх, оставив те, где вниз, — и
+    // средняя по остатку оказалась бы ниже правды.
+    const short = measureIdleRate([
+      ...longSample(40, 0.7),
+      ...Array.from({ length: 6 }, () => ({ durationMinutes: 1.5, fuelStart: 40, fuelEnd: 39.5 }))
+    ])
+    expect(short.sessions).toBe(46)
+    expect(short.litres).toBeCloseTo(40 * 0.35 + 3)
+  })
+
   it('ignores sessions without both readings or without a duration', () => {
     const partial = measureIdleRate([
       { durationMinutes: 10, fuelStart: null, fuelEnd: 39 },

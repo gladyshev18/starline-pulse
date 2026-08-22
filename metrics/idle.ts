@@ -2,7 +2,7 @@ import { and, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../db/schema'
 import { WARM_ENGINE_CELSIUS, idleCost, measureIdleRate, type IdleRate } from '../shared/idle-cost'
-import { engineMinutesOutsideSessions } from './engine'
+import { MAX_POLL_GAP_MS, engineMinutesOutsideSessions } from './engine'
 
 // A warm-up is the engine running while the car stays put. What proves it stayed
 // put is the odometer: it reports in chunks of ten to twenty kilometres, but it
@@ -27,10 +27,6 @@ export async function measureVehicleIdleRate(database: Database, vehicleId: numb
   }).from(engineSessions).where(stationarySessions(vehicleId))
   return measureIdleRate(samples)
 }
-
-// While the engine runs the car is polled every 30 seconds, so a longer gap means
-// the worker was down rather than the engine idling through it.
-const MAX_POLL_GAP_MS = 5 * 60_000
 
 // A warm-up that ends in a trip hides inside a session that did move, and nothing
 // in the data marks the moment the car pulled away: the odometer reports in
