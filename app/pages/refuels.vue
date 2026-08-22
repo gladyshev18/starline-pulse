@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { FUEL_TYPES, STATIONS } from '~~/shared/stations'
+
 const MAX_FILE_SIZE = 15 * 1024 * 1024
 const { data, status, refresh } = await useFetch('/api/refuels')
 const uploading = reactive<Record<number, boolean>>({})
@@ -94,8 +96,10 @@ function closeDetails() {
   detailsError.value = ''
 }
 
-function amount(value: string) {
-  const parsed = Number(value.replace(',', '.'))
+// В поле с `type="number"` Vue кладёт в модель уже число, а не строку, поэтому
+// запятую нужно чинить только у того, что действительно пришло текстом.
+function amount(value: string | number) {
+  const parsed = typeof value === 'number' ? value : Number(value.replace(',', '.'))
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
@@ -141,12 +145,7 @@ async function saveDetails() {
   }
 }
 
-async function uploadReceipt(refuelId: number, event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-
+async function uploadReceipt(refuelId: number, file: File) {
   errors[refuelId] = ''
   if (file.size > MAX_FILE_SIZE) {
     errors[refuelId] = 'Файл больше 15 МБ'
@@ -196,7 +195,7 @@ async function uploadReceipt(refuelId: number, event: Event) {
           <div>
             <div class="refuel-card__top">
               <p class="eyebrow">{{ date(refuel.detectedAt) }}</p>
-              <button class="refuel-edit" type="button" @click="openDetails(refuel)">{{ refuel.station ? 'Изменить' : 'Добавить данные' }}</button>
+              <AppButton variant="link" @click="openDetails(refuel)">{{ refuel.station ? 'Изменить' : 'Добавить данные' }}</AppButton>
             </div>
             <div class="refuel-flags">
               <span class="confirm-badge" :class="refuel.confirmed ? 'confirm-badge--ok' : 'confirm-badge--pending'">
@@ -225,18 +224,16 @@ async function uploadReceipt(refuelId: number, event: Event) {
               <p class="metric-label">Чеки</p>
               <p class="receipt-panel__hint">Изображение, PDF или HTML · до 15 МБ</p>
             </div>
-            <label class="btn btn--secondary receipt-upload" :class="{ 'receipt-upload--busy': uploading[refuel.id] }">
-              {{ uploading[refuel.id] ? 'Загрузка…' : 'Прикрепить файл' }}
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.gif,.webp,.avif,.heic,.heif,.pdf,.html,.htm"
-                :disabled="uploading[refuel.id]"
-                @change="uploadReceipt(refuel.id, $event)"
-              >
-            </label>
+            <AppFileButton
+              label="Прикрепить файл"
+              busy-label="Загрузка…"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.avif,.heic,.heif,.pdf,.html,.htm"
+              :busy="uploading[refuel.id]"
+              @select="file => uploadReceipt(refuel.id, file)"
+            />
           </div>
 
-          <p v-if="errors[refuel.id]" class="error">{{ errors[refuel.id] }}</p>
+          <AppAlert v-if="errors[refuel.id]">{{ errors[refuel.id] }}</AppAlert>
           <p v-if="!refuel.receipts.length" class="muted receipt-empty">Нет прикреплённых чеков.</p>
           <ul v-else class="receipt-list">
             <li v-for="receipt in refuel.receipts" :key="receipt.id">
@@ -269,48 +266,36 @@ async function uploadReceipt(refuelId: number, event: Event) {
       :close-on-escape="!detailsPending"
       @update:model-value="value => { if (!value && !detailsPending) closeDetails() }"
     >
-      <form id="refuel-details-form" class="refuel-details-form" @submit.prevent="saveDetails">
-        <label class="field">
-          <span>АЗС</span>
-          <select v-model="details.station" required :disabled="detailsPending">
-            <option value="" disabled>Выберите АЗС</option>
-            <option value="rosneft">Роснефть</option>
-            <option value="lukoil">Лукойл</option>
-            <option value="other">Другая АЗС</option>
-          </select>
-        </label>
-        <label v-if="details.station === 'other'" class="field refuel-details-form__wide">
-          <span>Название АЗС</span>
-          <input v-model="details.stationName" required maxlength="100" placeholder="Введите название">
-        </label>
-        <label class="field refuel-details-form__wide">
-          <span>Вид топлива</span>
-          <input v-model="details.fuelType" required maxlength="50" list="fuel-types" placeholder="Например, АИ-95">
-          <datalist id="fuel-types">
-            <option value="АИ-92" />
-            <option value="АИ-95" />
-            <option value="АИ-95 Премиум" />
-            <option value="АИ-98" />
-            <option value="АИ-100" />
-          </datalist>
-        </label>
-        <label class="field">
-          <span>Цена за литр, ₽</span>
-          <input v-model="details.pricePerLitre" type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="completeAmounts">
-        </label>
-        <label class="field">
-          <span>Сумма, ₽</span>
-          <input v-model="details.totalAmount" type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00" @change="completeAmounts">
-        </label>
-        <button class="refuel-calculate" type="button" :disabled="detailsPending || !canCompleteAmounts" @click="completeAmounts">
+      <AppForm id="refuel-details-form" @submit="saveDetails">
+        <AppField label="АЗС">
+          <AppSelect v-model="details.station" :options="STATIONS" placeholder="Выберите АЗС" required :disabled="detailsPending" />
+        </AppField>
+        <AppField v-if="details.station === 'other'" label="Название АЗС" wide>
+          <AppInput v-model="details.stationName" required maxlength="100" placeholder="Введите название" />
+        </AppField>
+        <AppField label="Вид топлива" wide>
+          <AppInput v-model="details.fuelType" required maxlength="50" :suggestions="FUEL_TYPES" placeholder="Например, АИ-95" />
+        </AppField>
+        <AppField label="Цена за литр, ₽">
+          <AppInput v-model="details.pricePerLitre" type="number" min="0.01" max="10000" step="0.01" inputmode="decimal" placeholder="65,50" @change="completeAmounts" />
+        </AppField>
+        <AppField label="Сумма, ₽">
+          <AppInput v-model="details.totalAmount" type="number" min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="2500,00" @change="completeAmounts" />
+        </AppField>
+        <AppButton
+          class="refuel-calculate form-wide"
+          variant="link"
+          :disabled="detailsPending || !canCompleteAmounts"
+          @click="completeAmounts"
+        >
           Достроить второе значение по объёму {{ number(editingRefuel?.litresAdded || null) }} л
-        </button>
-        <p class="muted refuel-details-form__wide receipt-hint">Достаточно заполнить сумму или цену — второе посчитается по объёму заправки.</p>
-        <p v-if="detailsError" class="error refuel-details-form__wide">{{ detailsError }}</p>
-      </form>
+        </AppButton>
+        <p class="muted form-note form-wide">Достаточно заполнить сумму или цену — второе посчитается по объёму заправки.</p>
+        <AppAlert v-if="detailsError" wide>{{ detailsError }}</AppAlert>
+      </AppForm>
       <template #footer>
-        <button class="btn btn--secondary" type="button" :disabled="detailsPending" @click="closeDetails">Отмена</button>
-        <button class="btn" type="submit" form="refuel-details-form" :disabled="detailsPending">{{ detailsPending ? 'Сохраняем…' : 'Сохранить' }}</button>
+        <AppButton variant="secondary" :disabled="detailsPending" @click="closeDetails">Отмена</AppButton>
+        <AppButton type="submit" form="refuel-details-form" :disabled="detailsPending">{{ detailsPending ? 'Сохраняем…' : 'Сохранить' }}</AppButton>
       </template>
     </AppModal>
   </div>

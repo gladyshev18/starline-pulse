@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
                 <h2 :id="titleId" class="modal__title">{{ title }}</h2>
               </div>
             </slot>
-            <button class="icon-button modal__close" type="button" aria-label="Закрыть окно" @click="close">×</button>
+            <AppIconButton class="modal__close" label="Закрыть окно" @click="close">×</AppIconButton>
           </header>
           <div class="modal__body"><slot /></div>
           <footer v-if="$slots.footer" class="modal__footer"><slot name="footer" /></footer>

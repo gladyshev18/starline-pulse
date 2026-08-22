@@ -32,12 +32,16 @@ async function submit() {
       <div class="login-card__head">
         <div><p class="eyebrow">Личный кабинет</p><h1>Вход</h1></div>
       </div>
-      <form class="login-form" @submit.prevent="submit">
-        <div class="field"><label for="login">Логин</label><input id="login" v-model="form.login" autocomplete="username" required></div>
-        <div class="field"><label for="password">Пароль</label><input id="password" v-model="form.password" type="password" autocomplete="current-password" required></div>
-        <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
-        <button class="btn" type="submit" :disabled="pending">{{ pending ? 'Проверяем…' : 'Войти' }}</button>
-      </form>
+      <AppForm class="login-form" layout="stack" @submit="submit">
+        <AppField label="Логин">
+          <AppInput v-model="form.login" autocomplete="username" required />
+        </AppField>
+        <AppField label="Пароль">
+          <AppInput v-model="form.password" type="password" autocomplete="current-password" required />
+        </AppField>
+        <AppAlert v-if="errorMessage">{{ errorMessage }}</AppAlert>
+        <AppButton type="submit" block :disabled="pending">{{ pending ? 'Проверяем…' : 'Войти' }}</AppButton>
+      </AppForm>
     </section>
   </main>
 </template>

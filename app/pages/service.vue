@@ -387,8 +387,8 @@ async function remove(id: number) {
                 <td>{{ item.totalAmount == null ? '—' : money(item.totalAmount) }}</td>
                 <td><a :href="`/api/service-documents/${item.id}`" target="_blank" rel="noopener">{{ item.originalName || 'файл' }}</a></td>
                 <td class="document-actions">
-                  <button class="btn" type="button" :disabled="pending" @click="openDocument(item)">Проверить</button>
-                  <button class="btn btn--secondary" type="button" :disabled="pending" @click="removeDocument(item.id)">Удалить</button>
+                  <AppButton size="small" :disabled="pending" @click="openDocument(item)">Проверить</AppButton>
+                  <AppButton variant="secondary" size="small" :disabled="pending" @click="removeDocument(item.id)">Удалить</AppButton>
                 </td>
               </tr>
             </tbody>
@@ -408,7 +408,7 @@ async function remove(id: number) {
                 <td>{{ number(item.mileage) }} км</td>
                 <td>{{ hours(item.motorMinutes) }}</td>
                 <td>{{ item.note || '—' }}</td>
-                <td><button class="btn btn--secondary" type="button" :disabled="pending" @click="remove(item.id)">Удалить</button></td>
+                <td><AppButton variant="secondary" size="small" :disabled="pending" @click="remove(item.id)">Удалить</AppButton></td>
               </tr>
             </tbody>
           </table>
@@ -424,46 +424,35 @@ async function remove(id: number) {
       :close-on-escape="!pending"
       @update:model-value="value => { if (!value && !pending) editing = null }"
     >
-      <p class="muted document-form__summary">{{ parseSummary }}</p>
-      <form id="document-form" class="refuel-details-form" @submit.prevent="confirmDocument">
-        <div>
-          <label for="doc-date">Дата работ</label>
-          <input id="doc-date" v-model="documentForm.performedAt" type="date" :disabled="pending" required>
-          <span class="document-form__hint">{{ fieldHint('performedAt') }}</span>
-        </div>
-        <div>
-          <label for="doc-mileage">Пробег, км</label>
-          <input id="doc-mileage" v-model="documentForm.mileage" inputmode="numeric" :disabled="pending">
-          <span class="document-form__hint">{{ fieldHint('mileage') }}</span>
-        </div>
-        <div>
-          <label for="doc-total">Сумма, ₽</label>
-          <input id="doc-total" v-model="documentForm.totalAmount" inputmode="decimal" :disabled="pending">
-          <span class="document-form__hint">{{ fieldHint('totalAmount') }}</span>
-        </div>
-        <div>
-          <label for="doc-order">Заказ-наряд №</label>
-          <input id="doc-order" v-model="documentForm.orderNumber" maxlength="60" :disabled="pending">
-          <span class="document-form__hint">{{ fieldHint('orderNumber') }}</span>
-        </div>
-        <div class="refuel-details-form__wide">
-          <label for="doc-vendor">Исполнитель</label>
-          <input id="doc-vendor" v-model="documentForm.vendor" maxlength="120" placeholder="Например, Автосалон Глобус" :disabled="pending">
-        </div>
-        <div class="refuel-details-form__wide">
-          <label for="doc-note">Заметка</label>
-          <input id="doc-note" v-model="documentForm.note" maxlength="300" placeholder="Что делали, какое масло" :disabled="pending">
-        </div>
-        <label class="refuel-details-form__wide document-form__check">
-          <input v-model="documentForm.createOilEvent" type="checkbox" :disabled="pending">
-          <span>Это замена масла — начать отсчёт ресурса с этой даты</span>
-        </label>
-        <p v-if="documentError" class="error refuel-details-form__wide">{{ documentError }}</p>
-      </form>
+      <p class="muted form-summary">{{ parseSummary }}</p>
+      <AppForm id="document-form" @submit="confirmDocument">
+        <AppField label="Дата работ" :hint="fieldHint('performedAt')">
+          <AppInput v-model="documentForm.performedAt" type="date" required :disabled="pending" />
+        </AppField>
+        <AppField label="Пробег, км" :hint="fieldHint('mileage')">
+          <AppInput v-model="documentForm.mileage" inputmode="numeric" :disabled="pending" />
+        </AppField>
+        <AppField label="Сумма, ₽" :hint="fieldHint('totalAmount')">
+          <AppInput v-model="documentForm.totalAmount" inputmode="decimal" :disabled="pending" />
+        </AppField>
+        <AppField label="Заказ-наряд №" :hint="fieldHint('orderNumber')">
+          <AppInput v-model="documentForm.orderNumber" maxlength="60" :disabled="pending" />
+        </AppField>
+        <AppField label="Исполнитель" wide>
+          <AppInput v-model="documentForm.vendor" maxlength="120" placeholder="Например, Автосалон Глобус" :disabled="pending" />
+        </AppField>
+        <AppField label="Заметка" wide>
+          <AppInput v-model="documentForm.note" maxlength="300" placeholder="Что делали, какое масло" :disabled="pending" />
+        </AppField>
+        <AppCheckbox v-model="documentForm.createOilEvent" wide :disabled="pending">
+          Это замена масла — начать отсчёт ресурса с этой даты
+        </AppCheckbox>
+        <AppAlert v-if="documentError" wide>{{ documentError }}</AppAlert>
+      </AppForm>
       <template #footer>
-        <button class="btn btn--secondary" type="button" :disabled="pending" @click="reparseDocument">Распознать заново</button>
-        <button class="btn btn--secondary" type="button" :disabled="pending" @click="editing = null">Отмена</button>
-        <button class="btn" type="submit" form="document-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Подтвердить' }}</button>
+        <AppButton variant="secondary" :disabled="pending" @click="reparseDocument">Распознать заново</AppButton>
+        <AppButton variant="secondary" :disabled="pending" @click="editing = null">Отмена</AppButton>
+        <AppButton type="submit" form="document-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Подтвердить' }}</AppButton>
       </template>
     </AppModal>
   </div>

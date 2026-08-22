@@ -19,7 +19,12 @@ const page = ref(1)
 const search = ref('')
 const statusFilter = ref('all')
 const day = ref('')
-const query = computed(() => ({ page: page.value, search: search.value || undefined, status: statusFilter.value, day: day.value || undefined }))
+const query = computed(() => ({ page: page.value, search: search.value.trim() || undefined, status: statusFilter.value, day: day.value || undefined }))
+const statusOptions = [
+  { value: 'all', label: 'Все' },
+  { value: 'success', label: 'Успешные' },
+  { value: 'error', label: 'С ошибкой' }
+]
 const { data, status, refresh } = await useFetch('/api/api-logs', { query })
 const selected = ref<ApiCallDetail | null>(null)
 const detailPending = ref(false)
@@ -108,7 +113,7 @@ onBeforeUnmount(() => {
   <div>
     <header class="page-heading api-heading">
       <div><p class="eyebrow">Диагностика</p><h1 class="page-title">Журнал API</h1></div>
-      <button class="btn btn--secondary" type="button" :disabled="status === 'pending'" @click="refresh()">Обновить</button>
+      <AppButton variant="secondary" :disabled="status === 'pending'" @click="refresh()">Обновить</AppButton>
     </header>
 
     <section class="card api-limit">
@@ -119,9 +124,9 @@ onBeforeUnmount(() => {
 
     <section class="card card--table">
       <div class="log-filters">
-        <label class="field"><span>Поиск по адресу</span><input v-model.trim="search" type="search" placeholder="/json/v3/device…"></label>
-        <label class="field"><span>Результат</span><select v-model="statusFilter"><option value="all">Все</option><option value="success">Успешные</option><option value="error">С ошибкой</option></select></label>
-        <label class="field"><span>Дата</span><input v-model="day" type="date"></label>
+        <AppField label="Поиск по адресу"><AppInput v-model="search" type="search" placeholder="/json/v3/device…" /></AppField>
+        <AppField label="Результат"><AppSelect v-model="statusFilter" :options="statusOptions" /></AppField>
+        <AppField label="Дата"><AppInput v-model="day" type="date" /></AppField>
       </div>
 
       <p v-if="status === 'pending'" class="muted">Загрузка журнала…</p>
@@ -136,15 +141,15 @@ onBeforeUnmount(() => {
               <td class="endpoint-cell">{{ item.endpoint }}</td>
               <td><span class="status-badge" :class="item.status >= 200 && item.status < 400 ? 'status-badge--ok' : 'status-badge--error'">{{ statusLabel(item.status) }}</span></td>
               <td>{{ item.durationMs == null ? '—' : `${item.durationMs} мс` }}</td>
-              <td><button class="log-open" type="button" :disabled="detailPending" @click="openDetails(item.id)">Детали</button></td>
+              <td><AppButton variant="link" :disabled="detailPending" @click="openDetails(item.id)">Детали</AppButton></td>
             </tr>
           </tbody>
         </table>
       </div>
       <nav v-if="data && data.pages > 1" class="pagination" aria-label="Страницы журнала API">
-        <button class="btn btn--secondary" type="button" :disabled="page <= 1" @click="page--">Назад</button>
+        <AppButton variant="secondary" :disabled="page <= 1" @click="page--">Назад</AppButton>
         <span class="muted">{{ page }} / {{ data.pages }} · записей: {{ data.total }}</span>
-        <button class="btn btn--secondary" type="button" :disabled="page >= data.pages" @click="page++">Дальше</button>
+        <AppButton variant="secondary" :disabled="page >= data.pages" @click="page++">Дальше</AppButton>
       </nav>
     </section>
 
@@ -207,7 +212,7 @@ onBeforeUnmount(() => {
             <span class="copy-indicator">{{ copiedField === 'url' ? 'Скопировано' : 'Копировать' }}</span>
           </div>
         </dl>
-        <p v-if="selected.error" class="error">{{ selected.error }}</p>
+        <AppAlert v-if="selected.error">{{ selected.error }}</AppAlert>
         <div class="payload-grid">
           <details open>
             <summary>Запрос — заголовки</summary>

@@ -72,7 +72,7 @@ async function saveComment() {
           <p class="metric-label">Журнал поездок</p>
           <p v-if="selectedDay" class="muted trips-filter-note">За {{ day(selectedDay) }}</p>
         </div>
-        <NuxtLink v-if="selectedDay" class="btn btn--secondary" to="/trips">Все поездки</NuxtLink>
+        <AppButton v-if="selectedDay" variant="secondary" to="/trips">Все поездки</AppButton>
       </div>
       <p v-if="status === 'pending'">Загрузка…</p>
       <div v-else-if="!data?.items.length" class="muted">{{ selectedDay ? 'За выбранный день завершённых поездок нет.' : 'Завершённых поездок пока нет.' }}</div>
@@ -105,9 +105,9 @@ async function saveComment() {
         </table>
       </div>
       <nav v-if="data && data.pages > 1" class="pagination" aria-label="Страницы поездок">
-        <NuxtLink class="btn btn--secondary" :style="{ visibility: page > 1 ? 'visible' : 'hidden' }" :to="pageLink(page - 1)">Назад</NuxtLink>
+        <AppButton variant="secondary" :style="{ visibility: page > 1 ? 'visible' : 'hidden' }" :to="pageLink(page - 1)">Назад</AppButton>
         <span class="muted">{{ page }} / {{ data.pages }}</span>
-        <NuxtLink class="btn btn--secondary" :style="{ visibility: page < data.pages ? 'visible' : 'hidden' }" :to="pageLink(page + 1)">Дальше</NuxtLink>
+        <AppButton variant="secondary" :style="{ visibility: page < data.pages ? 'visible' : 'hidden' }" :to="pageLink(page + 1)">Дальше</AppButton>
       </nav>
     </section>
 
@@ -119,24 +119,24 @@ async function saveComment() {
       :close-on-escape="!commentPending"
       @update:model-value="value => { if (!value && !commentPending) closeComment() }"
     >
-      <form id="trip-comment-form" class="trip-comment-form" @submit.prevent="saveComment">
-        <label for="trip-comment">Комментарий к поездке</label>
-        <textarea
-          id="trip-comment"
-          v-model="commentDraft"
-          maxlength="1000"
-          rows="6"
-          placeholder="Например, цель поездки или важная деталь"
-          :disabled="commentPending"
-        />
-        <span class="trip-comment-counter">{{ commentDraft.length }} / 1000</span>
-        <p v-if="commentError" class="error">{{ commentError }}</p>
-      </form>
+      <AppForm id="trip-comment-form" layout="stack" @submit="saveComment">
+        <AppField label="Комментарий к поездке">
+          <AppTextarea
+            v-model="commentDraft"
+            :maxlength="1000"
+            :rows="6"
+            counter
+            placeholder="Например, цель поездки или важная деталь"
+            :disabled="commentPending"
+          />
+        </AppField>
+        <AppAlert v-if="commentError">{{ commentError }}</AppAlert>
+      </AppForm>
       <template #footer>
-        <button class="btn btn--secondary" type="button" :disabled="commentPending" @click="closeComment">Отмена</button>
-        <button class="btn" type="submit" form="trip-comment-form" :disabled="commentPending">
+        <AppButton variant="secondary" :disabled="commentPending" @click="closeComment">Отмена</AppButton>
+        <AppButton type="submit" form="trip-comment-form" :disabled="commentPending">
           {{ commentPending ? 'Сохраняем…' : 'Сохранить' }}
-        </button>
+        </AppButton>
       </template>
     </AppModal>
   </div>

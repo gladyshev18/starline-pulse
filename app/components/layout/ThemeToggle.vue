@@ -3,10 +3,9 @@ const { theme, toggleTheme } = useTheme()
 </script>
 
 <template>
-  <button
-    class="icon-button theme-toggle"
-    type="button"
-    :aria-label="theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
+  <AppIconButton
+    class="theme-toggle"
+    :label="theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
     :title="theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'"
     @click="toggleTheme"
   >
@@ -17,5 +16,5 @@ const { theme, toggleTheme } = useTheme()
     <svg v-else viewBox="0 0 24 24" aria-hidden="true">
       <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4a7.8 7.8 0 1 0 11.2 11.2Z" />
     </svg>
-  </button>
+  </AppIconButton>
 </template>

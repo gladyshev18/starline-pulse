@@ -13,6 +13,10 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   modules: ['nuxt-auth-utils'],
   css: ['~/assets/css/main.css'],
+  // Компоненты разложены по папкам (ui, layout, vehicle), но имя компонента —
+  // это имя файла: путь в него не подмешивается, поэтому <AppButton> остаётся
+  // <AppButton>, а не превращается в <UiAppButton>.
+  components: [{ path: '~/components', pathPrefix: false }],
   ssr: true,
   runtimeConfig: {
     databaseUrl: databaseUrl(),

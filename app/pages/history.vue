@@ -6,6 +6,10 @@ const route = useRoute()
 const month = computed(() => moscowMonthRange(route.query.month)?.month || currentMoscowMonth())
 const { data, status } = await useFetch('/api/history', { query: computed(() => ({ month: month.value })) })
 const chartMode = ref<'daily' | 'odometer'>('daily')
+const chartModes = [
+  { value: 'daily', label: 'По дням' },
+  { value: 'odometer', label: 'Одометр' }
+] as const
 const canGoNext = computed(() => month.value < (data.value?.currentMonth || currentMoscowMonth()))
 const hasData = computed(() => Boolean(data.value?.daily.some(item => item.distance > 0 || item.fuelUsed > 0)))
 const hasOdometerData = computed(() => (data.value?.odometer.length || 0) > 1)
@@ -69,27 +73,24 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
     <header class="page-heading history-heading">
       <div><p class="eyebrow">Автомобиль</p><h1 class="page-title">Статистика</h1></div>
       <nav class="month-switcher" aria-label="Выбор месяца">
-        <NuxtLink
-          class="icon-button month-switcher__arrow"
-          :to="{ query: { month: shiftMonth(month, -1) } }"
-          aria-label="Предыдущий месяц"
+        <AppIconButton
+          class="month-switcher__arrow"
+          label="Предыдущий месяц"
           title="Предыдущий месяц"
+          :to="{ query: { month: shiftMonth(month, -1) } }"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-        </NuxtLink>
+        </AppIconButton>
         <strong>{{ monthTitle }}</strong>
-        <NuxtLink
-          v-if="canGoNext"
-          class="icon-button month-switcher__arrow"
-          :to="{ query: { month: shiftMonth(month, 1) } }"
-          aria-label="Следующий месяц"
+        <AppIconButton
+          class="month-switcher__arrow"
+          label="Следующий месяц"
           title="Следующий месяц"
+          :to="canGoNext ? { query: { month: shiftMonth(month, 1) } } : undefined"
+          :inactive="!canGoNext"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-        </NuxtLink>
-        <span v-else class="icon-button month-switcher__arrow month-switcher__arrow--disabled" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
-        </span>
+        </AppIconButton>
       </nav>
     </header>
 
@@ -132,28 +133,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
               <span v-if="odometerDistance != null"> · +{{ number(odometerDistance) }} км</span>
             </p>
           </div>
-          <div class="chart-switcher" role="tablist" aria-label="Вид графика">
-            <button
-              type="button"
-              role="tab"
-              :aria-selected="chartMode === 'daily'"
-              :class="{ 'chart-switcher__button--active': chartMode === 'daily' }"
-              class="chart-switcher__button"
-              @click="chartMode = 'daily'"
-            >
-              По дням
-            </button>
-            <button
-              type="button"
-              role="tab"
-              :aria-selected="chartMode === 'odometer'"
-              :class="{ 'chart-switcher__button--active': chartMode === 'odometer' }"
-              class="chart-switcher__button"
-              @click="chartMode = 'odometer'"
-            >
-              Одометр
-            </button>
-          </div>
+          <AppSegmented v-model="chartMode" :options="chartModes" label="Вид графика" tabs />
         </div>
         <HistoryChart
           v-if="data?.daily.length && (chartMode === 'daily' || hasOdometerData)"

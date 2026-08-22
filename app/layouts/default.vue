@@ -3,7 +3,9 @@ const { user, clear } = useUserSession()
 const route = useRoute()
 const menuOpen = ref(false)
 const header = ref<HTMLElement | null>(null)
-const toggle = ref<HTMLButtonElement | null>(null)
+// AppIconButton отдаёт экземпляр компонента, поэтому фокус возвращается на его
+// корневой элемент — саму кнопку.
+const toggle = ref<{ $el: HTMLElement } | null>(null)
 
 async function logout() {
   await clear()
@@ -17,7 +19,7 @@ watch(() => route.fullPath, () => { menuOpen.value = false })
 function closeAndReturnFocus() {
   if (!menuOpen.value) return
   menuOpen.value = false
-  toggle.value?.focus()
+  toggle.value?.$el.focus()
 }
 
 function onDocumentPointerDown(event: PointerEvent) {
@@ -47,12 +49,11 @@ onBeforeUnmount(() => {
       <NuxtLink class="brand" to="/" aria-label="Chery Pulse — главная">
         <BrandLogo compact />
       </NuxtLink>
-      <button
+      <AppIconButton
         ref="toggle"
-        class="icon-button nav-toggle"
-        type="button"
+        class="nav-toggle"
+        :label="menuOpen ? 'Закрыть меню' : 'Открыть меню'"
         :aria-expanded="menuOpen"
-        :aria-label="menuOpen ? 'Закрыть меню' : 'Открыть меню'"
         aria-controls="site-nav"
         @click="menuOpen = !menuOpen"
       >
@@ -61,7 +62,7 @@ onBeforeUnmount(() => {
           <span class="nav-toggle__bar" />
           <span class="nav-toggle__bar" />
         </span>
-      </button>
+      </AppIconButton>
       <nav id="site-nav" class="nav" :class="{ 'nav--open': menuOpen }" aria-label="Основная навигация">
         <NuxtLink to="/">Обзор</NuxtLink>
         <NuxtLink to="/history">Статистика</NuxtLink>
