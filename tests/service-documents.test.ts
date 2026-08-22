@@ -19,7 +19,7 @@ import { moveReceiptFile, resolveReceiptPath, saveReceiptFile } from '../receipt
 let workspace: string
 
 beforeEach(async () => {
-  workspace = await mkdtemp(join(tmpdir(), 'chery-docs-'))
+  workspace = await mkdtemp(join(tmpdir(), 'starline-docs-'))
 })
 afterEach(async () => {
   delete process.env.SERVICE_DOCUMENT_STORAGE_DIR

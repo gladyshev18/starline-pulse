@@ -2,13 +2,13 @@
 set -Eeuo pipefail
 set -f
 
-APP_DIR=/opt/chery-pulse
-EXPECTED_WEB_REPOSITORY=ghcr.io/gladyshev18/chery-pulse-web
-EXPECTED_TASKS_REPOSITORY=ghcr.io/gladyshev18/chery-pulse-tasks
+APP_DIR=/opt/starline-pulse
+EXPECTED_WEB_REPOSITORY=ghcr.io/gladyshev18/starline-pulse-web
+EXPECTED_TASKS_REPOSITORY=ghcr.io/gladyshev18/starline-pulse-tasks
 
 set -- ${SSH_ORIGINAL_COMMAND:-}
 if [[ $# -ne 4 || "$1" != deploy ]]; then
-  echo "Only the chery-pulse deploy command is allowed" >&2
+  echo "Only the starline-pulse deploy command is allowed" >&2
   exit 126
 fi
 

@@ -46,7 +46,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="container">
     <header ref="header" class="app-header">
-      <NuxtLink class="brand" to="/" aria-label="Chery Pulse — главная">
+      <NuxtLink class="brand" to="/" aria-label="StarLine Pulse — главная">
         <BrandLogo compact />
       </NuxtLink>
       <AppIconButton

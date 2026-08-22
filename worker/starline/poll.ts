@@ -63,7 +63,7 @@ export function normalizeDeviceResponse(raw: StarLineDataResponse): NormalizedSn
   const fuelConverted = finite(data.obd?.fuel_converted)
   const batteryType = data.common?.battery_type ?? data.battery_type
   return {
-    deviceId: String(data.device_id), alias: data.alias || 'Chery', ts: new Date(), activityTs: timestamp(data.activity_ts ?? data.ts_activity),
+    deviceId: String(data.device_id), alias: data.alias || 'Автомобиль', ts: new Date(), activityTs: timestamp(data.activity_ts ?? data.ts_activity),
     online: data.status === 1 ? true : data.status === 2 ? false : null,
     ignition, armed: typeof data.state?.arm === 'boolean' ? data.state.arm : null,
     mileage: finite(data.obd?.mileage), mileageTs: timestamp(data.obd?.mileage_ts ?? data.obd?.ts),

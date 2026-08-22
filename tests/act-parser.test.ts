@@ -11,12 +11,12 @@ const RECOGNIZED = `
 Тип ремонта: Техническое
 обслуживание
 Пробег, км
-P796PA68 CHERY TIGGO 4 PRO
+P796PA68 HAVAL JOLION
 1938
 Работы
 Материалы
 1 |480-1012010 Фильтр масляный 1.5
-| а [cHervswao200 Масло моторное Chery SW-40 API SP, АСЕА АЗ/В4, нк 2
+| а [cHervswao200 Масло моторное 5W-40 API SP, АСЕА АЗ/В4, нк 2
 Итого работы и материалы
 Общая сумма, Р
 1 658,01 9 948
@@ -107,7 +107,7 @@ describe('parseActText', () => {
   it('does not take the tail of the VIN for an odometer', () => {
     const withVin = parseActText(`
 Пробег, км
-P796PA68 CHERY TIGGO 4 PRO LVVDB21B1RD124488
+P796PA68 HAVAL JOLION LVVDB21B1RD124488
 `)
     expect(withVin.mileage).toBeNull()
   })

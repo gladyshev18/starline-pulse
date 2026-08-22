@@ -46,7 +46,7 @@ const now = new Date('2026-08-20T09:00:00.000Z')
 async function setup(withDrivers = true) {
   const database = createDatabase(':memory:')
   await migrate(database, { migrationsFolder: resolve('db/migrations') })
-  const [vehicle] = await database.insert(vehicles).values({ deviceId: '42', alias: 'Chery Tiggo' }).returning()
+  const [vehicle] = await database.insert(vehicles).values({ deviceId: '42', alias: 'Автомобиль' }).returning()
   const vehicleId = vehicle!.id
 
   const trip = (day: number, distance: number, fuelUsed: number, driver: string | null = null) => {
@@ -84,7 +84,7 @@ describe('Telegram statistics message', () => {
   it('reports the month the statistics page reports', async () => {
     const stats = await buildMonthStats(await setup(), '2026-08', now)
 
-    expect(stats?.text).toContain('📊 <b>Статистика · Chery Tiggo</b>')
+    expect(stats?.text).toContain('📊 <b>Статистика · Автомобиль</b>')
     expect(stats?.text).toContain('Август 2026 г. · по 20-е число')
     expect(stats?.text).toContain('🛣 Пробег: <b>145,0 км</b> · 3 поездки')
     // 40 l in the tank, 20 poured in, 46 left: fourteen litres went through the

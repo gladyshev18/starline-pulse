@@ -1,6 +1,6 @@
 {
-  "name": "Chery Pulse",
-  "short_name": "Chery Pulse",
+  "name": "StarLine Pulse",
+  "short_name": "StarLine Pulse",
   "description": "Состояние автомобиля и журнал поездок",
   "start_url": "/",
   "display": "standalone",

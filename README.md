@@ -1,4 +1,4 @@
-# Chery Pulse
+# StarLine Pulse
 
 Личное SSR-приложение для двух пользователей: состояние автомобиля StarLine, журнал поездок, журнал запросов к API и Telegram-бот. Веб-процесс работает только с SQLite и очередью `jobs`; все обращения к StarLine и Telegram выполняет отдельный worker. Журнал API хранит адрес, метод, статус, длительность, заголовки и тела запросов/ответов StarLine; секретные значения автоматически маскируются.
 
@@ -205,8 +205,8 @@
 Первое развёртывание:
 
 ```bash
-git clone <repository-url> chery-pulse
-cd chery-pulse
+git clone <repository-url> starline-pulse
+cd starline-pulse
 cp .env.production.example .env.production
 chmod 600 .env.production
 # Заполните домен, секрет сессии, пользователей и реквизиты интеграций.
@@ -253,7 +253,7 @@ docker compose up -d
 
 ```bash
 docker compose stop web worker
-docker compose run --rm --no-deps migrate sh -c 'tar -C /app/data -czf - .' > chery-pulse-data-$(date +%F-%H%M).tar.gz
+docker compose run --rm --no-deps migrate sh -c 'tar -C /app/data -czf - .' > starline-pulse-data-$(date +%F-%H%M).tar.gz
 docker compose start web worker
 ```
 
@@ -269,7 +269,7 @@ Workflow `.github/workflows/deploy.yml` запускается после каж
 - `DEPLOY_HOST_KEY` — строка `known_hosts` с подтверждённым ED25519-ключом сервера;
 - `DEPLOY_SSH_KEY` — отдельный приватный SSH-ключ без passphrase, доступный только Actions. Соответствующий публичный ключ на сервере ограничен опциями `restrict` и `command`, поэтому не предоставляет интерактивный shell, SCP или port forwarding.
 
-Перед миграцией `deploy/production-deploy.sh` останавливает `web` и `worker`, сохраняет согласованную копию SQLite в `/opt/chery-pulse/backups`, применяет миграции и ждёт healthcheck. При неуспешном запуске скрипт возвращает предыдущие образы. Автоматические резервные копии хранятся 14 дней; внешнее резервное копирование volume по-прежнему необходимо.
+Перед миграцией `deploy/production-deploy.sh` останавливает `web` и `worker`, сохраняет согласованную копию SQLite в `/opt/starline-pulse/backups`, применяет миграции и ждёт healthcheck. При неуспешном запуске скрипт возвращает предыдущие образы. Автоматические резервные копии хранятся 14 дней; внешнее резервное копирование volume по-прежнему необходимо.
 
 ## Хранение данных
 

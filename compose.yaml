@@ -1,11 +1,11 @@
-name: chery-pulse
+name: starline-pulse
 
 services:
   migrate:
     build:
       context: .
       target: tasks
-    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
+    image: ${TASKS_IMAGE:-starline-pulse-tasks:local}
     command: ["npm", "run", "db:migrate"]
     env_file: .env.production
     environment:
@@ -22,7 +22,7 @@ services:
     restart: "no"
 
   seed:
-    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
+    image: ${TASKS_IMAGE:-starline-pulse-tasks:local}
     command: ["npm", "run", "seed"]
     profiles: ["tools"]
     env_file: .env.production
@@ -46,7 +46,7 @@ services:
     build:
       context: .
       target: web
-    image: ${WEB_IMAGE:-chery-pulse-web:local}
+    image: ${WEB_IMAGE:-starline-pulse-web:local}
     env_file: .env.production
     environment:
       DATABASE_URL: file:/app/data/app.db
@@ -81,7 +81,7 @@ services:
         max-file: "3"
 
   worker:
-    image: ${TASKS_IMAGE:-chery-pulse-tasks:local}
+    image: ${TASKS_IMAGE:-starline-pulse-tasks:local}
     command: ["npm", "run", "worker:start"]
     env_file: .env.production
     environment:

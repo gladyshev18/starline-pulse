@@ -81,7 +81,7 @@ CREATE INDEX `snapshots_vehicle_ts_idx` ON `vehicle_snapshots` (`vehicle_id`,`ts
 CREATE TABLE `vehicles` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`device_id` text NOT NULL,
-	`alias` text DEFAULT 'Chery' NOT NULL,
+	`alias` text DEFAULT 'Автомобиль' NOT NULL,
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint

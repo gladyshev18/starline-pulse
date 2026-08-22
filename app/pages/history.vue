@@ -77,7 +77,7 @@ const speedSpread = computed(() => {
   return ratio >= 1.2 ? ratio : null
 })
 
-useHead({ title: computed(() => `Статистика — ${monthTitle.value} — Chery Pulse`) })
+useHead({ title: computed(() => `Статистика — ${monthTitle.value} — StarLine Pulse`) })
 </script>
 
 <template>

@@ -14,8 +14,8 @@ permissions:
   packages: write
 
 env:
-  WEB_IMAGE: ghcr.io/gladyshev18/chery-pulse-web
-  TASKS_IMAGE: ghcr.io/gladyshev18/chery-pulse-tasks
+  WEB_IMAGE: ghcr.io/gladyshev18/starline-pulse-web
+  TASKS_IMAGE: ghcr.io/gladyshev18/starline-pulse-tasks
 
 jobs:
   validate:
@@ -49,10 +49,10 @@ jobs:
         include:
           - image: tasks
             target: tasks
-            repository: ghcr.io/gladyshev18/chery-pulse-tasks
+            repository: ghcr.io/gladyshev18/starline-pulse-tasks
           - image: web
             target: web
-            repository: ghcr.io/gladyshev18/chery-pulse-web
+            repository: ghcr.io/gladyshev18/starline-pulse-web
     steps:
       - name: Checkout
         uses: actions/checkout@v6

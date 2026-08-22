@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR=/opt/chery-pulse
+APP_DIR=/opt/starline-pulse
 CURRENT_ENV="$APP_DIR/.env.deploy"
 NEXT_ENV="$APP_DIR/.env.deploy.next"
 PREVIOUS_ENV="$APP_DIR/.env.deploy.previous"
 BACKUP_DIR="$APP_DIR/backups"
-PROJECT_VOLUME=chery-pulse_app-data
+PROJECT_VOLUME=starline-pulse_app-data
 
 cd "$APP_DIR"
 
@@ -126,7 +126,7 @@ for env_file in "$CURRENT_ENV" "$PREVIOUS_ENV"; do
 done | sort -u > "$keep_file"
 docker image ls --format '{{.Repository}}:{{.Tag}}' | while IFS= read -r image; do
   case "$image" in
-    ghcr.io/gladyshev18/chery-pulse-web:*|ghcr.io/gladyshev18/chery-pulse-tasks:*)
+    ghcr.io/gladyshev18/starline-pulse-web:*|ghcr.io/gladyshev18/starline-pulse-tasks:*)
       if ! grep -Fqx "$image" "$keep_file"; then
         docker image rm "$image" >/dev/null 2>&1 || true
       fi

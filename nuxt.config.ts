@@ -34,7 +34,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'ru' },
-      title: 'Chery Pulse',
+      title: 'StarLine Pulse',
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg?v=2' },
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico?v=2' },
@@ -48,7 +48,7 @@ export default defineNuxtConfig({
         { name: 'theme-color', content: '#f4f8f6' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-        { name: 'apple-mobile-web-app-title', content: 'Chery Pulse' },
+        { name: 'apple-mobile-web-app-title', content: 'StarLine Pulse' },
         { name: 'description', content: 'Личный журнал поездок и состояние автомобиля' }
       ]
     }

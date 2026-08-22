@@ -1536,7 +1536,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'Chery'"
+          "default": "'Автомобиль'"
         },
         "created_at": {
           "name": "created_at",

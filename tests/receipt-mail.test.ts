@@ -51,7 +51,7 @@ function message(values: Partial<ReceiptMailMessage>): ReceiptMailMessage {
 }
 
 beforeEach(async () => {
-  storageDir = await mkdtemp(join(tmpdir(), 'chery-receipts-'))
+  storageDir = await mkdtemp(join(tmpdir(), 'starline-receipts-'))
   previousStorageDir = process.env.RECEIPT_STORAGE_DIR
   process.env.RECEIPT_STORAGE_DIR = storageDir
 

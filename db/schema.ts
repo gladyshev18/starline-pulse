@@ -67,7 +67,7 @@ export const apiCalls = sqliteTable('api_calls', {
 export const vehicles = sqliteTable('vehicles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   deviceId: text('device_id').notNull(),
-  alias: text('alias').notNull().default('Chery'),
+  alias: text('alias').notNull().default('Автомобиль'),
   createdAt: timestamps.createdAt
 }, table => [uniqueIndex('vehicles_device_id_unique').on(table.deviceId)])
 

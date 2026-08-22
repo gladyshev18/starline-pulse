@@ -4,12 +4,12 @@ import { normalizeDeviceResponse, readLoggedDeviceResponse } from '../worker/sta
 describe('normalizeDeviceResponse', () => {
   it('extracts the complete vehicle snapshot from one response', () => {
     const result = normalizeDeviceResponse({ code: 200, data: {
-      alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
+      alias: 'Автомобиль', device_id: 42, activity_ts: 1_700_000_000,
       status: 1, position: { x: 37.6, y: 55.7 }, common: { battery: 12.4, battery_type: 'volt', ctemp: 22, etemp: 70, gsm_lvl: 19 },
       obd: { mileage: 1234.5, fuel_litres: 31.2, fuel_percent: 62 }, state: { ign: true, arm: false }
     } })
     expect(result).toMatchObject({
-      deviceId: '42', alias: 'Chery', online: true, ignition: true, armed: false, mileage: 1234.5,
+      deviceId: '42', alias: 'Автомобиль', online: true, ignition: true, armed: false, mileage: 1234.5,
       fuel: 31.2, fuelPercent: 62, fuelSource: 'litres', battery: 12.4, batteryType: 'volt', lat: 55.7, lon: 37.6
     })
   })
@@ -17,7 +17,7 @@ describe('normalizeDeviceResponse', () => {
   // Armed with the engine running is the one unambiguous warm-up, so the flag has
   // to survive the trip from the response into the snapshot.
   it('keeps the alarm state, and does not invent one when it is missing', () => {
-    const base = { alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000, obd: {} }
+    const base = { alias: 'Автомобиль', device_id: 42, activity_ts: 1_700_000_000, obd: {} }
     expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true, arm: true } } }).armed).toBe(true)
     expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true } } }).armed).toBeNull()
     expect(normalizeDeviceResponse({ code: 200, data: { ...base, state: { ign: true, arm: null } } }).armed).toBeNull()
@@ -25,7 +25,7 @@ describe('normalizeDeviceResponse', () => {
 
   it('converts the percentage itself instead of trusting the API-floored litres', () => {
     const result = normalizeDeviceResponse({ code: 200, data: {
-      alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
+      alias: 'Автомобиль', device_id: 42, activity_ts: 1_700_000_000,
       obd: { mileage: 1234, fuel_litres: null, fuel_percent: 77, fuel_converted: 38 }, state: { ign: false }
     } })
     expect(result).toMatchObject({ fuel: 38.5, fuelPercent: 77, fuelSource: 'percent' })
@@ -33,7 +33,7 @@ describe('normalizeDeviceResponse', () => {
 
   it('falls back to the API-converted fuel value when the percentage is absent', () => {
     const result = normalizeDeviceResponse({ code: 200, data: {
-      alias: 'Chery', device_id: 42, activity_ts: 1_700_000_000,
+      alias: 'Автомобиль', device_id: 42, activity_ts: 1_700_000_000,
       obd: { mileage: 1234, fuel_litres: null, fuel_percent: null, fuel_converted: 37 }, state: { ign: false }
     } })
     expect(result).toMatchObject({ fuel: 37, fuelPercent: null, fuelSource: 'converted' })
@@ -51,7 +51,7 @@ describe('normalizeDeviceResponse', () => {
   })
 
   it('preserves unavailable OBD values as null', () => {
-    const result = normalizeDeviceResponse({ code: 200, data: { alias: 'Chery', device_id: 42, activity_ts: 1, obd: {}, state: { ign: false } } })
+    const result = normalizeDeviceResponse({ code: 200, data: { alias: 'Автомобиль', device_id: 42, activity_ts: 1, obd: {}, state: { ign: false } } })
     expect(result.mileage).toBeNull()
     expect(result.fuel).toBeNull()
   })
