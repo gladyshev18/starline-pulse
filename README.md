@@ -234,7 +234,7 @@ Workflow `.github/workflows/deploy.yml` при push в `main`:
 - `DEPLOY_HOST_KEY` — строка `known_hosts` с публичным ED25519 host key сервера;
 - `DEPLOY_SSH_KEY` — приватный ключ отдельной пары для GitHub Actions.
 
-Публичная часть `DEPLOY_SSH_KEY` добавляется в `/root/.ssh/authorized_keys` с принудительной командой `/opt/starline-pulse/deploy/github-actions-command.sh`. Этот ключ не должен давать интерактивный shell, SCP или port forwarding.
+Серверный обработчик устанавливается командой `install -m 700 deploy/github-actions-command.sh /usr/local/sbin/starline-pulse-github-actions`. Публичная часть `DEPLOY_SSH_KEY` добавляется в `/root/.ssh/authorized_keys` с принудительной командой `/usr/local/sbin/starline-pulse-github-actions`. Этот ключ не должен давать интерактивный shell, SCP или port forwarding.
 
 Deploy-скрипт принимает только образы `ghcr.io/gladyshev18/starline-pulse-web` и `ghcr.io/gladyshev18/starline-pulse-tasks` с тегом commit SHA. Перед миграцией он останавливает изменяющие базу процессы и создаёт согласованную резервную копию в `/opt/starline-pulse/backups`.
 
