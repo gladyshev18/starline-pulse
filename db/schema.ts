@@ -120,6 +120,8 @@ export const trips = sqliteTable('trips', {
   latEnd: real('lat_end'),
   lonEnd: real('lon_end'),
   comment: text('comment'),
+  // Имя того, кто вёл: бот спрашивает об этом сразу после завершения поездки.
+  driver: text('driver'),
   isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
 }, table => [index('trips_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
 

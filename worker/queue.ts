@@ -8,6 +8,7 @@ import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { receiptsMailConfig } from './config'
 import { buildReceiptImportNotice } from './bot/receipt-notices'
+import { buildDriverKeyboard } from './bot/trip-driver'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { pollVehicle } from './starline/poll'
@@ -99,7 +100,13 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     if (!Number.isInteger(vehicleId) || !Number.isInteger(tripId)) throw new Error('INVALID_CLOSE_TRIP_PAYLOAD')
     await closeTrip(database, { vehicleId, tripId })
   }
-  if (job.type === 'telegram:notify') await notifyAllowedChats(String(payload.text || 'Уведомление'), { html: payload.html === true })
+  if (job.type === 'telegram:notify') {
+    // Клавиатура строится в момент отправки, а не при постановке задачи: между
+    // ними мог смениться список тех, кто вообще получает уведомления.
+    const tripId = Number(payload.tripId)
+    const keyboard = Number.isInteger(tripId) && tripId > 0 ? await buildDriverKeyboard(database, tripId) : null
+    await notifyAllowedChats(String(payload.text || 'Уведомление'), { html: payload.html === true, keyboard: keyboard || undefined })
+  }
   if (job.type === 'telegram:report') {
     const period = reportPeriod(payload.period)
     if (!period) throw new Error('UNKNOWN_TELEGRAM_REPORT_PERIOD')

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, or } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { engineSessions, jobs, trips, vehicleSnapshots } from '../../db/schema'
+import { tripCompletedText } from '../bot/trip-driver'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
 type EngineSession = typeof engineSessions.$inferSelect
@@ -117,10 +118,12 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
     latEnd: latest.lat, lonEnd: latest.lon, isOpen: false
   }).where(eq(trips.id, trip.id)).returning()
   if (closed) {
-    const consumption = distance && fuelUsed != null ? fuelUsed / distance * 100 : null
+    // tripId в задаче — это и есть вопрос «кто был за рулём»: по нему к
+    // уведомлению приклеиваются кнопки с именами.
     await database.insert(jobs).values({ type: 'telegram:notify', payload: JSON.stringify({
       html: true,
-      text: `🏁 <b>Поездка завершена</b>\n\n🛣 Расстояние: ${format(distance)} км\n⛽ Топливо: ${format(fuelUsed)} л\n📊 Расход: ${format(consumption)} л/100 км`
+      text: tripCompletedText(closed),
+      tripId: closed.id
     }) })
   }
   return closed
@@ -193,5 +196,3 @@ export async function reconcileTripsWithEngineSessions(database: Database) {
   }
   return updated
 }
-
-function format(value: number | null) { return value == null ? '—' : value.toFixed(1) }

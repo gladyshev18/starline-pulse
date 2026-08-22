@@ -1,11 +1,13 @@
 import { and, eq } from 'drizzle-orm'
-import { Bot } from 'grammy'
+import { Bot, type InlineKeyboard } from 'grammy'
 import type { Database } from '../../db/client'
 import { telegramRecipients } from '../../db/schema'
 import { config, normalizeTelegramUsername } from '../config'
 import { registerCommands } from './commands'
 import { mainKeyboard } from './keyboard'
 import { registerReceiptHandlers } from './receipts'
+import { allowedRecipients } from './recipients'
+import { registerTripDriverHandlers } from './trip-driver'
 import { createTelegramProxyFetch } from './proxy'
 
 let bot: Bot | null = null
@@ -35,6 +37,7 @@ export function createTelegramBot(database: Database) {
   })
   registerCommands(bot, database)
   registerReceiptHandlers(bot, database)
+  registerTripDriverHandlers(bot, database)
   bot.catch(error => console.error('Telegram bot error', error.error))
   return bot
 }
@@ -42,6 +45,10 @@ export function createTelegramBot(database: Database) {
 type NotificationOptions = {
   html?: boolean
   sound?: boolean
+  // Сообщение с вопросом несёт свои кнопки вместо главного меню: у сообщения
+  // может быть только одна клавиатура, а главное меню закреплено и никуда не
+  // денется.
+  keyboard?: InlineKeyboard
 }
 
 export async function notifyAllowedChats(text: string, options: NotificationOptions = {}) {
@@ -53,7 +60,7 @@ export async function notifyAllowedChats(text: string, options: NotificationOpti
   const recipients = await botRecipients()
   const results = await Promise.allSettled(recipients.map(recipient => bot!.api.sendMessage(recipient.chatId, text, {
     disable_notification: options.sound !== true,
-    reply_markup: mainKeyboard,
+    reply_markup: options.keyboard || mainKeyboard,
     ...(options.html ? { parse_mode: 'HTML' as const } : {})
   })))
   results.forEach((result, index) => {
@@ -63,8 +70,5 @@ export async function notifyAllowedChats(text: string, options: NotificationOpti
 
 async function botRecipients() {
   if (!bot || !botDatabase) return []
-  // The database stores discovered chat IDs, while the environment remains the
-  // source of truth for who is currently allowed to receive notifications.
-  const recipients = await botDatabase.select().from(telegramRecipients)
-  return recipients.filter(recipient => config.telegramAllowedUsernames.has(recipient.username))
+  return allowedRecipients(botDatabase)
 }
