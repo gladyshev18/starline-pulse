@@ -94,7 +94,7 @@ describe('measureIdleRate', () => {
   })
 
   it('keeps the sensor step tied to one percent of the tank', () => {
-    expect(FUEL_SENSOR_STEP_LITRES).toBe(0.5)
+    expect(FUEL_SENSOR_STEP_LITRES).toBe(0.51)
   })
 })
 

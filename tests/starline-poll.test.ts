@@ -28,7 +28,8 @@ describe('normalizeDeviceResponse', () => {
       alias: 'Автомобиль', device_id: 42, activity_ts: 1_700_000_000,
       obd: { mileage: 1234, fuel_litres: null, fuel_percent: 77, fuel_converted: 38 }, state: { ign: false }
     } })
-    expect(result).toMatchObject({ fuel: 38.5, fuelPercent: 77, fuelSource: 'percent' })
+    expect(result).toMatchObject({ fuelPercent: 77, fuelSource: 'percent' })
+    expect(result.fuel).toBeCloseTo(39.27)
   })
 
   it('falls back to the API-converted fuel value when the percentage is absent', () => {

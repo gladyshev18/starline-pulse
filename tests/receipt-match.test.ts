@@ -14,8 +14,9 @@ describe('refuelVolume', () => {
   })
 
   it('derives litres from the percent jump when the sensor gave none', () => {
-    expect(refuelVolume({ id: 1, detectedAt, litresAdded: null, percentBefore: 20, percentAfter: 80 }))
-      .toEqual({ litres: 30, derived: true })
+    const volume = refuelVolume({ id: 1, detectedAt, litresAdded: null, percentBefore: 20, percentAfter: 80 })
+    expect(volume!.litres).toBeCloseTo(30.6)
+    expect(volume!.derived).toBe(true)
   })
 
   it('gives up when neither volume nor a percent increase is known', () => {
