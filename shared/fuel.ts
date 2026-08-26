@@ -2,10 +2,12 @@ export const FUEL_TANK_CAPACITY_LITRES = 51
 
 // The OBD percentage is the finest fuel reading the car gives us: `fuel_litres`
 // never arrives, and `fuel_converted` is this very percentage floored to whole
-// litres. That floor roughly doubles the step to 1 litre and shaves half a step
-// off every reading, which shows up twice over in consumption and refuel volumes
-// since both are differences. Converting here keeps the sensor's own resolution
-// of one percent of the tank.
+// litres against a fifty litre tank — across the whole history it is always
+// `floor(percent / 2)`, never the tank this car actually carries. So that field
+// is both coarse and low: the floor doubles the step to a whole litre and the
+// wrong tank shaves another two percent, and both show up twice over in
+// consumption and refuel volumes since those are differences. Converting the
+// percentage here keeps the sensor's own resolution of one percent.
 export function fuelFromPercent(percent: number | null | undefined) {
   if (percent == null || !Number.isFinite(percent)) return null
   return Math.min(100, Math.max(0, percent)) * FUEL_TANK_CAPACITY_LITRES / 100
