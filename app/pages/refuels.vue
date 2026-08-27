@@ -67,6 +67,13 @@ function discrepancy(value: number | null) {
   return value != null && Math.abs(value) >= 0.5
 }
 
+// У возврата в чеке напечатаны положительные литры и рубли — минусом их делает
+// сама операция, поэтому знак дорисовывается здесь.
+function receiptAmount(receipt: { operation: string, totalAmount: number | null }) {
+  const value = money(receipt.totalAmount)
+  return receipt.operation === 'refund' && value !== '—' ? `−${value}` : value
+}
+
 const receiptOrigin: Record<string, string> = {
   manual: 'добавлен вручную',
   imap: 'получен по почте',
@@ -245,8 +252,11 @@ async function uploadReceipt(refuelId: number, file: File) {
               >
                 <span class="receipt-file__type">{{ receiptKind(receipt.mimeType) }}</span>
                 <span class="receipt-file__copy">
-                  <strong>{{ receipt.originalName || money(receipt.totalAmount) }}</strong>
+                  <strong>
+                    <template v-if="receipt.operation === 'refund'">Возврат · </template>{{ receiptAmount(receipt) }}
+                  </strong>
                   <small>
+                    <template v-if="receipt.litres != null">{{ receipt.operation === 'refund' ? '−' : '' }}{{ number(receipt.litres, 2) }} л · </template>
                     <template v-if="receipt.size">{{ fileSize(receipt.size) }} · </template>{{ receiptOrigin[receipt.source] || receipt.source }}
                   </small>
                 </span>

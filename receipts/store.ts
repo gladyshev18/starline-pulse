@@ -7,7 +7,7 @@ import {
   matchReceipt,
   type ReceiptMatchResult
 } from '../shared/receipt-match'
-import { completeReceiptAmounts, type ReceiptFields } from './fields'
+import { completeReceiptAmounts, receiptSign, type ReceiptFields } from './fields'
 import { removeReceiptFile } from './storage'
 
 export type ReceiptFile = {
@@ -64,16 +64,51 @@ export async function matchCandidatesFor(database: Database, vehicleId: number, 
   return events.map(event => ({ ...event, hasReceipt: occupied.has(event.id) }))
 }
 
-export async function runReceiptMatch(database: Database, receipt: RefuelReceipt, vehicleId: number): Promise<ReceiptMatchResult> {
+// The refund is handed over at the counter right after the pump stops, so the
+// purchase it reverses is the last one from the same seller — a wider window
+// than that only invites the previous week's tank into the arithmetic.
+const REFUND_WINDOW_MS = 2 * 60 * 60_000
+
+// A refund is not a fuel jump of its own, and scoring it like one never works:
+// nothing in the tank rose by the 0.8 litres the station gave back. It belongs
+// to the stop it corrects, so it simply follows the receipt it reverses — and
+// waits, unmatched, while that receipt is itself unlinked.
+async function matchRefund(database: Database, receipt: RefuelReceipt): Promise<ReceiptMatchResult> {
   const idle: ReceiptMatchResult = { status: 'unmatched', refuelEventId: null, score: null, candidates: [] }
-  if (DECIDED.includes(receipt.matchStatus as (typeof DECIDED)[number])) return idle
   if (!receipt.purchasedAt) return idle
 
-  const result = matchReceipt(
-    { purchasedAt: receipt.purchasedAt, litres: receipt.litres },
-    await matchCandidatesFor(database, vehicleId, receipt.purchasedAt)
-  )
+  const purchases = await database.select().from(refuelReceipts).where(and(
+    eq(refuelReceipts.operation, 'purchase'),
+    isNotNull(refuelReceipts.refuelEventId),
+    gte(refuelReceipts.purchasedAt, new Date(receipt.purchasedAt.getTime() - REFUND_WINDOW_MS)),
+    lte(refuelReceipts.purchasedAt, receipt.purchasedAt)
+  )).orderBy(desc(refuelReceipts.purchasedAt))
 
+  // A receipt without a seller cannot contradict one, so it stays eligible.
+  const reversed = purchases.find(purchase => isReceiptConfirming(purchase)
+    && (purchase.sellerInn == null || receipt.sellerInn == null || purchase.sellerInn === receipt.sellerInn))
+  if (!reversed?.refuelEventId) return idle
+  return { status: 'auto', refuelEventId: reversed.refuelEventId, score: 1, candidates: [] }
+}
+
+// Every refund borrows its link from the purchase it reverses, so whenever that
+// purchase moves — linked at last, relinked by hand, or rejected — the refunds
+// behind it have to be asked again, or they keep subtracting from a refuel the
+// purchase has already left.
+async function rematchRefundsOf(database: Database, purchase: Pick<RefuelReceipt, 'operation' | 'purchasedAt'>) {
+  if (purchase.operation !== 'purchase' || !purchase.purchasedAt) return
+  const refunds = await database.select().from(refuelReceipts).where(and(
+    eq(refuelReceipts.operation, 'refund'),
+    gte(refuelReceipts.purchasedAt, purchase.purchasedAt),
+    lte(refuelReceipts.purchasedAt, new Date(purchase.purchasedAt.getTime() + REFUND_WINDOW_MS))
+  ))
+  for (const refund of refunds) {
+    if (DECIDED.includes(refund.matchStatus as (typeof DECIDED)[number])) continue
+    await applyMatchResult(database, refund, await matchRefund(database, refund))
+  }
+}
+
+async function applyMatchResult(database: Database, receipt: RefuelReceipt, result: ReceiptMatchResult) {
   const now = new Date()
   const previousRefuelEventId = receipt.refuelEventId
   if (result.status === 'auto') {
@@ -105,11 +140,28 @@ export async function runReceiptMatch(database: Database, receipt: RefuelReceipt
     }).where(eq(refuelReceipts.id, receipt.id))
   }
 
+  if (previousRefuelEventId !== (result.status === 'auto' ? result.refuelEventId : null)) {
+    await rematchRefundsOf(database, receipt)
+  }
   if (previousRefuelEventId != null && previousRefuelEventId !== result.refuelEventId) {
     await applyReceiptsToRefuel(database, previousRefuelEventId)
   }
   if (result.status === 'auto') await applyReceiptsToRefuel(database, result.refuelEventId)
   return result
+}
+
+export async function runReceiptMatch(database: Database, receipt: RefuelReceipt, vehicleId: number): Promise<ReceiptMatchResult> {
+  const idle: ReceiptMatchResult = { status: 'unmatched', refuelEventId: null, score: null, candidates: [] }
+  if (DECIDED.includes(receipt.matchStatus as (typeof DECIDED)[number])) return idle
+  if (!receipt.purchasedAt) return idle
+
+  const result = receipt.operation === 'refund'
+    ? await matchRefund(database, receipt)
+    : matchReceipt(
+      { purchasedAt: receipt.purchasedAt, litres: receipt.litres },
+      await matchCandidatesFor(database, vehicleId, receipt.purchasedAt)
+    )
+  return applyMatchResult(database, receipt, result)
 }
 
 export async function createReceipt(database: Database, input: CreateReceiptInput) {
@@ -161,9 +213,11 @@ export async function applyReceiptsToRefuel(database: Database, refuelEventId: n
     return restored || refuel
   }
 
-  // A refuel paid in two transactions carries two receipts, so the figures add up.
-  const litres = attached.reduce((total, receipt) => receipt.litres != null ? total + receipt.litres : total, 0)
-  const amount = attached.reduce((total, receipt) => receipt.totalAmount != null ? total + receipt.totalAmount : total, 0)
+  // A refuel paid in two transactions carries two receipts, so the figures add
+  // up — and a refund is one of those transactions with the fuel going the other
+  // way, so it comes off the same sum.
+  const litres = attached.reduce((total, receipt) => receipt.litres != null ? total + receipt.litres * receiptSign(receipt) : total, 0)
+  const amount = attached.reduce((total, receipt) => receipt.totalAmount != null ? total + receipt.totalAmount * receiptSign(receipt) : total, 0)
   const priced = attached.find(receipt => receipt.pricePerLitre != null)
 
   const [updated] = await database.update(refuelEvents).set({
@@ -191,6 +245,7 @@ export async function linkReceiptToRefuel(database: Database, receiptId: number,
   }).where(eq(refuelReceipts.id, receiptId)).returning()
   if (!updated) return null
 
+  if (previous?.refuelEventId !== refuelEventId) await rematchRefundsOf(database, updated)
   if (previous?.refuelEventId != null && previous.refuelEventId !== refuelEventId) {
     await applyReceiptsToRefuel(database, previous.refuelEventId)
   }
@@ -210,6 +265,7 @@ export async function rejectReceiptMatch(database: Database, receiptId: number) 
     matchedAt: null,
     updatedAt: now
   }).where(eq(refuelReceipts.id, receiptId)).returning()
+  if (updated) await rematchRefundsOf(database, updated)
   await applyReceiptsToRefuel(database, previous?.refuelEventId ?? null)
   return updated || null
 }
@@ -217,6 +273,7 @@ export async function rejectReceiptMatch(database: Database, receiptId: number) 
 export async function deleteReceipt(database: Database, receipt: RefuelReceipt) {
   await database.delete(refuelReceipts).where(eq(refuelReceipts.id, receipt.id))
   if (receipt.storedName) await removeReceiptFile(receipt.storedName)
+  await rematchRefundsOf(database, receipt)
   await applyReceiptsToRefuel(database, receipt.refuelEventId)
 }
 
@@ -229,7 +286,11 @@ export async function rematchPendingReceipts(database: Database, vehicleId: numb
     .limit(limit)
 
   const linked: RefuelReceipt[] = []
-  for (const receipt of pending) {
+  // A refund can only follow a purchase that already found its refuel, and the
+  // newest receipt comes first here — which at a single stop is the refund. So
+  // the purchases go through the matcher first and the refunds catch up in the
+  // same pass instead of waiting for the next event.
+  for (const receipt of [...pending].sort((left, right) => receiptSign(right) - receiptSign(left))) {
     const result = await runReceiptMatch(database, receipt, vehicleId)
     if (result.status === 'auto') linked.push(receipt)
   }

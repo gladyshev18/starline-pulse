@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FUEL_TYPES, PAYMENT_METHODS, STATIONS } from '~~/shared/stations'
+import { FUEL_TYPES, PAYMENT_METHODS, RECEIPT_OPERATIONS, STATIONS } from '~~/shared/stations'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024
 
@@ -18,6 +18,7 @@ const formError = ref('')
 const attachment = ref<File | null>(null)
 const form = reactive({
   purchasedAt: '',
+  operation: 'purchase',
   station: '',
   stationName: '',
   fuelType: '',
@@ -81,12 +82,19 @@ function errorMessage(error: unknown, fallback = 'Не удалось выпол
   return fallback
 }
 
+// Чек возврата напечатан такими же положительными числами, как и покупка, —
+// минус ему даёт операция, поэтому знак дорисовывается при показе.
+function signed(receipt: Receipt, value: string) {
+  return value === '—' || receipt.operation !== 'refund' ? value : `−${value}`
+}
+
 function receiptTitle(receipt: Receipt) {
-  return receipt.totalAmount != null ? money(receipt.totalAmount) : receipt.originalName || 'Чек без суммы'
+  return receipt.totalAmount != null ? signed(receipt, money(receipt.totalAmount)) : receipt.originalName || 'Чек без суммы'
 }
 
 function resetForm() {
   form.purchasedAt = toLocalInput(new Date())
+  form.operation = 'purchase'
   form.station = ''
   form.stationName = ''
   form.fuelType = ''
@@ -107,6 +115,7 @@ function openCreate() {
 
 function openEdit(receipt: Receipt) {
   form.purchasedAt = toLocalInput(receipt.purchasedAt)
+  form.operation = receipt.operation || 'purchase'
   form.station = receipt.station || ''
   form.stationName = receipt.stationName || ''
   form.fuelType = receipt.fuelType || ''
@@ -158,6 +167,7 @@ function completeAmounts() {
 function formBody() {
   return {
     purchasedAt: form.purchasedAt ? new Date(form.purchasedAt).toISOString() : '',
+    operation: form.operation,
     station: form.station,
     stationName: form.stationName,
     fuelType: form.fuelType,
@@ -259,9 +269,10 @@ const refuelOptions = computed(() => (refuelsData.value?.items || []).map(refuel
             <p class="eyebrow">{{ date(receipt.purchasedAt) }}</p>
             <span class="confirm-badge" :class="`confirm-badge--${receipt.matchStatus}`">{{ statusLabels[receipt.matchStatus] }}</span>
           </div>
-          <p class="refuel-card__amount">{{ number(receipt.litres) }} <small>л</small></p>
+          <span v-if="receipt.operation === 'refund'" class="confirm-badge confirm-badge--warn">Возврат прихода</span>
+          <p class="refuel-card__amount">{{ signed(receipt, number(receipt.litres)) }} <small>л</small></p>
           <dl class="refuel-meta">
-            <div><dt>Сумма</dt><dd>{{ money(receipt.totalAmount) }}</dd></div>
+            <div><dt>Сумма</dt><dd>{{ signed(receipt, money(receipt.totalAmount)) }}</dd></div>
             <div><dt>Цена за литр</dt><dd>{{ money(receipt.pricePerLitre) }}</dd></div>
             <div><dt>Вид топлива</dt><dd>{{ receipt.fuelType || '—' }}</dd></div>
             <div><dt>Оплата</dt><dd>{{ receipt.paymentMethod === 'cash' ? 'Наличные' : receipt.paymentMethod === 'card' ? 'Карта' : '—' }}</dd></div>
@@ -332,6 +343,9 @@ const refuelOptions = computed(() => (refuelsData.value?.items || []).map(refuel
         <AppField label="Дата и время" wide>
           <AppInput v-model="form.purchasedAt" required type="datetime-local" :disabled="formPending" />
         </AppField>
+        <AppField label="Операция">
+          <AppSelect v-model="form.operation" :options="RECEIPT_OPERATIONS" :disabled="formPending" />
+        </AppField>
         <AppField label="АЗС">
           <AppSelect v-model="form.station" :options="STATIONS" placeholder="Не указана" placeholder-selectable :disabled="formPending" />
         </AppField>
@@ -355,6 +369,7 @@ const refuelOptions = computed(() => (refuelsData.value?.items || []).map(refuel
         </AppField>
         <p class="muted form-note form-wide">
           Достаточно любых двух из трёх значений — объём, цена и сумма: третье посчитается само.
+          У возврата вводите те же положительные числа, что напечатаны в чеке: из заправки они вычтутся сами.
         </p>
         <div v-if="!editing" class="form-wide receipt-capture">
           <AppFileButton

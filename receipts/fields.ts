@@ -1,11 +1,22 @@
 export const RECEIPT_STATIONS = ['rosneft', 'lukoil', 'other'] as const
 export const RECEIPT_PAYMENT_METHODS = ['card', 'cash', 'unknown'] as const
+export const RECEIPT_OPERATIONS = ['purchase', 'refund'] as const
 
 export type ReceiptStation = (typeof RECEIPT_STATIONS)[number]
 export type ReceiptPaymentMethod = (typeof RECEIPT_PAYMENT_METHODS)[number]
+export type ReceiptOperation = (typeof RECEIPT_OPERATIONS)[number]
+
+// A refund is printed like any other receipt — positive litres, positive
+// roubles — and only the operation says the fuel went back to the station. So
+// every place that adds receipts up asks for the sign here instead of trusting
+// the figures to carry it.
+export function receiptSign(receipt: { operation?: ReceiptOperation | string | null }) {
+  return receipt.operation === 'refund' ? -1 : 1
+}
 
 export type ReceiptFields = {
   purchasedAt: Date | null
+  operation: ReceiptOperation
   station: ReceiptStation | null
   stationName: string | null
   address: string | null
@@ -67,6 +78,14 @@ function station(value: unknown): ReceiptStation | null {
   return value as ReceiptStation
 }
 
+function operation(value: unknown): ReceiptOperation {
+  if (value == null || value === '') return 'purchase'
+  if (typeof value !== 'string' || !RECEIPT_OPERATIONS.includes(value as ReceiptOperation)) {
+    throw new ReceiptFieldError('Выберите операцию')
+  }
+  return value as ReceiptOperation
+}
+
 function paymentMethod(value: unknown): ReceiptPaymentMethod {
   if (value == null || value === '') return 'unknown'
   if (typeof value !== 'string' || !RECEIPT_PAYMENT_METHODS.includes(value as ReceiptPaymentMethod)) {
@@ -78,6 +97,7 @@ function paymentMethod(value: unknown): ReceiptPaymentMethod {
 export function normalizeReceiptFields(input: Record<string, unknown>): ReceiptFields {
   const values: ReceiptFields = {
     purchasedAt: optionalDate(input.purchasedAt, 'Дата и время'),
+    operation: operation(input.operation),
     station: station(input.station),
     stationName: optionalText(input.stationName, 'Название АЗС', 100),
     address: optionalText(input.address, 'Адрес', 250),

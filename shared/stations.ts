@@ -6,6 +6,13 @@ export const STATIONS = [
   { value: 'other', label: 'Другая АЗС' }
 ] as const
 
+// «Возврат прихода» — чек на топливо, которое АЗС списала с карты, но не
+// налила: его литры и рубли вычитаются из заправки, а не прибавляются к ней.
+export const RECEIPT_OPERATIONS = [
+  { value: 'purchase', label: 'Покупка' },
+  { value: 'refund', label: 'Возврат' }
+] as const
+
 export const PAYMENT_METHODS = [
   { value: 'cash', label: 'Наличные' },
   { value: 'card', label: 'Карта' },

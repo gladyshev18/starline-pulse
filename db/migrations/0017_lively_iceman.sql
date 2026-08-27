@@ -1,0 +1,1 @@
+ALTER TABLE `refuel_receipts` ADD `operation` text DEFAULT 'purchase' NOT NULL;

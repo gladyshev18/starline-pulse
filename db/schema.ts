@@ -188,6 +188,11 @@ export const refuelReceipts = sqliteTable('refuel_receipts', {
   suggestedRefuelEventId: integer('suggested_refuel_event_id').references(() => refuelEvents.id),
   source: text('source', { enum: ['manual', 'imap', 'telegram'] }).notNull().default('manual'),
   dataSource: text('data_source', { enum: ['manual', 'parsed', 'qr'] }).notNull().default('manual'),
+  // A stop paid up front ends in two fiscal documents when the pump gives less
+  // than was charged: the purchase, and a «Возврат прихода» for the difference.
+  // Both print the same table of positive figures, so which way the fuel and the
+  // money went is recorded here rather than in the sign of the numbers.
+  operation: text('operation', { enum: ['purchase', 'refund'] }).notNull().default('purchase'),
   matchStatus: text('match_status', { enum: ['unmatched', 'suggested', 'auto', 'manual', 'rejected'] }).notNull().default('unmatched'),
   matchScore: real('match_score'),
   matchedAt: integer('matched_at', { mode: 'timestamp_ms' }),

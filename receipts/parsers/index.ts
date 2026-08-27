@@ -1,14 +1,15 @@
 import { FUEL_TANK_CAPACITY_LITRES } from '../../shared/fuel'
-import { completeReceiptAmounts, type ReceiptFields, type ReceiptStation } from '../fields'
+import { completeReceiptAmounts, type ReceiptFields, type ReceiptOperation, type ReceiptStation } from '../fields'
 import { parseFiscalQr } from '../qr'
 import type { ReceiptMailMessage } from '../mail/types'
 
 export type ParsedReceipt = Pick<ReceiptFields,
-  'purchasedAt' | 'station' | 'stationName' | 'address' | 'fuelType' |
+  'purchasedAt' | 'operation' | 'station' | 'stationName' | 'address' | 'fuelType' |
   'litres' | 'pricePerLitre' | 'totalAmount' | 'fiscalDocNumber' | 'fiscalSign' | 'sellerInn'>
 
 const empty: ParsedReceipt = {
   purchasedAt: null,
+  operation: 'purchase',
   station: null,
   stationName: null,
   address: null,
@@ -67,6 +68,16 @@ export function parseReceiptDate(text: string) {
 export function parseFiscalLink(text: string) {
   const match = /[?&]?(t=\d{8}T\d{4,6}[^\s"'<>]*)/.exec(text)
   return match?.[1] ? parseFiscalQr(match[1]) : null
+}
+
+// Every fiscal receipt names its operation right under «Кассовый чек»: a tank of
+// petrol is «Приход», and the station's refund for fuel it charged for but never
+// poured is «Возврат прихода». The two print the same table of positive figures
+// and arrive from the same operator minutes apart, so these words are the only
+// thing that tells them apart — without them a refund reads as a second, tiny
+// refuel.
+export function parseReceiptOperation(text: string): ReceiptOperation {
+  return /возврат\s+(?:прихода|расхода)/i.test(text) ? 'refund' : 'purchase'
 }
 
 const MIN_FUEL_PRICE = 20
@@ -184,6 +195,7 @@ export function parseReceiptText(text: string): ParsedReceipt {
   }
 
   result.purchasedAt ||= parseReceiptDate(text)
+  result.operation = parseReceiptOperation(text)
   result.address ??= parseStationAddress(text)
   // A Cyrillic "л" has no ASCII word boundary after it, so the unit is closed
   // with a lookahead instead of \b.

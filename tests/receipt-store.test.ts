@@ -194,6 +194,80 @@ describe('correcting a refuel by its receipt', () => {
     expect(await refuelById(right.id)).toMatchObject({ litresAdded: 20, sensorLitresAdded: 30 })
   })
 
+  it('subtracts a refund from the refuel the purchase paid for', async () => {
+    const refuel = await addRefuel({ detectedAt, litresAdded: 21.93 })
+    const purchase = await addReceipt({ litres: 25, totalAmount: 1743.75, pricePerLitre: 69.75, sellerInn: '3664002554' })
+    expect(purchase.receipt.refuelEventId).toBe(refuel.id)
+
+    const refund = await addReceipt({
+      operation: 'refund',
+      purchasedAt: new Date(purchasedAt.getTime() + 3 * 60_000),
+      litres: 0.79,
+      totalAmount: 55.1,
+      pricePerLitre: 69.75,
+      sellerInn: '3664002554'
+    })
+
+    expect(refund.receipt).toMatchObject({ refuelEventId: refuel.id, matchStatus: 'auto' })
+    expect(await refuelById(refuel.id)).toMatchObject({
+      litresAdded: 24.21,
+      totalAmount: 1688.65,
+      pricePerLitre: 69.75,
+      sensorLitresAdded: 21.93
+    })
+  })
+
+  it('keeps a refund waiting while the purchase it reverses is unlinked', async () => {
+    const refund = await addReceipt({
+      operation: 'refund',
+      purchasedAt: new Date(purchasedAt.getTime() + 3 * 60_000),
+      litres: 0.79,
+      totalAmount: 55.1
+    })
+    expect(refund.receipt.matchStatus).toBe('unmatched')
+
+    await addReceipt({ litres: 25, totalAmount: 1743.75 })
+    const refuel = await addRefuel({ detectedAt, litresAdded: 21.93 })
+    await rematchPendingReceipts(database, vehicleId)
+
+    const stored = await database.select().from(refuelReceipts).where(eq(refuelReceipts.id, refund.receipt.id)).limit(1)
+    expect(stored[0]).toMatchObject({ refuelEventId: refuel.id, matchStatus: 'auto' })
+    expect((await refuelById(refuel.id)).litresAdded).toBe(24.21)
+  })
+
+  it('takes the refund off the refuel when its purchase is rejected', async () => {
+    const refuel = await addRefuel({ detectedAt, litresAdded: 21.93 })
+    const purchase = await addReceipt({ litres: 25, totalAmount: 1743.75 })
+    await addReceipt({
+      operation: 'refund',
+      purchasedAt: new Date(purchasedAt.getTime() + 3 * 60_000),
+      litres: 0.79,
+      totalAmount: 55.1
+    })
+    expect((await refuelById(refuel.id)).litresAdded).toBe(24.21)
+
+    await rejectReceiptMatch(database, purchase.receipt.id)
+
+    expect((await refuelById(refuel.id)).litresAdded).toBe(21.93)
+    const [refund] = await database.select().from(refuelReceipts).where(eq(refuelReceipts.operation, 'refund')).limit(1)
+    expect(refund).toMatchObject({ refuelEventId: null, matchStatus: 'unmatched' })
+  })
+
+  it('ignores a refund from another seller', async () => {
+    const refuel = await addRefuel({ detectedAt, litresAdded: 21.93 })
+    await addReceipt({ litres: 25, totalAmount: 1743.75, sellerInn: '3664002554' })
+    const refund = await addReceipt({
+      operation: 'refund',
+      purchasedAt: new Date(purchasedAt.getTime() + 3 * 60_000),
+      litres: 0.79,
+      totalAmount: 55.1,
+      sellerInn: '7707049388'
+    })
+
+    expect(refund.receipt).toMatchObject({ refuelEventId: null, matchStatus: 'unmatched' })
+    expect((await refuelById(refuel.id)).litresAdded).toBe(25)
+  })
+
   it('leaves an unconfirmed refuel exactly as the sensor reported it', async () => {
     const refuel = await addRefuel({ detectedAt: new Date('2026-07-01T09:00:00.000Z'), litresAdded: 21 })
 

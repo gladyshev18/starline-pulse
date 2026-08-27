@@ -99,6 +99,26 @@ describe('parseReceiptText', () => {
     expect(parsed).toMatchObject({ pricePerLitre: 65, totalAmount: 2600, litres: 40 })
   })
 
+  it('tells a refund apart from the purchase it reverses', () => {
+    const lines = [
+      'Кассовый чек.',
+      'Приход',
+      'Смена №: 347 Чек №: 79',
+      '27.08.2026 09:22',
+      '1. АИ-95-К5 N 3:00000  69.75  25  1743.75',
+      'ИТОГО: 1743.75'
+    ]
+    expect(parseReceiptText(lines.join('\n'))).toMatchObject({ operation: 'purchase', litres: 25, totalAmount: 1743.75 })
+
+    const refund = parseReceiptText(lines
+      .map(line => line === 'Приход' ? 'Возврат прихода' : line)
+      .map(line => line.replace('69.75  25  1743.75', '69.75  0.79  55.10').replace('ИТОГО: 1743.75', 'ИТОГО: 55.10'))
+      .join('\n'))
+    // The figures stay exactly as printed: only the operation says which way
+    // the fuel went, and the subtraction happens where receipts are summed.
+    expect(refund).toMatchObject({ operation: 'refund', litres: 0.79, totalAmount: 55.1 })
+  })
+
   it('recognises Lukoil', () => {
     expect(parseReceiptText('ООО "ЛУКОЙЛ-Центрнефтепродукт"').station).toBe('lukoil')
   })
