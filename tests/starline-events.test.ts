@@ -166,6 +166,45 @@ describe('границы поездок по журналу сигнализац
     }
   })
 
+  // Поездка, у которой одометр так и не сдвинулся, — это прогрев, а не дорога.
+  // Проверка не может стоять в момент закрытия: одометр досылает остаток
+  // минутами позже, и запись с нулём запросто оказывается настоящей поездкой.
+  it('снимает нулевую поездку, но оставляет ту, где есть комментарий', async () => {
+    const { database, vehicle, snapshot, session } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await snapshot(60, 100, 0)
+      await session(5, 15, 100, 100)
+      await session(25, 35, 100, 100)
+      const [plain] = await database.insert(trips).values({
+        vehicleId: vehicle.id, startedAt: at(5), endedAt: at(15),
+        mileageStart: 100, mileageEnd: 100, distance: 0, driver: 'Кристина', isOpen: false
+      }).returning()
+      const [noted] = await database.insert(trips).values({
+        vehicleId: vehicle.id, startedAt: at(25), endedAt: at(35),
+        mileageStart: 100, mileageEnd: 100, distance: 0, comment: 'грел перед выездом', isOpen: false
+      }).returning()
+
+      await storeEvents(database, vehicle.id, [
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(5) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(15) },
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(25) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(35) }
+      ])
+      const report = await applyEventBoundaries(database, vehicle.id)
+      expect(report.removed.map(item => item.tripId)).toEqual([plain!.id])
+
+      const left = await database.select().from(trips)
+      expect(left).toHaveLength(1)
+      expect(left[0]!.id).toBe(noted!.id)
+      // Прогрев никуда не делся — он и остаётся сессией, по ней его считает
+      // счёт холостого хода.
+      expect(await database.select().from(engineSessions)).toHaveLength(2)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   // Первый заход на боевых данных упал между двумя фазами — база держалась
   // воркером, — и оставил обе половины разделённой сессии с полным пробегом.
   // Повторный проход обязан это вылечить, даже когда границы двигать уже нечего.

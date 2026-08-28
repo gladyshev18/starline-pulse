@@ -240,10 +240,14 @@ export async function recomputeTrips(database: Database, options: { apply: boole
 
     // Поездка заводится тем, что вырос одометр. Если после разбора выясняется,
     // что стоял он на месте, запись была не поездкой, а прогревом — сессия его
-    // и так помнит. Комментарий или имя водителя означают, что человек с этой
-    // строкой уже работал, и такую лучше оставить, чем стереть.
+    // и так помнит.
+    //
+    // Имя водителя такую запись не спасает: бот спрашивает про каждую закрытую
+    // поездку сам, ответ на его вопрос не означает, что человек считает эту
+    // строку поездкой. А вот комментарий писали руками, и текст, кроме как
+    // здесь, нигде не хранится.
     if (mileageStart != null && mileageEnd != null && distance === 0) {
-      const kept = Boolean(trip.comment || trip.driver)
+      const kept = Boolean(trip.comment)
       report.tripsEmptied.push({ id: trip.id, startedAt, kept })
       if (!kept) {
         if (options.apply) await database.delete(trips).where(eq(trips.id, trip.id))

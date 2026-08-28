@@ -158,6 +158,8 @@ function matches(span: IgnitionSpan, session: { startedAt: Date, endedAt: Date |
 export interface BoundaryReport {
   corrected: Array<{ sessionId: number, startedAt: Date, endedAt: Date, shiftedStartSeconds: number }>
   created: Array<{ sessionId: number, startedAt: Date, endedAt: Date, distance: number | null }>
+  // Записи, оказавшиеся прогревом: одометр за них так и не сдвинулся.
+  removed: Array<{ tripId: number, startedAt: Date }>
 }
 
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
@@ -197,7 +199,7 @@ async function moveTripWithSession(database: Database, session: EngineSession, s
 //
 // Пробег остаётся за одометром: в журнале его нет.
 export async function applyEventBoundaries(database: Database, vehicleId: number, since?: Date) {
-  const report: BoundaryReport = { corrected: [], created: [] }
+  const report: BoundaryReport = { corrected: [], created: [], removed: [] }
   const spans = await ignitionSpans(database, vehicleId, since)
   if (!spans.length) return report
 
@@ -288,6 +290,16 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
       where: and(eq(trips.vehicleId, vehicleId), eq(trips.startedAt, session.startedAt))
     })
     if (trip && !trip.isOpen) {
+      // Машина никуда не уехала — это прогрев, а не поездка, и в журнале ей не
+      // место. Проверка стоит здесь, а не в момент закрытия: одометр досылает
+      // остаток минутами позже, и поездка, у которой в тот момент был ноль,
+      // запросто оказывается настоящей дорогой. К этому проходу окно досылки
+      // уже закрыто. Комментарий писали руками, и запись с ним остаётся.
+      if (odometer.distance === 0 && !trip.comment) {
+        await database.delete(trips).where(eq(trips.id, trip.id))
+        report.removed.push({ tripId: trip.id, startedAt: session.startedAt })
+        continue
+      }
       if (trip.mileageStart !== odometer.mileageStart || trip.mileageEnd !== odometer.mileageEnd) {
         await database.update(trips).set({
           mileageStart: odometer.mileageStart,

@@ -134,8 +134,8 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     const stored = await syncEvents(database, vehicle.id)
     if (stored) {
       const report = await applyEventBoundaries(database, vehicle.id, new Date(Date.now() - EVENTS_INTERVAL_MS * 24))
-      if (report.corrected.length || report.created.length) {
-        console.info(`[starline.events] уточнено сессий: ${report.corrected.length}, заведено пропущенных: ${report.created.length}`)
+      if (report.corrected.length || report.created.length || report.removed.length) {
+        console.info(`[starline.events] уточнено сессий: ${report.corrected.length}, заведено пропущенных: ${report.created.length}, снято прогревов: ${report.removed.length}`)
       }
     }
     return { nextEvents: true }
