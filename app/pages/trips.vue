@@ -12,6 +12,13 @@ const editingTrip = ref<{ id: number, startedAt: string | Date, comment: string 
 const commentDraft = ref('')
 const commentPending = ref(false)
 const commentError = ref('')
+const editingDriver = ref<{ id: number, startedAt: string | Date, driver: string | null } | null>(null)
+const driverDraft = ref('')
+const driverPending = ref(false)
+const driverError = ref('')
+// Имена приходят вместе с поездками: список короткий и нужен только этой
+// странице, отдельный запрос за ним был бы дороже самого списка.
+const driverOptions = computed(() => (data.value?.drivers ?? []).map(name => ({ value: name, label: name })))
 
 function number(value: number | null, digits = 1) { return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value) }
 function date(value: string | Date) { return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
@@ -54,12 +61,36 @@ function closeComment() {
   commentDraft.value = ''
   commentError.value = ''
 }
-function errorMessage(error: unknown) {
+function errorMessage(error: unknown, fallback = 'Не удалось сохранить комментарий') {
   if (typeof error === 'object' && error) {
     const value = error as { data?: { statusMessage?: string }, statusMessage?: string }
-    return value.data?.statusMessage || value.statusMessage || 'Не удалось сохранить комментарий'
+    return value.data?.statusMessage || value.statusMessage || fallback
   }
-  return 'Не удалось сохранить комментарий'
+  return fallback
+}
+function openDriver(trip: { id: number, startedAt: string | Date, driver: string | null }) {
+  editingDriver.value = trip
+  driverDraft.value = trip.driver || ''
+  driverError.value = ''
+}
+function closeDriver() {
+  editingDriver.value = null
+  driverDraft.value = ''
+  driverError.value = ''
+}
+async function saveDriver() {
+  if (!editingDriver.value || driverPending.value) return
+  driverPending.value = true
+  driverError.value = ''
+  try {
+    await $fetch(`/api/trips/${editingDriver.value.id}`, { method: 'PATCH', body: { driver: driverDraft.value || null } })
+    await refresh()
+    closeDriver()
+  } catch (error) {
+    driverError.value = errorMessage(error, 'Не удалось сохранить водителя')
+  } finally {
+    driverPending.value = false
+  }
 }
 async function saveComment() {
   if (!editingTrip.value || commentPending.value) return
@@ -113,7 +144,17 @@ async function saveComment() {
                 </span>
               </td>
               <td role="cell" data-label="Стоимость">{{ money(trip.cost) }}</td>
-              <td role="cell" data-label="За рулём" :class="{ muted: !trip.driver }">{{ trip.driver || '—' }}</td>
+              <td role="cell" data-label="За рулём" class="trip-comment-cell">
+                <button
+                  class="trip-comment-button"
+                  :class="{ 'trip-comment-button--empty': !trip.driver }"
+                  type="button"
+                  :aria-label="`Кто был за рулём в поездке ${date(trip.startedAt)}`"
+                  @click="openDriver(trip)"
+                >
+                  {{ trip.driver || 'Указать' }}
+                </button>
+              </td>
               <td role="cell" data-label="Комментарий" class="trip-comment-cell">
                 <button
                   class="trip-comment-button"
@@ -135,6 +176,34 @@ async function saveComment() {
         <AppButton variant="secondary" :style="{ visibility: page < data.pages ? 'visible' : 'hidden' }" :to="pageLink(page + 1)">Дальше</AppButton>
       </nav>
     </section>
+
+    <AppModal
+      :model-value="Boolean(editingDriver)"
+      title="Кто был за рулём"
+      :eyebrow="editingDriver ? date(editingDriver.startedAt) : ''"
+      :close-on-backdrop="!driverPending"
+      :close-on-escape="!driverPending"
+      @update:model-value="value => { if (!value && !driverPending) closeDriver() }"
+    >
+      <AppForm id="trip-driver-form" layout="stack" @submit="saveDriver">
+        <AppField label="За рулём">
+          <AppSelect
+            v-model="driverDraft"
+            :options="driverOptions"
+            placeholder="Не указан"
+            placeholder-selectable
+            :disabled="driverPending"
+          />
+        </AppField>
+        <AppAlert v-if="driverError">{{ driverError }}</AppAlert>
+      </AppForm>
+      <template #footer>
+        <AppButton variant="secondary" :disabled="driverPending" @click="closeDriver">Отмена</AppButton>
+        <AppButton type="submit" form="trip-driver-form" :disabled="driverPending">
+          {{ driverPending ? 'Сохраняем…' : 'Сохранить' }}
+        </AppButton>
+      </template>
+    </AppModal>
 
     <AppModal
       :model-value="Boolean(editingTrip)"

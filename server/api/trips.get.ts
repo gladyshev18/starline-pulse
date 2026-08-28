@@ -1,5 +1,5 @@
-import { and, count, desc, eq, gte, lt } from 'drizzle-orm'
-import { trips } from '../../db/schema'
+import { and, asc, count, desc, eq, gte, isNotNull, lt } from 'drizzle-orm'
+import { telegramRecipients, trips } from '../../db/schema'
 import { monthStatistics } from '../../metrics/statistics'
 import { tripCost } from '../../shared/consumption'
 import { currentMoscowMonth, moscowMonthRange } from '../../shared/moscow-month'
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const pageSize = 20
   const database = useAppDatabase()
   const vehicle = await database.query.vehicles.findFirst()
-  if (!vehicle) return { items: [], page, pageSize, total: 0, pages: 0, day: dayRange?.day || null }
+  if (!vehicle) return { items: [], page, pageSize, total: 0, pages: 0, day: dayRange?.day || null, drivers: [] as string[] }
   const where = and(
     eq(trips.vehicleId, vehicle.id),
     eq(trips.isOpen, false),
@@ -44,5 +44,23 @@ export default defineEventHandler(async (event) => {
     }
   })
   const total = Number(result?.total || 0)
-  return { items, page, pageSize, total, pages: Math.ceil(total / pageSize), day: dayRange?.day || null }
+  return { items, page, pageSize, total, pages: Math.ceil(total / pageSize), day: dayRange?.day || null, drivers: await knownDrivers(database, vehicle.id) }
 })
+
+// Кого предлагать в списке «за рулём». Имена берутся из двух источников сразу:
+// из получателей Telegram, потому что именно их бот показывает кнопками, и из
+// уже проставленных ответов — иначе тот, кого убрали из чата, исчез бы и из
+// выбора, а его прошлые поездки остались бы неисправимыми.
+async function knownDrivers(database: ReturnType<typeof useAppDatabase>, vehicleId: number) {
+  const [recipients, answered] = await Promise.all([
+    database.select({ username: telegramRecipients.username, firstName: telegramRecipients.firstName })
+      .from(telegramRecipients).orderBy(asc(telegramRecipients.id)),
+    database.selectDistinct({ driver: trips.driver }).from(trips)
+      .where(and(eq(trips.vehicleId, vehicleId), isNotNull(trips.driver)))
+  ])
+  const names = [
+    ...recipients.map(item => item.firstName?.trim() || item.username.replace(/^@/, '')),
+    ...answered.map(item => item.driver?.trim() ?? '')
+  ].filter(Boolean)
+  return [...new Set(names)].sort((left, right) => left.localeCompare(right, 'ru'))
+}
