@@ -157,7 +157,7 @@ function matches(span: IgnitionSpan, session: { startedAt: Date, endedAt: Date |
 
 export interface BoundaryReport {
   corrected: Array<{ sessionId: number, startedAt: Date, endedAt: Date, shiftedStartSeconds: number }>
-  created: Array<{ startedAt: Date, endedAt: Date, distance: number | null }>
+  created: Array<{ sessionId: number, startedAt: Date, endedAt: Date, distance: number | null }>
 }
 
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
@@ -208,6 +208,14 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     gte(engineSessions.endedAt, earliest)
   )).orderBy(asc(engineSessions.startedAt))
 
+  // Сначала только время — все границы разом, без единого километра.
+  //
+  // Пробег нельзя считать здесь же: отрезок сессии кончается там, где начинается
+  // следующая, а следующей в этот момент ещё может не существовать. На боевых
+  // данных так и вышло — поездка 28 августа разделилась надвое, и обе половины
+  // успели записать себе все 94 км, потому что первую пересчитали до появления
+  // второй.
+  const touched = new Set<number>()
   const taken = new Set<number>()
   for (const span of spans) {
     let best: EngineSession | null = null
@@ -220,10 +228,8 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
 
     if (best) {
       taken.add(best.id)
+      if (best.startedAt.getTime() === span.startedAt.getTime() && best.endedAt?.getTime() === span.endedAt.getTime()) continue
       const shifted = Math.round((best.startedAt.getTime() - span.startedAt.getTime()) / 1000)
-      const sameStart = best.startedAt.getTime() === span.startedAt.getTime()
-      const sameEnd = best.endedAt?.getTime() === span.endedAt.getTime()
-      if (sameStart && sameEnd) continue
       await moveTripWithSession(database, best, span.startedAt, span.endedAt)
       await database.update(engineSessions).set({
         startedAt: span.startedAt,
@@ -232,15 +238,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
       }).where(eq(engineSessions.id, best.id))
       best.startedAt = span.startedAt
       best.endedAt = span.endedAt
-      const restated = await sessionOdometerSpan(database, best)
-      if (restated.distance != null) {
-        await database.update(engineSessions).set({
-          mileageStart: restated.mileageStart,
-          mileageEnd: restated.mileageEnd,
-          distance: restated.distance,
-          isStationary: restated.distance === 0
-        }).where(eq(engineSessions.id, best.id))
-      }
+      touched.add(best.id)
       report.corrected.push({ sessionId: best.id, startedAt: span.startedAt, endedAt: span.endedAt, shiftedStartSeconds: shifted })
       continue
     }
@@ -248,49 +246,82 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     // Ни одна сессия не описывает этот запуск: опрос его проспал целиком.
     const fuelStart = await snapshotAround(database, vehicleId, span.startedAt, 'before')
     const fuelEnd = await snapshotAround(database, vehicleId, span.endedAt, 'after')
-    const window = { vehicleId, startedAt: span.startedAt, endedAt: span.endedAt }
-    const odometer = await sessionOdometerSpan(database, window)
     const [created] = await database.insert(engineSessions).values({
       vehicleId,
       startedAt: span.startedAt,
       endedAt: span.endedAt,
-      mileageStart: odometer.mileageStart,
-      mileageEnd: odometer.mileageEnd,
-      distance: odometer.distance,
       fuelStart: fuelStart?.fuel ?? null,
       fuelEnd: fuelEnd?.fuel ?? null,
       durationMinutes: (span.endedAt.getTime() - span.startedAt.getTime()) / 60_000,
-      isStationary: odometer.distance == null ? null : odometer.distance === 0,
       isOpen: false
     }).returning()
-    if (created) sessions.push(created)
-    report.created.push({ startedAt: span.startedAt, endedAt: span.endedAt, distance: odometer.distance })
+    if (!created) continue
+    sessions.push(created)
+    touched.add(created.id)
+    report.created.push({ sessionId: created.id, startedAt: span.startedAt, endedAt: span.endedAt, distance: null })
+  }
+  if (!touched.size) return report
 
-    // Проехала — значит это поездка, и в журнале ей место. Стояла — это прогрев,
-    // сессии достаточно.
-    if (created && (odometer.distance ?? 0) > 0) {
+  // Теперь километры. Пересчитывается не только то, что двигали: отрезок сессии
+  // кончается на запуске следующей, поэтому появление новой записи меняет и
+  // соседнюю слева. Проще пересчитать всё окно целиком — оно и так ограничено.
+  const window = await database.select().from(engineSessions).where(and(
+    eq(engineSessions.vehicleId, vehicleId),
+    eq(engineSessions.isOpen, false),
+    gte(engineSessions.endedAt, earliest)
+  )).orderBy(asc(engineSessions.startedAt))
+
+  for (const session of window) {
+    const odometer = await sessionOdometerSpan(database, session)
+    const entry = report.created.find(item => item.sessionId === session.id)
+    if (entry) entry.distance = odometer.distance
+    if (odometer.distance == null) continue
+    if (session.mileageStart !== odometer.mileageStart || session.mileageEnd !== odometer.mileageEnd) {
+      await database.update(engineSessions).set({
+        mileageStart: odometer.mileageStart,
+        mileageEnd: odometer.mileageEnd,
+        distance: odometer.distance,
+        isStationary: odometer.distance === 0
+      }).where(eq(engineSessions.id, session.id))
+    }
+
+    const trip = await database.query.trips.findFirst({
+      where: and(eq(trips.vehicleId, vehicleId), eq(trips.startedAt, session.startedAt))
+    })
+    if (trip && !trip.isOpen) {
+      if (trip.mileageStart !== odometer.mileageStart || trip.mileageEnd !== odometer.mileageEnd) {
+        await database.update(trips).set({
+          mileageStart: odometer.mileageStart,
+          mileageEnd: odometer.mileageEnd,
+          distance: odometer.distance
+        }).where(eq(trips.id, trip.id))
+      }
+      continue
+    }
+    // Проехала, а поездки нет — значит запуск проспали, и дорогу надо записать.
+    // Стояла — это прогрев, сессии достаточно.
+    if (!trip && odometer.distance > 0 && touched.has(session.id)) {
       const covered = await database.query.trips.findFirst({
         where: and(
           eq(trips.vehicleId, vehicleId),
-          lte(trips.startedAt, span.endedAt),
-          gt(trips.endedAt, span.startedAt)
+          lte(trips.startedAt, session.endedAt!),
+          gt(trips.endedAt, session.startedAt)
         )
       })
-      if (!covered) {
-        await database.insert(trips).values({
-          vehicleId,
-          startedAt: span.startedAt,
-          endedAt: span.endedAt,
-          mileageStart: odometer.mileageStart,
-          mileageEnd: odometer.mileageEnd,
-          distance: odometer.distance,
-          fuelStart: fuelStart?.fuel ?? null,
-          fuelEnd: fuelEnd?.fuel ?? null,
-          fuelUsed: tripFuelUsed(fuelStart?.fuel ?? null, fuelEnd?.fuel ?? null),
-          armedMinutes: await armedMinutesBetween(database, vehicleId, span.startedAt, span.endedAt),
-          isOpen: false
-        })
-      }
+      if (covered) continue
+      await database.insert(trips).values({
+        vehicleId,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        mileageStart: odometer.mileageStart,
+        mileageEnd: odometer.mileageEnd,
+        distance: odometer.distance,
+        fuelStart: session.fuelStart,
+        fuelEnd: session.fuelEnd,
+        fuelUsed: tripFuelUsed(session.fuelStart, session.fuelEnd),
+        armedMinutes: await armedMinutesBetween(database, vehicleId, session.startedAt, session.endedAt!),
+        isOpen: false
+      })
     }
   }
   return report

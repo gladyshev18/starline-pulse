@@ -166,6 +166,46 @@ describe('границы поездок по журналу сигнализац
     }
   })
 
+  // Ровно это случилось на боевых данных 28 августа: опрос не застал, что между
+  // двумя дорогами машину глушили на четверть часа, и склеил их в одну сессию.
+  // Журнал разделил её надвое — и обе половины записали себе весь пробег,
+  // потому что первую пересчитали до того, как появилась вторая.
+  it('не отдаёт один и тот же пробег обеим половинам разделённой сессии', async () => {
+    const { database, vehicle, snapshot, session } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      // Одометр отчитался только в конце всей дороги, как это с ним и бывает.
+      await snapshot(70, 194, 65)
+      const glued = await session(5, 60, 100, 194)
+      await database.insert(trips).values({
+        vehicleId: vehicle.id, startedAt: at(5), endedAt: at(60),
+        mileageStart: 100, mileageEnd: 194, distance: 94, isOpen: false
+      })
+
+      await storeEvents(database, vehicle.id, [
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(5) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(12) },
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(27) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(60) }
+      ])
+      await applyEventBoundaries(database, vehicle.id)
+
+      const all = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
+      expect(all).toHaveLength(2)
+      // Длинная половина досталась исходной записи, короткая заведена заново.
+      expect(all[1]!.id).toBe(glued.id)
+      expect(all[0]!.startedAt.getTime()).toBe(at(5).getTime())
+      expect(all[1]!.startedAt.getTime()).toBe(at(27).getTime())
+      // Первая половина кончается там, где начинается вторая, и весь пробег
+      // достаётся той, внутри чьих границ его сняли.
+      expect(all[0]!.distance).toBe(0)
+      expect(all[1]!.distance).toBe(94)
+      expect((all[0]!.distance ?? 0) + (all[1]!.distance ?? 0)).toBe(94)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   // На боевых данных 14 августа опрос пропустил выключение зажигания посередине
   // и склеил два запуска в одну сессию на 41 минуту. Короткий интервал, лежащий
   // внутри неё, отобрал бы у поездки тридцать две минуты.
