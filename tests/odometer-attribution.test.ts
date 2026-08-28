@@ -120,6 +120,30 @@ describe('к какой сессии относится показание од�
     }
   })
 
+  // Счётчик моточасов досчитывает последние минуты не мгновенно: 27 августа
+  // опрос через 25 секунд после остановки показывал ещё старое значение, а через
+  // 55 секунд — уже полное. Разница в шесть минут читалась как отдельная
+  // проспанная поездка, и досылка, снятая позже, не доставалась никому.
+  it('не принимает досчёт счётчика моточасов за проспанную поездку', async () => {
+    const { database, snapshot, session } = await build()
+    try {
+      await snapshot(0, { mileage: 100, mileageMinute: 0, motorMinutes: 500 })
+      await snapshot(2, { ignition: true, mileage: 100, mileageMinute: 0, motorMinutes: 502 })
+      // Зажигание выключили на десятой минуте. Первый опрос после этого застал
+      // счётчик недосчитанным, второй — полным, разница шесть минут.
+      await snapshot(11, { mileage: 100, mileageMinute: 0, motorMinutes: 504 })
+      await snapshot(12, { mileage: 100, mileageMinute: 0, motorMinutes: 510 })
+      await snapshot(13, { mileage: 103, mileageMinute: 12, motorMinutes: 510 })
+      await snapshot(40, { mileage: 103, mileageMinute: 12, motorMinutes: 510 })
+
+      const first = await session(2, 10, 100)
+      await session(45, 50, 103)
+      expect(await sessionOdometerSpan(database, first)).toMatchObject({ mileageEnd: 103, distance: 3 })
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   it('не путает проспанную поездку с опросом, опоздавшим к запуску на пару минут', async () => {
     const { database, snapshot, session } = await build()
     try {

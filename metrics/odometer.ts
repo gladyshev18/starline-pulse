@@ -88,19 +88,21 @@ async function mileageBoundary(database: Database, session: SessionWindow) {
     break
   }
 
-  // Счётчик досчитывает последнюю минуту сессии уже в том опросе, который
-  // застаёт зажигание выключенным, поэтому за итог сессии берётся именно это
-  // показание. Сравнивать с последним показанием до остановки нельзя: рост на
-  // ту самую минуту оборвал бы отсчёт сразу, до всякой досылки.
-  const settled = await database.query.vehicleSnapshots.findFirst({
-    columns: { motorMinutes: true },
-    where: and(
-      eq(vehicleSnapshots.vehicleId, session.vehicleId),
-      isNotNull(vehicleSnapshots.motorMinutes),
-      gte(vehicleSnapshots.ts, session.endedAt)
-    ),
-    orderBy: asc(vehicleSnapshots.ts)
-  })
+  // Итог счётчика моточасов за сессию. Берётся максимум за несколько минут после
+  // остановки, а не первое показание: счётчик досчитывает последние минуты не
+  // мгновенно и запросто отстаёт на опрос-другой. На боевых данных 27 августа
+  // опрос через 25 секунд после выключения зажигания показывал ещё 15648, а
+  // через 55 секунд — уже 15654, и разница в шесть минут читалась как отдельная
+  // проспанная поездка. Окно досылки обрывалось на этом месте, и три километра,
+  // снятых через полторы минуты, не доставались никому.
+  const [settled] = await database.select({
+    motorMinutes: sql<number | null>`max(${vehicleSnapshots.motorMinutes})`
+  }).from(vehicleSnapshots).where(and(
+    eq(vehicleSnapshots.vehicleId, session.vehicleId),
+    isNotNull(vehicleSnapshots.motorMinutes),
+    gte(vehicleSnapshots.ts, session.endedAt),
+    lte(vehicleSnapshots.ts, new Date(session.endedAt.getTime() + MAX_POLL_GAP_MS))
+  ))
   // Двигатель проработал целиком между двумя опросами, и ни одна сессия этого не
   // видела: значит там была поездка, о которой нет записи, и она стоит между
   // этой сессией и одометром. Дальше её начала считать чужое.
