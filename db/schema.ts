@@ -27,7 +27,7 @@ export const telegramRecipients = sqliteTable('telegram_recipients', {
 
 export const jobs = sqliteTable('jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll', 'service:parse_act'] }).notNull(),
+  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'starline:events', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll', 'service:parse_act'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),
@@ -128,6 +128,29 @@ export const trips = sqliteTable('trips', {
   driver: text('driver'),
   isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
 }, table => [index('trips_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
+
+// Журнал самой сигнализации: зажигание, двигатель, двери, охрана — каждое с
+// точностью до секунды. Опрос не может дать того же: он видит машину раз в
+// полминуты на ходу и раз в полчаса на стоянке, поэтому старт поездки в
+// снапшотах опаздывает в среднем на 73 секунды, а целые поездки между двумя
+// опросами пропадают — за август таких набралось 27, от двух минут до полутора
+// часов.
+//
+// Пробега здесь нет: его по-прежнему приходится брать из `/data`. Поэтому
+// события задают границы, а километры остаются за одометром.
+export const deviceEvents = sqliteTable('device_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  // Код из словаря StarLine: 1065 зажигание включено, 1064 отключено,
+  // 1037 двигатель запущен, 1042 остановлен, 1013 ручник опущен и так далее.
+  type: integer('type').notNull(),
+  groupId: integer('group_id'),
+  ts: integer('ts', { mode: 'timestamp_ms' }).notNull(),
+  ...timestamps
+}, table => [
+  index('device_events_vehicle_ts_idx').on(table.vehicleId, table.ts),
+  uniqueIndex('device_events_unique').on(table.vehicleId, table.ts, table.type)
+])
 
 export const engineSessions = sqliteTable('engine_sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -290,6 +313,9 @@ export const imapState = sqliteTable('imap_state', {
 
 export type Job = typeof jobs.$inferSelect
 export type VehicleSnapshot = typeof vehicleSnapshots.$inferSelect
+export type DeviceEvent = typeof deviceEvents.$inferSelect
+export type EngineSession = typeof engineSessions.$inferSelect
+export type Trip = typeof trips.$inferSelect
 export type RefuelEvent = typeof refuelEvents.$inferSelect
 export type RefuelReceipt = typeof refuelReceipts.$inferSelect
 export type ServiceEvent = typeof serviceEvents.$inferSelect

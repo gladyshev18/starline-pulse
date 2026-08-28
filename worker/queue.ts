@@ -1,23 +1,28 @@
 import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
-import { jobs } from '../db/schema'
+import { jobs, vehicles } from '../db/schema'
 import { ingestReceiptMail } from '../receipts/mail/ingest'
 import { parseActDocument } from '../receipts/act-job'
 import { notifyAllowedChats } from './bot'
 import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
-import { receiptsMailConfig } from './config'
+import { config, receiptsMailConfig } from './config'
 import { buildReceiptImportNotice } from './bot/receipt-notices'
 import { buildDriverKeyboard } from './bot/trip-driver'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
+import { applyEventBoundaries, syncEvents } from './starline/events'
 import { pollVehicle } from './starline/poll'
 import { closeTrip, handleMileageProgress, reconcileTripsWithEngineSessions } from './starline/trips'
 
 const MAX_ATTEMPTS = 5
+// Журнал сигнализации меняется только когда машину заводят, поэтому чаще часа
+// спрашивать нечего: страница на сотню событий покрывает сутки с запасом, а
+// дневной лимит обращений к StarLine — тысяча на всё вместе с опросом.
+const EVENTS_INTERVAL_MS = 60 * 60_000
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
 
-type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean }
+type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean, nextEvents?: boolean }
 
 function parseJobPayload(value: string) {
   try {
@@ -72,6 +77,24 @@ async function scheduleFuelReminder(database: Database, now = new Date()) {
   }
 }
 
+async function scheduleEvents(database: Database, delayMs = EVENTS_INTERVAL_MS) {
+  if (config.starlineMode !== 'live') return
+  const existing = await database.query.jobs.findFirst({
+    where: and(eq(jobs.type, 'starline:events'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
+  })
+  const runAt = new Date(Date.now() + delayMs)
+  if (!existing) {
+    await database.insert(jobs).values({ type: 'starline:events', payload: '{}', runAt })
+    return
+  }
+  // Закрытие поездки просит уточнить границы прямо сейчас, а в очереди уже
+  // висит плановый заход через час. Двигать его вперёд дешевле, чем заводить
+  // второй такой же.
+  if (existing.status === 'pending' && existing.runAt > runAt) {
+    await database.update(jobs).set({ runAt, updatedAt: new Date() }).where(eq(jobs.id, existing.id))
+  }
+}
+
 async function scheduleMailPoll(database: Database, delayMs = receiptsMailConfig.pollMinutes * 60_000) {
   if (receiptsMailConfig.mode === 'off') return
   const existing = await database.query.jobs.findFirst({
@@ -99,6 +122,23 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     const tripId = Number(payload.tripId)
     if (!Number.isInteger(vehicleId) || !Number.isInteger(tripId)) throw new Error('INVALID_CLOSE_TRIP_PAYLOAD')
     await closeTrip(database, { vehicleId, tripId })
+    // Поездка только что закрылась опросом, который видит машину раз в
+    // полминуты. Журнал сигнализации знает её границы с точностью до секунды —
+    // самое время их уточнить, пока запись свежая.
+    await scheduleEvents(database, 0)
+  }
+  if (job.type === 'starline:events') {
+    if (config.starlineMode !== 'live') return { nextEvents: true }
+    const vehicle = await database.query.vehicles.findFirst({ where: eq(vehicles.deviceId, config.starlineDeviceId) })
+    if (!vehicle) return { nextEvents: true }
+    const stored = await syncEvents(database, vehicle.id)
+    if (stored) {
+      const report = await applyEventBoundaries(database, vehicle.id, new Date(Date.now() - EVENTS_INTERVAL_MS * 24))
+      if (report.corrected.length || report.created.length) {
+        console.info(`[starline.events] уточнено сессий: ${report.corrected.length}, заведено пропущенных: ${report.created.length}`)
+      }
+    }
+    return { nextEvents: true }
   }
   if (job.type === 'telegram:notify') {
     // Клавиатура строится в момент отправки, а не при постановке задачи: между
@@ -141,6 +181,7 @@ export async function processNextJob(database: Database) {
     if (result.nextPollAt) await schedulePoll(database, result.nextPollAt.getTime() - Date.now())
     if (result.nextFuelReminder) await scheduleFuelReminder(database)
     if (result.nextMailPoll) await scheduleMailPoll(database)
+    if (result.nextEvents) await scheduleEvents(database)
     if (result.nextReport) {
       try {
         await scheduleReport(database, result.nextReport)
@@ -166,6 +207,7 @@ export async function processNextJob(database: Database) {
     }
     if (failed && job.type === 'telegram:fuel_reminder') await scheduleFuelReminder(database)
     if (failed && job.type === 'receipts:imap_poll') await scheduleMailPoll(database)
+    if (failed && job.type === 'starline:events') await scheduleEvents(database)
     console.error(`Job ${job.id} (${job.type}) failed`, error)
   }
   return true
@@ -179,4 +221,5 @@ export async function initializeQueue(database: Database) {
   for (const period of REPORT_PERIODS) await scheduleReport(database, period)
   await scheduleFuelReminder(database)
   await scheduleMailPoll(database, 0)
+  await scheduleEvents(database, 0)
 }
