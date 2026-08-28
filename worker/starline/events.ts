@@ -215,7 +215,6 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
   // данных так и вышло — поездка 28 августа разделилась надвое, и обе половины
   // успели записать себе все 94 км, потому что первую пересчитали до появления
   // второй.
-  const touched = new Set<number>()
   const taken = new Set<number>()
   for (const span of spans) {
     let best: EngineSession | null = null
@@ -238,7 +237,6 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
       }).where(eq(engineSessions.id, best.id))
       best.startedAt = span.startedAt
       best.endedAt = span.endedAt
-      touched.add(best.id)
       report.corrected.push({ sessionId: best.id, startedAt: span.startedAt, endedAt: span.endedAt, shiftedStartSeconds: shifted })
       continue
     }
@@ -257,14 +255,15 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     }).returning()
     if (!created) continue
     sessions.push(created)
-    touched.add(created.id)
     report.created.push({ sessionId: created.id, startedAt: span.startedAt, endedAt: span.endedAt, distance: null })
   }
-  if (!touched.size) return report
-
-  // Теперь километры. Пересчитывается не только то, что двигали: отрезок сессии
-  // кончается на запуске следующей, поэтому появление новой записи меняет и
-  // соседнюю слева. Проще пересчитать всё окно целиком — оно и так ограничено.
+  // Теперь километры — по всему окну, а не только по тронутым записям.
+  //
+  // Отрезок сессии кончается на запуске следующей, поэтому появление новой
+  // записи меняет и соседнюю слева. И проход обязан идти даже когда границы
+  // никто не двигал: если предыдущий заход упал между двумя фазами, только это
+  // и вылечит оставшиеся половинчатые записи. Пишется всё равно лишь то, что
+  // разошлось, так что повторный проход ничего не стоит.
   const window = await database.select().from(engineSessions).where(and(
     eq(engineSessions.vehicleId, vehicleId),
     eq(engineSessions.isOpen, false),
@@ -300,7 +299,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     }
     // Проехала, а поездки нет — значит запуск проспали, и дорогу надо записать.
     // Стояла — это прогрев, сессии достаточно.
-    if (!trip && odometer.distance > 0 && touched.has(session.id)) {
+    if (!trip && odometer.distance > 0) {
       const covered = await database.query.trips.findFirst({
         where: and(
           eq(trips.vehicleId, vehicleId),

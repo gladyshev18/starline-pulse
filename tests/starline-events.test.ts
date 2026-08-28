@@ -166,6 +166,38 @@ describe('границы поездок по журналу сигнализац
     }
   })
 
+  // Первый заход на боевых данных упал между двумя фазами — база держалась
+  // воркером, — и оставил обе половины разделённой сессии с полным пробегом.
+  // Повторный проход обязан это вылечить, даже когда границы двигать уже нечего.
+  it('доводит до конца пробег, если предыдущий проход оборвался', async () => {
+    const { database, vehicle, snapshot } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await snapshot(70, 194, 65)
+      // Границы уже расставлены прошлым заходом, а километры он записать не успел.
+      await database.insert(engineSessions).values([
+        { vehicleId: vehicle.id, startedAt: at(5), endedAt: at(12), mileageStart: 100, mileageEnd: 194, distance: 94, durationMinutes: 7, isOpen: false },
+        { vehicleId: vehicle.id, startedAt: at(27), endedAt: at(60), mileageStart: 100, mileageEnd: 194, distance: 94, durationMinutes: 33, isOpen: false }
+      ])
+      await storeEvents(database, vehicle.id, [
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(5) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(12) },
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(27) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(60) }
+      ])
+
+      const report = await applyEventBoundaries(database, vehicle.id)
+      expect(report.corrected).toHaveLength(0)
+      expect(report.created).toHaveLength(0)
+
+      const all = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
+      expect(all[0]!.distance).toBe(0)
+      expect(all[1]!.distance).toBe(94)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   // Ровно это случилось на боевых данных 28 августа: опрос не застал, что между
   // двумя дорогами машину глушили на четверть часа, и склеил их в одну сессию.
   // Журнал разделил её надвое — и обе половины записали себе весь пробег,
