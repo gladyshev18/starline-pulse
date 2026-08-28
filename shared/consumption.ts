@@ -52,11 +52,19 @@ export function movingMinutes(trip: ConsumptionTrip) {
   return Math.max(0, trip.durationMinutes - armed)
 }
 
+// Быстрее этого машина в среднем за поездку не едет — с учётом светофоров,
+// разгона и того, что средняя по трассе в 116 км за 104 минуты вышла 67 км/ч.
+// Всё, что выше, — не быстрая езда, а сломанная запись: пробег одной поездки при
+// длительности другой. Такая пара чисел не измеряет ничего, и показать прочерк
+// честнее, чем разложить её по корзинам как настоящую трассу.
+export const MAX_PLAUSIBLE_SPEED = 140
+
 export function averageSpeed(trip: ConsumptionTrip) {
   if (trip.distance == null || !(trip.distance > 0)) return null
   const minutes = movingMinutes(trip)
   if (minutes == null || !(minutes > 0)) return null
-  return trip.distance / (minutes / 60)
+  const speed = trip.distance / (minutes / 60)
+  return speed > MAX_PLAUSIBLE_SPEED ? null : speed
 }
 
 // Rounding to a fixed step leaves an error spread evenly across that step, whose

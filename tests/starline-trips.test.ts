@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { migrate } from 'drizzle-orm/libsql/migrator'
-import { desc } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { resolve } from 'node:path'
 import { createDatabase } from '../db/client'
 import { engineSessions, trips, vehicles, vehicleSnapshots } from '../db/schema'
@@ -224,6 +224,134 @@ describe('trip detection by odometer', () => {
         await database.$client.close()
       }
     })
+  })
+
+  // Обе истории ниже случились на боевых данных 28 августа и вместе дали
+  // поездку в 5470 км/ч: прогрев на автозапуске стал поездкой, не закрылся,
+  // потому что к сроку закрытия машину уже завели снова, и забрал себе
+  // двадцать пять километров следующей дороги, оставшись при своих шести
+  // минутах.
+  describe('a warm-up on the remote start', () => {
+    const build = async () => {
+      const database = createDatabase(':memory:')
+      await migrate(database, { migrationsFolder: resolve('db/migrations') })
+      const [vehicle] = await database.insert(vehicles).values({ deviceId: '42', alias: 'Car' }).returning()
+      const base = new Date('2026-08-05T09:00:00.000Z')
+      let previous: typeof vehicleSnapshots.$inferSelect | undefined
+      const feed = async (minute: number, state: {
+        ignition: boolean, armed: boolean, mileage: number, mileageMinute: number, motorMinutes: number
+      }) => {
+        const ts = new Date(base.getTime() + minute * 60_000)
+        const [row] = await database.insert(vehicleSnapshots).values({
+          vehicleId: vehicle!.id,
+          ts,
+          activityTs: ts,
+          ignition: state.ignition,
+          armed: state.armed,
+          mileage: state.mileage,
+          mileageTs: new Date(base.getTime() + state.mileageMinute * 60_000),
+          fuel: 30,
+          fuelSource: 'converted',
+          fuelTs: ts,
+          motorMinutes: state.motorMinutes,
+          rawJson: '{}'
+        }).returning()
+        await aggregateSnapshot(database, vehicle!.id, row!, previous)
+        await handleMileageProgress(database, vehicle!.id, row!, previous)
+        previous = row
+        return row!
+      }
+      return { database, vehicle: vehicle!, feed, base }
+    }
+
+    it('is not a trip, even when the odometer flushes yesterday inside it', async () => {
+      const { database, vehicle, feed } = await build()
+      try {
+        await feed(0, { ignition: false, armed: true, mileage: 100, mileageMinute: 0, motorMinutes: 500 })
+        await feed(1, { ignition: true, armed: false, mileage: 100, mileageMinute: 1, motorMinutes: 501 })
+        await feed(5, { ignition: true, armed: false, mileage: 103, mileageMinute: 5, motorMinutes: 505 })
+        const drive = await database.query.trips.findFirst()
+        await feed(6, { ignition: false, armed: true, mileage: 103, mileageMinute: 6, motorMinutes: 506 })
+        await closeTrip(database, { vehicleId: vehicle.id, tripId: drive!.id })
+
+        // Через полчаса машину заводят с брелка: сигнализация не снята, ехать
+        // нельзя. OBD просыпается вместе с двигателем и читает одометр заново —
+        // на четыре километра больше, чем успел отчитаться в прошлый раз. Метка
+        // у чтения свежая, и только охрана доказывает, что эти километры не
+        // проеханы сейчас.
+        await feed(30, { ignition: true, armed: true, mileage: 103, mileageMinute: 6, motorMinutes: 510 })
+        await feed(32, { ignition: true, armed: true, mileage: 107, mileageMinute: 32, motorMinutes: 512 })
+        await feed(34, { ignition: false, armed: true, mileage: 107, mileageMinute: 32, motorMinutes: 514 })
+
+        const all = await database.select().from(trips)
+        expect(all).toHaveLength(1)
+        expect(all[0]).toMatchObject({ mileageStart: 100, mileageEnd: 107, distance: 7 })
+
+        const sessions = await database.select().from(engineSessions).orderBy(engineSessions.startedAt)
+        expect(sessions).toHaveLength(2)
+        expect(sessions[0]).toMatchObject({ distance: 7, isStationary: false })
+        expect(sessions[1]).toMatchObject({ distance: 0, isStationary: true })
+      } finally {
+        await database.$client.close()
+      }
+    })
+  })
+
+  it('closes a trip with its own session even if the engine is already running again', async () => {
+    const database = createDatabase(':memory:')
+    await migrate(database, { migrationsFolder: resolve('db/migrations') })
+    const [vehicle] = await database.insert(vehicles).values({ deviceId: '42', alias: 'Car' }).returning()
+    const base = new Date('2026-08-05T09:00:00.000Z')
+    let previous: typeof vehicleSnapshots.$inferSelect | undefined
+    const feed = async (minute: number, ignition: boolean, mileage: number, motorMinutes: number) => {
+      const ts = new Date(base.getTime() + minute * 60_000)
+      const [row] = await database.insert(vehicleSnapshots).values({
+        vehicleId: vehicle!.id, ts, activityTs: ts, ignition, armed: !ignition,
+        mileage, mileageTs: ts, fuel: 30, fuelSource: 'converted', fuelTs: ts, motorMinutes, rawJson: '{}'
+      }).returning()
+      await aggregateSnapshot(database, vehicle!.id, row!, previous)
+      await handleMileageProgress(database, vehicle!.id, row!, previous)
+      previous = row
+      return row!
+    }
+
+    try {
+      await feed(0, false, 100, 500)
+      await feed(1, true, 100, 501)
+      await feed(3, true, 103, 503)
+      const first = await database.query.trips.findFirst()
+      await feed(4, false, 103, 504)
+
+      // Закрытие поездки отложено на три минуты, и за это время машину успевают
+      // завести снова. Прежде поездка на этом оставалась открытой навсегда и
+      // забирала себе следующую дорогу.
+      await feed(6, true, 103, 506)
+      const closed = await closeTrip(database, { vehicleId: vehicle!.id, tripId: first!.id })
+      expect(closed).toMatchObject({
+        endedAt: new Date(base.getTime() + 4 * 60_000),
+        mileageStart: 100,
+        mileageEnd: 103,
+        distance: 3,
+        isOpen: false
+      })
+
+      await feed(10, true, 113, 510)
+      await feed(12, false, 113, 512)
+      const second = await database.query.trips.findFirst({ where: eq(trips.isOpen, true) })
+      await closeTrip(database, { vehicleId: vehicle!.id, tripId: second!.id })
+
+      const all = await database.select().from(trips).orderBy(trips.startedAt)
+      expect(all).toHaveLength(2)
+      expect(all[1]).toMatchObject({
+        startedAt: new Date(base.getTime() + 6 * 60_000),
+        endedAt: new Date(base.getTime() + 12 * 60_000),
+        mileageStart: 103,
+        mileageEnd: 113,
+        distance: 10
+      })
+    } finally {
+      await database.$client.close()
+    }
   })
 
   it('repairs legacy trips whose start was recorded after fuel consumption', async () => {

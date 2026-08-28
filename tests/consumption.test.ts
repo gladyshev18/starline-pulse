@@ -22,6 +22,15 @@ describe('averageSpeed', () => {
   it('has no answer for a trip that was warming up the whole time', () => {
     expect(averageSpeed({ distance: 5, fuelUsed: 1, durationMinutes: 20, armedMinutes: 20 })).toBeNull()
   })
+
+  it('refuses a speed no car reaches instead of calling it a motorway', () => {
+    // Ровно эта пара чисел висела на боевом дашборде 28 августа: двадцать пять
+    // километров следующей дороги при шести минутах прогрева, из которых почти
+    // все прошли на охране. Арифметика даёт 5470 км/ч, и худшее, что можно с
+    // ней сделать, — молча положить эти километры в корзину «Трасса».
+    expect(averageSpeed({ distance: 25, fuelUsed: 1, durationMinutes: 5.8, armedMinutes: 5.53 })).toBeNull()
+    expect(averageSpeed({ distance: 116, fuelUsed: 8.67, durationMinutes: 104 })).toBeCloseTo(66.9, 1)
+  })
 })
 
 describe('movingMinutes', () => {

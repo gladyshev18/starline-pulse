@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, isNotNull, lte, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { armedMinutesBetween } from '../../metrics/engine'
+import { sessionOdometerSpan } from '../../metrics/odometer'
 import { engineSessions, trips, vehicleSnapshots } from '../../db/schema'
 import { tripFuelUsed } from '../../shared/fuel'
 
@@ -26,14 +27,6 @@ export interface RecomputeReport {
   distanceBefore: number
   distanceAfter: number
   odometerSpan: number | null
-}
-
-function sameMileage(left: number | null, right: number | null) {
-  return left != null && right != null && Math.abs(left - right) < 0.01
-}
-
-function sessionMileageEdge(session: EngineSession) {
-  return session.mileageEnd ?? session.mileageStart
 }
 
 // Двигатель работал внутри окна — по любому из двух независимых признаков.
@@ -62,55 +55,6 @@ async function engineRanBetween(database: Database, vehicleId: number, start: Da
   return Number(motor.at(-1)!.value) > Number(motor[0]!.value)
 }
 
-// Пробег, досланный одометром уже после того, как сессия закрылась.
-//
-// Отделить его от километров следующей поездки по флагу зажигания в снапшоте
-// нельзя: досылка запаздывает на минуты и запросто приезжает в том опросе, где
-// машину уже успели завести снова. Зато у самого показания есть своё время —
-// `mileage_ts`, — и оно честно говорит, на какой момент этот пробег снят. Всё,
-// что снято до следующего запуска двигателя, принадлежит закрывшейся сессии,
-// кто бы это ни привёз.
-async function lateMileageFor(database: Database, session: EngineSession, nextStartedAt: Date | null) {
-  if (!session.endedAt || session.mileageStart == null) return null
-  // Счётчик моточасов досчитывает последнюю минуту уже в том опросе, который
-  // застаёт зажигание выключенным, поэтому за итог сессии берётся именно это
-  // показание. Сравнивать с последним показанием до остановки нельзя: рост на
-  // ту самую минуту оборвал бы просмотр на первом же шаге, до всякой досылки.
-  const settled = await database.query.vehicleSnapshots.findFirst({
-    columns: { motorMinutes: true },
-    where: and(
-      eq(vehicleSnapshots.vehicleId, session.vehicleId),
-      isNotNull(vehicleSnapshots.motorMinutes),
-      gte(vehicleSnapshots.ts, session.endedAt)
-    ),
-    orderBy: asc(vehicleSnapshots.ts)
-  })
-
-  const following = await database.select({
-    ts: vehicleSnapshots.ts,
-    mileage: vehicleSnapshots.mileage,
-    mileageTs: vehicleSnapshots.mileageTs,
-    motorMinutes: vehicleSnapshots.motorMinutes
-  }).from(vehicleSnapshots).where(and(
-    eq(vehicleSnapshots.vehicleId, session.vehicleId),
-    gt(vehicleSnapshots.ts, session.endedAt)
-  )).orderBy(asc(vehicleSnapshots.ts))
-
-  let best = session.mileageEnd
-  for (const row of following) {
-    // Счётчик моточасов пошёл дальше того, на чём остановилась сессия: машина
-    // поехала снова, и дальше смотреть незачем — даже если поездку не завели
-    // ни в одной сессии.
-    if (settled?.motorMinutes != null && row.motorMinutes != null && row.motorMinutes > settled.motorMinutes) break
-    if (row.mileage == null) continue
-    const readAt = row.mileageTs ?? row.ts
-    if (nextStartedAt && readAt > nextStartedAt) continue
-    if (best == null || row.mileage > best) best = row.mileage
-  }
-  if (best == null || (session.mileageEnd != null && best <= session.mileageEnd)) return null
-  return best
-}
-
 export async function recomputeTrips(database: Database, options: { apply: boolean }): Promise<RecomputeReport> {
   const report: RecomputeReport = {
     sessionsExtended: [], tripsReanchored: [], tripsMerged: [], phantomsLeft: [], tripsEmptied: [],
@@ -124,22 +68,23 @@ export async function recomputeTrips(database: Database, options: { apply: boole
   }).from(vehicleSnapshots).where(isNotNull(vehicleSnapshots.mileage))
   report.odometerSpan = span?.low != null && span.high != null ? Number(span.high) - Number(span.low) : null
 
-  // 1. Сессии забирают свою досылку. От этого зависит is_stationary, а по нему
-  //    считается и счёт за холостой ход, и сама ставка литров в час.
+  // 1. Каждая сессия забирает ровно свой отрезок одометра — не только досылку,
+  //    но и, если ей приписали лишнего, возвращает чужое. От этого зависит
+  //    is_stationary, а по нему считается и счёт за холостой ход, и ставка
+  //    литров в час.
   const sessions = await database.select().from(engineSessions)
     .where(eq(engineSessions.isOpen, false)).orderBy(asc(engineSessions.startedAt))
-  for (const [index, session] of sessions.entries()) {
-    const nextStartedAt = sessions.slice(index + 1).find(item => item.vehicleId === session.vehicleId)?.startedAt ?? null
-    const mileageEnd = await lateMileageFor(database, session, nextStartedAt)
-    if (mileageEnd == null || session.mileageStart == null) continue
-    const distance = mileageEnd - session.mileageStart
-    if (distance < 0) continue
+  for (const session of sessions) {
+    const { mileageStart, mileageEnd, distance } = await sessionOdometerSpan(database, session)
+    if (distance == null) continue
+    if (session.mileageStart === mileageStart && session.mileageEnd === mileageEnd) continue
     report.sessionsExtended.push({ id: session.id, distance, wasStationary: session.isStationary === true })
     if (options.apply) {
       await database.update(engineSessions).set({
-        mileageEnd, distance, isStationary: distance === 0
+        mileageStart, mileageEnd, distance, isStationary: distance === 0
       }).where(eq(engineSessions.id, session.id))
     }
+    session.mileageStart = mileageStart
     session.mileageEnd = mileageEnd
     session.distance = distance
     session.isStationary = distance === 0

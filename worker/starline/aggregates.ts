@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
+import { sessionOdometerSpan } from '../../metrics/odometer'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../../db/schema'
 import { applyReceiptsToRefuel, rematchPendingReceipts } from '../../receipts/store'
 import { hasMileageIncreased, snapshotTime } from './trips'
@@ -48,13 +49,21 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
   if (current.ignition !== false) return
   const reportedEnd = snapshotTime(current)
   const endedAt = reportedEnd >= session.startedAt ? reportedEnd : current.ts
-  const mileageEnd = current.mileage
-  const distance = session.mileageStart != null && mileageEnd != null && mileageEnd >= session.mileageStart
-    ? mileageEnd - session.mileageStart
+  // Не то, что показывает одометр в момент остановки, а то, что ему на этот
+  // момент принадлежит: показание могло быть снято за прошлую дорогу и доехать
+  // только сейчас — так прогрев на автозапуске получал чужие километры.
+  const span = await sessionOdometerSpan(database, {
+    vehicleId, startedAt: session.startedAt, endedAt
+  })
+  const mileageStart = span.mileageStart ?? session.mileageStart
+  const mileageEnd = span.mileageEnd ?? current.mileage
+  const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart
+    ? mileageEnd - mileageStart
     : null
   await database.update(engineSessions).set({
     endedAt,
     firstMovementAt,
+    mileageStart,
     mileageEnd,
     fuelEnd: current.fuel,
     engineTempEnd: current.engineTemp,

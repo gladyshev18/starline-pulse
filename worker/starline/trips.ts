@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { armedMinutesBetween } from '../../metrics/engine'
+import { sessionOdometerSpan } from '../../metrics/odometer'
 import { tripFuelUsed } from '../../shared/fuel'
 import { engineSessions, jobs, trips, vehicleSnapshots } from '../../db/schema'
 import { tripCompletedText } from '../bot/trip-driver'
@@ -103,24 +104,28 @@ async function tripOrigin(database: Database, vehicleId: number, current: Snapsh
   }
 }
 
-// A session closes on whatever the odometer had said by the time the ignition
-// went off, which is routinely less than the car drove. Left alone it keeps
-// `is_stationary`, and `is_stationary` is what hands a session's minutes to the
-// idling bill and its litres to the idle rate — so a drive would be priced as a
-// warm-up. Any later reading that belongs to the session corrects it.
-async function extendSession(database: Database, vehicleId: number, startedAt: Date, mileageEnd: number | null) {
-  if (mileageEnd == null) return
+// Сессия закрывается на том, что одометр успел сказать к выключению зажигания, а
+// это регулярно меньше проеханного. Оставить как есть нельзя: по `is_stationary`
+// минуты сессии уходят в счёт за холостой ход, а её литры — в ставку литров в
+// час, и дорога оказалась бы оплачена как прогрев.
+//
+// Но докуда сессия дотянулась, решает не тот, кто её расширяет, а правило
+// принадлежности показаний: своя досылка — да, но только до следующего запуска
+// двигателя. Иначе километры следующей дороги попадают сразу в две сессии, и обе
+// засчитывают их себе.
+async function extendSession(database: Database, vehicleId: number, startedAt: Date) {
   const session = await database.query.engineSessions.findFirst({
     where: and(eq(engineSessions.vehicleId, vehicleId), eq(engineSessions.startedAt, startedAt))
   })
-  if (!session || session.mileageStart == null) return
-  if (session.mileageEnd != null && mileageEnd <= session.mileageEnd) return
-  const distance = mileageEnd - session.mileageStart
-  if (distance < 0) return
+  if (!session) return
+  const span = await sessionOdometerSpan(database, session)
+  if (span.distance == null) return
+  if (span.mileageStart === session.mileageStart && span.mileageEnd === session.mileageEnd) return
   await database.update(engineSessions).set({
-    mileageEnd,
-    distance,
-    isStationary: distance === 0
+    mileageStart: span.mileageStart,
+    mileageEnd: span.mileageEnd,
+    distance: span.distance,
+    isStationary: span.distance === 0
   }).where(eq(engineSessions.id, session.id))
 }
 
@@ -137,13 +142,21 @@ async function absorbLateOdometer(database: Database, vehicleId: number, current
   // one the flush picks up from. Anything else and these kilometres came from
   // somewhere this cannot see, and guessing would be worse than leaving them.
   if (!trip || trip.mileageEnd == null || !sameMileage(trip.mileageEnd, previous.mileage)) return
-  if (!(current.mileage > trip.mileageEnd)) return
 
-  const distance = trip.mileageStart != null && current.mileage >= trip.mileageStart
-    ? current.mileage - trip.mileageStart
+  // Сколько именно досталось этой поездке, решает время съёма показаний, а не то,
+  // в каком опросе они приехали: после следующего запуска двигателя одометр
+  // считает уже чужие километры, даже если привёз их тот же ответ.
+  const span = await sessionOdometerSpan(database, {
+    vehicleId, startedAt: trip.startedAt, endedAt: trip.endedAt
+  })
+  const mileageEnd = span.mileageEnd
+  if (mileageEnd == null || !(mileageEnd > trip.mileageEnd)) return
+
+  const distance = trip.mileageStart != null && mileageEnd >= trip.mileageStart
+    ? mileageEnd - trip.mileageStart
     : trip.distance
-  await database.update(trips).set({ mileageEnd: current.mileage, distance }).where(eq(trips.id, trip.id))
-  await extendSession(database, vehicleId, trip.startedAt, current.mileage)
+  await database.update(trips).set({ mileageEnd, distance }).where(eq(trips.id, trip.id))
+  await extendSession(database, vehicleId, trip.startedAt)
 }
 
 export async function handleMileageProgress(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
@@ -151,7 +164,14 @@ export async function handleMileageProgress(database: Database, vehicleId: numbe
   const mileageIncreased = hasMileageIncreased(previous?.mileage, current.mileage)
 
   if (mileageIncreased && !openTrip && previous) {
-    const origin = await tripOrigin(database, vehicleId, current, previous)
+    // Машина на охране с работающим двигателем — это автозапуск: ехать на
+    // охраняемой машине нельзя. Значит выросший одометр здесь не начало дороги, а
+    // хвост той, что уже была: OBD просыпается вместе с двигателем и читает
+    // одометр заново, и это чтение может оказаться больше прежнего, если
+    // накануне машина ехала ещё минуту-другую после его последнего отчёта.
+    // Раньше прогрев становился от этого отдельной поездкой.
+    const remoteStart = current.ignition === true && current.armed === true
+    const origin = remoteStart ? null : await tripOrigin(database, vehicleId, current, previous)
     if (!origin) {
       await absorbLateOdometer(database, vehicleId, current, previous)
       return
@@ -180,31 +200,49 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
   const trip = await database.query.trips.findFirst({ where: and(eq(trips.id, payload.tripId), eq(trips.isOpen, true)) })
   if (!trip) return null
   const latest = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, payload.vehicleId), orderBy: desc(vehicleSnapshots.ts) })
-  if (!latest || latest.ignition !== false) return null
+  if (!latest) return null
+
+  const engineSession = await database.query.engineSessions.findFirst({
+    where: and(eq(engineSessions.vehicleId, payload.vehicleId), eq(engineSessions.startedAt, trip.startedAt))
+  })
+  // Поездка кончается вместе со своей сессией, а не тогда, когда опрос застанет
+  // зажигание выключенным. Раньше здесь стояла только вторая проверка, и если к
+  // сроку закрытия машину успевали завести снова, поездка не закрывалась вовсе —
+  // а потом забирала себе следующую дорогу целиком, оставляя себе длительность
+  // своей. Шестиминутный прогрев на автозапуске получал так двадцать пять
+  // километров, то есть пять тысяч километров в час.
+  const sessionEnded = engineSession?.endedAt != null && engineSession.endedAt >= trip.startedAt
+  if (!sessionEnded && latest.ignition !== false) return null
+  const endedAt = sessionEnded ? engineSession!.endedAt! : latest.ts
+  // Топливо и одометр читаются в окно поездки, а не «от старта и до последнего
+  // снапшота вообще»: одометр досылает остаток после остановки, но следующая
+  // дорога — уже не эта.
+  const settledBy = new Date(endedAt.getTime() + ODOMETER_AFTER_STOP_GRACE_MS)
 
   const mileageStartSnapshot = trip.mileageStart == null
     ? await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), isNotNull(vehicleSnapshots.mileage)), orderBy: asc(vehicleSnapshots.ts) }) : null
   const fuelStartSnapshot = trip.fuelStart == null
     ? await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), isNotNull(vehicleSnapshots.fuel)), orderBy: asc(vehicleSnapshots.ts) }) : null
-  const mileageEndSnapshot = await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), isNotNull(vehicleSnapshots.mileage)), orderBy: desc(vehicleSnapshots.ts) })
-  const fuelEndSnapshot = await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), isNotNull(vehicleSnapshots.fuel)), orderBy: desc(vehicleSnapshots.ts) })
-  const mileageStart = trip.mileageStart ?? mileageStartSnapshot?.mileage ?? null
+  const fuelEndSnapshot = await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), lte(vehicleSnapshots.ts, settledBy), isNotNull(vehicleSnapshots.fuel)), orderBy: desc(vehicleSnapshots.ts) })
+  // Одометр берётся не из снапшотов поездки, а по правилу принадлежности
+  // показаний: показание, застигнутое в момент запуска, снято раньше — иногда на
+  // час, — и поездка, взявшая его за начало, приписывала себе хвост предыдущей.
+  const span = await sessionOdometerSpan(database, {
+    vehicleId: payload.vehicleId, startedAt: trip.startedAt, endedAt
+  })
+  const mileageStart = span.mileageStart ?? trip.mileageStart ?? mileageStartSnapshot?.mileage ?? null
   const fuelStart = trip.fuelStart ?? fuelStartSnapshot?.fuel ?? null
-  const mileageEnd = mileageEndSnapshot?.mileage ?? null
+  const mileageEnd = span.mileageEnd
   const fuelEnd = fuelEndSnapshot?.fuel ?? null
   const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart ? mileageEnd - mileageStart : null
   const fuelUsed = tripFuelUsed(fuelStart, fuelEnd)
-  const engineSession = await database.query.engineSessions.findFirst({
-    where: and(eq(engineSessions.vehicleId, payload.vehicleId), eq(engineSessions.startedAt, trip.startedAt))
-  })
-  const endedAt = engineSession?.endedAt && engineSession.endedAt >= trip.startedAt ? engineSession.endedAt : latest.ts
   const armedMinutes = await armedMinutesBetween(database, payload.vehicleId, trip.startedAt, endedAt)
 
   const [closed] = await database.update(trips).set({
     endedAt, mileageStart, mileageEnd, distance, fuelStart, fuelEnd, fuelUsed, armedMinutes,
     latEnd: latest.lat, lonEnd: latest.lon, isOpen: false
   }).where(eq(trips.id, trip.id)).returning()
-  await extendSession(database, payload.vehicleId, trip.startedAt, mileageEnd)
+  await extendSession(database, payload.vehicleId, trip.startedAt)
   if (closed) {
     // tripId в задаче — это и есть вопрос «кто был за рулём»: по нему к
     // уведомлению приклеиваются кнопки с именами.
