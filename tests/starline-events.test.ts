@@ -4,7 +4,7 @@ import { asc } from 'drizzle-orm'
 import { resolve } from 'node:path'
 import { createDatabase } from '../db/client'
 import { deviceEvents, engineSessions, trips, vehicles, vehicleSnapshots } from '../db/schema'
-import { applyEventBoundaries, ignitionSpans, storeEvents } from '../worker/starline/events'
+import { applyEventBoundaries, ignitionSpans, storeEvents, syncEvents } from '../worker/starline/events'
 import {
   ENGINE_STARTED, ENGINE_STOPPED, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON
 } from '../shared/starline-events'
@@ -38,6 +38,30 @@ describe('границы поездок по журналу сигнализац
     }
     return { database, vehicle: vehicle!, snapshot, session }
   }
+
+  it('не останавливает выборку на неполной странице', async () => {
+    const { database, vehicle } = await build()
+    try {
+      // Сервер режет выдачу и по своим окнам: за тихие сутки страница приходит
+      // короткой, но события после неё есть. Обрыв на этом месте оставил
+      // журнал на трёх днях вместо трёх недель.
+      // Курсор первого захода отсчитывается от «сейчас», поэтому и события
+      // должны быть свежими — иначе выборка справедливо решит, что не сдвинулась.
+      const recent = Math.floor(Date.now() / 1000) - 3600
+      const pages = [
+        [{ type: IGNITION_ON, groupId: 5, timestamp: recent }],
+        [{ type: IGNITION_OFF, groupId: 5, timestamp: recent + 900 }],
+        []
+      ]
+      let calls = 0
+      await syncEvents(database, vehicle.id, async () => pages[calls++] ?? [])
+      expect(calls).toBeGreaterThanOrEqual(3)
+      const stored = await database.select().from(deviceEvents)
+      expect(stored).toHaveLength(2)
+    } finally {
+      await database.$client.close()
+    }
+  })
 
   it('собирает интервалы зажигания и не считает вторым запуском повтор кода', async () => {
     const { database, vehicle } = await build()

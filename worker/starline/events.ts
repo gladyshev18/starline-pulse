@@ -57,22 +57,34 @@ export async function storeEvents(database: Database, vehicleId: number, events:
   return stored.length
 }
 
-export async function syncEvents(database: Database, vehicleId: number) {
+// Страница берётся через параметр, чтобы разбор постраничной выборки можно было
+// проверить, не поднимая авторизацию StarLine.
+export type EventPageLoader = (since: Date) => Promise<StarLineEvent[]>
+
+export async function syncEvents(
+  database: Database,
+  vehicleId: number,
+  loadPage: EventPageLoader = since => fetchEventsPage(database, since),
+  maxPages = EVENTS_MAX_PAGES
+) {
   const latest = await database.query.deviceEvents.findFirst({
     where: eq(deviceEvents.vehicleId, vehicleId),
     orderBy: desc(deviceEvents.ts)
   })
   let cursor = latest ? new Date(latest.ts.getTime() + 1000) : new Date(Date.now() - EVENTS_BACKFILL_MS)
   let stored = 0
-  for (let page = 0; page < EVENTS_MAX_PAGES; page++) {
-    const events = await fetchEventsPage(database, cursor)
+  for (let page = 0; page < maxPages; page++) {
+    const events = await loadPage(cursor)
     if (!events.length) break
     stored += await storeEvents(database, vehicleId, events)
     const last = Math.max(...events.map(item => item.timestamp))
     const next = new Date(last * 1000 + 1000)
+    // Неполная страница не означает, что события кончились: сервер режет выдачу
+    // и по своим внутренним окнам тоже. Признак конца — пустой ответ или
+    // курсор, который перестал двигаться, иначе выборка останавливается на
+    // первом же тихом дне и до сегодняшних событий не доходит.
     if (next <= cursor) break
     cursor = next
-    if (events.length < EVENTS_PAGE_SIZE) break
   }
   return stored
 }
