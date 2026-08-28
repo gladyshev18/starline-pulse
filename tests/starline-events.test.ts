@@ -166,6 +166,32 @@ describe('границы поездок по журналу сигнализац
     }
   })
 
+  // На боевых данных 14 августа опрос пропустил выключение зажигания посередине
+  // и склеил два запуска в одну сессию на 41 минуту. Короткий интервал, лежащий
+  // внутри неё, отобрал бы у поездки тридцать две минуты.
+  it('не схлопывает длинную сессию до короткого интервала внутри неё', async () => {
+    const { database, vehicle, snapshot, session } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await snapshot(80, 160, 75)
+      const long = await session(10, 51, 100, 160)
+
+      await storeEvents(database, vehicle.id, [
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(12) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(21) }
+      ])
+      const report = await applyEventBoundaries(database, vehicle.id)
+      expect(report.corrected).toHaveLength(0)
+
+      const [untouched] = await database.select().from(engineSessions)
+      expect(untouched!.id).toBe(long.id)
+      expect(untouched!.startedAt.getTime()).toBe(at(10).getTime())
+      expect(untouched!.endedAt!.getTime()).toBe(at(51).getTime())
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   // На боевых данных 27 августа машину заводили семь раз за час. Сопоставление
   // «ближайший интервал в пределах получаса» приписало тогда стодесятиминутной
   // поездке семиминутный интервал и выдало 842 км/ч.

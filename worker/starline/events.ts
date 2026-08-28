@@ -131,23 +131,28 @@ function overlap(span: IgnitionSpan, session: { startedAt: Date, endedAt: Date |
   return Math.max(0, to - from)
 }
 
-// Сессия и интервал описывают один и тот же запуск, если они пересекаются во
-// времени и пересечение занимает большую часть более короткого из них.
+// Сессия и интервал описывают один и тот же запуск, если пересечение покрывает
+// бо́льшую часть сессии.
 //
-// Сопоставлять по близости стартов нельзя, проверено на боевых данных: в день,
-// когда машину заводили семь раз за час, «ближайший интервал в пределах
-// получаса» приписал стодесятиминутной поездке семиминутный интервал и выдал
-// 842 км/ч. Пересечение таких пар не допускает.
-const MIN_OVERLAP_SHARE = 0.5
+// Мерить долю от короткого из двух нельзя, хотя и напрашивается: короткий
+// интервал, целиком лежащий внутри длинной сессии, набирает так почти единицу и
+// схлопывает её до себя. На боевых данных это отобрало у поездки 14 августа
+// тридцать две минуты из сорока одной. Такое бывает, когда опрос пропустил
+// выключение зажигания посередине и склеил два запуска в одну сессию, — но
+// разрезать её надвое по одному пересечению нельзя, а испортить легко, поэтому
+// сессия без подходящего интервала остаётся как есть.
+//
+// Сопоставлять по близости стартов нельзя тем более: «ближайший интервал в
+// пределах получаса» приписал стодесятиминутной поездке семиминутный и выдал
+// 842 км/ч.
+const MIN_SESSION_COVERAGE = 0.5
 
 function matches(span: IgnitionSpan, session: { startedAt: Date, endedAt: Date | null }) {
   if (!session.endedAt) return 0
   const shared = overlap(span, session)
   if (!shared) return 0
-  const spanLength = span.endedAt.getTime() - span.startedAt.getTime()
-  const sessionLength = session.endedAt.getTime() - session.startedAt.getTime()
-  const shortest = Math.max(1, Math.min(spanLength, sessionLength))
-  return shared / shortest >= MIN_OVERLAP_SHARE ? shared : 0
+  const sessionLength = Math.max(1, session.endedAt.getTime() - session.startedAt.getTime())
+  return shared / sessionLength >= MIN_SESSION_COVERAGE ? shared : 0
 }
 
 export interface BoundaryReport {
