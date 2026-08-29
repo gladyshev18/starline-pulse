@@ -194,7 +194,7 @@ describe('trip detection by odometer', () => {
       }
     })
 
-    it('leaves the reading alone when it does not continue from the last trip', async () => {
+    it('не выбрасывает километры, даже если они выглядят невозможными', async () => {
       const { database, vehicle, feed } = await build()
       try {
         await feed(0, false, 100, 500)
@@ -206,9 +206,11 @@ describe('trip detection by odometer', () => {
         const closed = await database.query.trips.findFirst()
         expect(closed).toMatchObject({ mileageEnd: 103 })
 
-        // Показание прыгнуло не с того места, на котором поездка закончилась:
-        // где машина взяла эти километры, данных нет, и дописывать их наугад
-        // хуже, чем оставить как есть.
+        // Показание прыгнуло сразу на пятьдесят километров. Где машина их взяла,
+        // данные не объясняют, но одометр — единственный свидетель пробега, и
+        // выбросить его километры значило бы молча потерять настоящую дорогу.
+        // Они достаются тому единственному отрезку, когда двигатель работал;
+        // невероятная скорость при этом видна, а не спрятана.
         await database.insert(vehicleSnapshots).values({
           vehicleId: vehicle.id, ts: new Date('2026-08-05T09:20:00.000Z'), activityTs: new Date('2026-08-05T09:20:00.000Z'),
           ignition: false, mileage: 150, mileageTs: new Date('2026-08-05T09:20:00.000Z'), motorMinutes: 506, rawJson: '{}'
@@ -219,7 +221,7 @@ describe('trip detection by odometer', () => {
 
         const all = await database.select().from(trips)
         expect(all).toHaveLength(1)
-        expect(all[0]).toMatchObject({ mileageEnd: 103, distance: 3 })
+        expect(all[0]).toMatchObject({ mileageEnd: 150, distance: 50 })
       } finally {
         await database.$client.close()
       }
@@ -342,13 +344,18 @@ describe('trip detection by odometer', () => {
 
       const all = await database.select().from(trips).orderBy(trips.startedAt)
       expect(all).toHaveLength(2)
+      // Показание 113 пришло на десятой минуте и покрывает конец первой поездки
+      // и всю вторую: минута против четырёх. Десять километров делятся между
+      // ними, а не достаются целиком той, в чьё окно попала метка.
       expect(all[1]).toMatchObject({
         startedAt: new Date(base.getTime() + 6 * 60_000),
         endedAt: new Date(base.getTime() + 12 * 60_000),
-        mileageStart: 103,
+        mileageStart: 105,
         mileageEnd: 113,
-        distance: 10
+        distance: 8
       })
+      expect(all[0]!.distance).toBe(5)
+      expect((all[0]!.distance ?? 0) + (all[1]!.distance ?? 0)).toBe(13)
     } finally {
       await database.$client.close()
     }

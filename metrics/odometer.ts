@@ -1,55 +1,105 @@
-import { and, asc, eq, gt, gte, isNotNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, isNotNull, lte, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
-import { engineSessions, vehicleSnapshots } from '../db/schema'
-import { MAX_POLL_GAP_MS } from './engine'
-import { MAX_PLAUSIBLE_SPEED } from '../shared/consumption'
+import { deviceEvents, engineSessions, vehicleSnapshots } from '../db/schema'
+import { HANDBRAKE_RELEASED } from '../shared/starline-events'
 
-export type SessionWindow = {
-  vehicleId: number
-  startedAt: Date
-  endedAt: Date | null
+// Показание одометра говорит ровно одно: к моменту `at` счётчик дошёл до
+// `value`. Когда именно между этим показанием и предыдущим машина накрутила
+// разницу — оно не говорит, и в этом вся сложность.
+//
+// Прежний разбор считал, что километры принадлежат той сессии, в чьё окно
+// попала метка. На разреженных показаниях это разваливается: 29 августа
+// десять километров доехали одним показанием в 13:20 и покрывали сразу три
+// отрезка — хвост одной поездки, всю следующую и ещё одну. Достались они
+// последней, не влезли в её две минуты, и вышло 134 км/ч.
+export interface OdometerReading {
+  value: number
+  at: Date
 }
 
-// Одометр отдаёт пробег кусками по десять-двадцать километров и досылает
-// остаток уже после того, как зажигание выключили, — иногда через минуты, а
-// иногда только в том опросе, где машину успели завести снова. Отделить своё от
-// чужого по флагу зажигания в снапшоте нельзя, но у самого показания есть своё
-// время, `mileage_ts`, и оно честно говорит, на какой момент этот пробег снят.
+// Отрезок времени, в течение которого машина могла ехать. Начало — «ручник
+// опущен», если сигнализация о нём сообщила, иначе запуск двигателя. Конец —
+// выключение зажигания.
+export interface MovingWindow {
+  id: number
+  from: Date
+  to: Date
+}
+
+export interface DistributedDistance {
+  id: number
+  distance: number
+}
+
+// Километры между двумя соседними показаниями делятся между окнами движения
+// пропорционально тому, сколько каждое из них занимает внутри промежутка.
 //
-// Отсюда единственный вопрос, на который данные вообще позволяют ответить: где
-// стоял одометр к моменту `at`. Это максимум показаний, снятых не позже `at`, —
-// кто бы их ни привёз и когда бы они ни доехали до опроса.
-async function odometerAt(database: Database, vehicleId: number, at: Date) {
-  const [row] = await database.select({
-    mileage: sql<number | null>`max(${vehicleSnapshots.mileage})`
+// Это предположение о постоянной средней скорости внутри промежутка, и другого
+// данные не позволяют: отличить медленную езду от стоянки с работающим
+// двигателем нечем. Зато ни один километр не теряется и не удваивается, а сумма
+// по всем окнам в точности равна разности крайних показаний.
+export function distributeOdometer(readings: OdometerReading[], windows: MovingWindow[]) {
+  const distances = new Map<number, number>(windows.map(item => [item.id, 0]))
+  let unattributed = 0
+
+  for (let index = 1; index < readings.length; index++) {
+    const previous = readings[index - 1]!
+    const current = readings[index]!
+    const delta = current.value - previous.value
+    if (!(delta > 0)) continue
+
+    const shares = windows
+      .map(item => ({
+        id: item.id,
+        overlap: Math.max(0, Math.min(item.to.getTime(), current.at.getTime()) - Math.max(item.from.getTime(), previous.at.getTime()))
+      }))
+      .filter(item => item.overlap > 0)
+    const total = shares.reduce((sum, item) => sum + item.overlap, 0)
+    // Двигатель не работал ни минуты, а одометр вырос: это поездка, которую
+    // опрос не увидел вовсе. Приписывать её соседям нельзя, поэтому километры
+    // остаются ничьими — и расхождение с одометром честно покажет, что запись
+    // неполная.
+    if (!total) { unattributed += delta; continue }
+    for (const share of shares) {
+      distances.set(share.id, (distances.get(share.id) ?? 0) + delta * (share.overlap / total))
+    }
+  }
+
+  return { distances, unattributed }
+}
+
+async function odometerReadings(database: Database, vehicleId: number): Promise<OdometerReading[]> {
+  const rows = await database.select({
+    value: vehicleSnapshots.mileage,
+    at: sql<number>`coalesce(${vehicleSnapshots.mileageTs}, ${vehicleSnapshots.ts})`
   }).from(vehicleSnapshots).where(and(
     eq(vehicleSnapshots.vehicleId, vehicleId),
-    isNotNull(vehicleSnapshots.mileage),
-    lte(sql`coalesce(${vehicleSnapshots.mileageTs}, ${vehicleSnapshots.ts})`, at.getTime())
-  ))
-  return row?.mileage == null ? null : Number(row.mileage)
+    isNotNull(vehicleSnapshots.mileage)
+  )).orderBy(sql`coalesce(${vehicleSnapshots.mileageTs}, ${vehicleSnapshots.ts})`, asc(vehicleSnapshots.mileage))
+
+  // Одно и то же показание приходит десятками опросов подряд, а изредка счётчик
+  // отдаёт значение меньше прежнего. Оставляем только моменты, когда он реально
+  // сдвинулся вперёд.
+  const readings: OdometerReading[] = []
+  for (const row of rows) {
+    const value = Number(row.value)
+    const last = readings.at(-1)
+    if (last && value <= last.value) continue
+    readings.push({ value, at: new Date(Number(row.at)) })
+  }
+  return readings
 }
 
 // Сессия целиком прошла на охране: двигатель работал, а сигнализация ни разу не
-// была снята. Ехать на охраняемой машине нельзя, значит это автозапуск, и ни
-// одного километра ему не принадлежит. Прямое подтверждение есть и в сыром
-// ответе — `state.r_start`, — но охрана при заведённом двигателе говорит то же
-// самое и уже лежит в снапшоте.
-//
-// Это единственное доказательство, которое здесь работает, и `mileage_ts` его не
-// заменяет: OBD просыпается вместе с двигателем и берёт свежее чтение со свежей
-// меткой. За август так вышло девять раз, и восемь чтений совпали с прежним
-// значением, а девятое — 28 августа — оказалось на километр больше. Метка у него
-// стояла утренняя, хотя километр был вчерашний: накануне OBD отчитался в 11:46,
-// а зажигание выключили в 11:48, и одометр щёлкнул в эти две минуты. Отличить
-// такой километр от проеханного можно только по охране.
-async function isRemoteStartWarmup(database: Database, session: SessionWindow) {
+// была снята. Ехать на охраняемой машине нельзя, значит это автозапуск, и окно
+// движения у него пустое — ни одного километра ему не достанется.
+async function isRemoteStartWarmup(database: Database, session: { vehicleId: number, startedAt: Date, endedAt: Date }) {
   const inside = (armed: boolean) => and(
     eq(vehicleSnapshots.vehicleId, session.vehicleId),
     eq(vehicleSnapshots.ignition, true),
     eq(vehicleSnapshots.armed, armed),
     gte(vehicleSnapshots.ts, session.startedAt),
-    session.endedAt ? lte(vehicleSnapshots.ts, session.endedAt) : undefined
+    lte(vehicleSnapshots.ts, session.endedAt)
   )
   // Сессия без единого снапшота с заведённым двигателем — это провал опроса, а
   // не автозапуск, и молчание не должно читаться как «машина стояла».
@@ -59,177 +109,76 @@ async function isRemoteStartWarmup(database: Database, session: SessionWindow) {
   return free == null
 }
 
-// Момент, после которого показания одометра принадлежат уже не этой сессии.
-//
-// Границ две, берётся ближайшая. Первая — запуск следующей сессии, которой
-// можно было ехать: дальше считает она. Прогревы на автозапуске между ними
-// пропускаются: проехать они не могли, а прочитать одометр заново — могут, и
-// тогда чужой километр застрял бы между двумя дорогами вместо той, которая его
-// проехала.
-//
-// Вторая — рост счётчика моточасов там, где сессии нет вовсе: двигатель работал,
-// а опрос это проспал, и такой пробег принадлежит той поездке, а не этой.
-async function mileageBoundary(database: Database, session: SessionWindow) {
-  if (!session.endedAt) return null
-
-  const following = await database.select({
-    id: engineSessions.id,
-    vehicleId: engineSessions.vehicleId,
-    startedAt: engineSessions.startedAt,
-    endedAt: engineSessions.endedAt
-  }).from(engineSessions).where(and(
-    eq(engineSessions.vehicleId, session.vehicleId),
-    gt(engineSessions.startedAt, session.startedAt)
-  )).orderBy(asc(engineSessions.startedAt)).limit(10)
-
-  let nextDrivable: Date | null = null
-  for (const item of following) {
-    if (await isRemoteStartWarmup(database, item)) continue
-    nextDrivable = item.startedAt
-    break
-  }
-
-  // Итог счётчика моточасов за сессию. Берётся максимум за несколько минут после
-  // остановки, а не первое показание: счётчик досчитывает последние минуты не
-  // мгновенно и запросто отстаёт на опрос-другой. На боевых данных 27 августа
-  // опрос через 25 секунд после выключения зажигания показывал ещё 15648, а
-  // через 55 секунд — уже 15654, и разница в шесть минут читалась как отдельная
-  // проспанная поездка. Окно досылки обрывалось на этом месте, и три километра,
-  // снятых через полторы минуты, не доставались никому.
-  const [settled] = await database.select({
-    motorMinutes: sql<number | null>`max(${vehicleSnapshots.motorMinutes})`
-  }).from(vehicleSnapshots).where(and(
-    eq(vehicleSnapshots.vehicleId, session.vehicleId),
-    isNotNull(vehicleSnapshots.motorMinutes),
-    gte(vehicleSnapshots.ts, session.endedAt),
-    lte(vehicleSnapshots.ts, new Date(session.endedAt.getTime() + MAX_POLL_GAP_MS))
-  ))
-  // Двигатель проработал целиком между двумя опросами, и ни одна сессия этого не
-  // видела: значит там была поездка, о которой нет записи, и она стоит между
-  // этой сессией и одометром. Дальше её начала считать чужое.
-  //
-  // Порог в один разрыв опроса отделяет её от опроса, который просто опоздал к
-  // запуску: пока двигатель работает, машину опрашивают раз в полминуты, поэтому
-  // три минуты счётчика перед стартом сессии — это её же начало, а тридцать —
-  // отдельная дорога.
-  const unrecorded = settled?.motorMinutes == null ? [] : await database.all<{ from_ts: number }>(sql`
-    with steps as (
-      select
-        ${vehicleSnapshots.ts} as ts,
-        ${vehicleSnapshots.motorMinutes} as value,
-        lag(${vehicleSnapshots.ts}) over (order by ${vehicleSnapshots.ts}) as prev_ts,
-        lag(${vehicleSnapshots.motorMinutes}) over (order by ${vehicleSnapshots.ts}) as prev_value
-      from ${vehicleSnapshots}
-      where ${vehicleSnapshots.vehicleId} = ${session.vehicleId}
-        and ${vehicleSnapshots.ts} > ${session.endedAt.getTime()}
-        and ${vehicleSnapshots.motorMinutes} is not null
-    )
-    select prev_ts as from_ts from steps
-    where prev_value is not null
-      and value > ${settled.motorMinutes}
-      and value - prev_value > ${MAX_POLL_GAP_MS / 60_000}
-      and not exists (
-        select 1 from ${engineSessions}
-        where ${engineSessions.vehicleId} = ${session.vehicleId}
-          and ${engineSessions.startedAt} <= steps.prev_ts
-          and coalesce(${engineSessions.endedAt}, steps.ts) >= steps.ts
-      )
-    order by prev_ts
-    limit 1
-  `)
-
-  const edges = [nextDrivable, unrecorded[0]?.from_ts == null ? null : new Date(Number(unrecorded[0].from_ts))]
-    .filter((value): value is Date => value != null)
-  return edges.length ? new Date(Math.min(...edges.map(value => value.getTime()))) : new Date()
+// Момент, когда машина тронулась. «Ручник опущен» — единственная точная отметка
+// начала движения, какая есть: на боевых данных она приходит у 97 % поездок и ни
+// у одного прогрева на автозапуске. Обратной отметки нет — приехав, глушат
+// двигатель кнопкой, и ручник встаёт уже после того, как блоку нечего
+// передавать, поэтому конец окна — выключение зажигания.
+export async function departureWithin(database: Database, vehicleId: number, from: Date, to: Date) {
+  const event = await database.query.deviceEvents.findFirst({
+    columns: { ts: true },
+    where: and(
+      eq(deviceEvents.vehicleId, vehicleId),
+      eq(deviceEvents.type, HANDBRAKE_RELEASED),
+      gte(deviceEvents.ts, from),
+      lte(deviceEvents.ts, to)
+    ),
+    orderBy: asc(deviceEvents.ts)
+  })
+  return event?.ts ?? null
 }
 
-// Докуда одометр досчитал за сессию. Всё, что снято до следующего запуска
-// двигателя, принадлежит ей, включая досылку, приехавшую уже на стоянке; всё,
-// что снято после, — не её, даже если приехало тем же опросом.
-//
-// Проверено на боевых данных за август: сумма таких отрезков по всем сессиям
-// сошлась с разностью крайних показаний одометра до километра, тогда как
-// записанные `distance` давали лишние 24 км — досылка попадала сразу в две
-// сессии, и обе засчитывали её себе.
-async function sessionOdometerEnd(database: Database, session: SessionWindow) {
-  const boundary = await mileageBoundary(database, session)
-  if (!boundary) return null
-  // Прогрев на автозапуске никуда не ехал, чем бы ни отчитался OBD в эти минуты.
-  // Отрезок остаётся нулевым, а километры достаются той сессии, которая их
-  // проехала: она пропускает прогрев при поиске своей границы.
-  if (await isRemoteStartWarmup(database, session)) {
-    return await odometerAt(database, session.vehicleId, session.startedAt)
-  }
-  return await odometerAt(database, session.vehicleId, boundary)
-}
-
-export interface CappedSpan {
+export interface SessionDistance {
+  sessionId: number
+  startedAt: Date
+  endedAt: Date
+  departedAt: Date | null
   mileageStart: number | null
   mileageEnd: number | null
-  // Часы, за которые машина могла ехать: от опущенного ручника до выключения
-  // зажигания. Ноль означает, что двигаться было некогда.
-  movingHours: number | null
+  distance: number
 }
 
-// Отрезок одометра принадлежит сессии по времени съёма показания, и обычно это
-// верно. Но досылка приходит с задержкой, а показание снимается тогда, когда
-// OBD проснётся, — и остаток длинной дороги запросто оказывается помечен
-// временем короткого запуска, случившегося следом. Тогда тридцатисекундная
-// сессия забирает себе километры, которые проехали до неё.
-//
-// Отличить такое можно, ничего не выдумывая: машина не могла проехать больше,
-// чем успевает за своё время в движении. Всё, что сверх этого, принадлежит
-// предыдущей дороге, и граница между ними сдвигается назад.
-//
-// Предел взят щедрым намеренно. Он не для того, чтобы поправить среднюю
-// скорость, — для этого он слишком груб, — а чтобы поймать физически
-// невозможное: 4 км за 45 секунд. Настоящие поездки его не задевают.
-export function capImplausibleDistance(spans: CappedSpan[], maxSpeed = MAX_PLAUSIBLE_SPEED) {
-  const result = spans.map(item => ({ ...item }))
-  const distanceOf = (span: CappedSpan) => (
-    span.mileageStart == null || span.mileageEnd == null ? null : span.mileageEnd - span.mileageStart
-  )
-  const capOf = (span: CappedSpan) => (
-    span.movingHours == null ? null : Math.floor(span.movingHours * maxSpeed)
-  )
+// Пробег всех сессий разом. По одной его посчитать нельзя: доля зависит от того,
+// кто ещё делил тот же промежуток между показаниями.
+export async function sessionDistances(database: Database, vehicleId: number) {
+  const sessions = await database.select().from(engineSessions).where(and(
+    eq(engineSessions.vehicleId, vehicleId),
+    isNotNull(engineSessions.endedAt)
+  )).orderBy(asc(engineSessions.startedAt))
+  if (!sessions.length) return { sessions: [] as SessionDistance[], unattributed: 0 }
 
-  // Справа налево: отдав лишнее соседу слева, тут же проверяем и его.
-  for (let index = result.length - 1; index > 0; index--) {
-    const span = result[index]!
-    const previous = result[index - 1]!
-    const distance = distanceOf(span)
-    const cap = capOf(span)
-    if (distance == null || cap == null || distance <= cap) continue
-
-    const boundary = span.mileageEnd! - cap
-    if (boundary <= span.mileageStart!) continue
-
-    // Отдавать некому, если сосед сам столько проехать не мог: прогрев на
-    // автозапуске никуда не ехал, и приписать ему чужую дорогу — та же ошибка,
-    // только в другую сторону. Такой отрезок остаётся как есть.
-    const previousCap = capOf(previous)
-    const previousDistance = distanceOf(previous)
-    if (previous.mileageEnd == null || previousCap == null || previousDistance == null) continue
-    if (previousDistance + (boundary - span.mileageStart!) > previousCap) continue
-
-    previous.mileageEnd = boundary
-    span.mileageStart = boundary
+  const readings = await odometerReadings(database, vehicleId)
+  const departures = new Map<number, Date | null>()
+  const windows: MovingWindow[] = []
+  for (const session of sessions) {
+    const endedAt = session.endedAt!
+    const remote = await isRemoteStartWarmup(database, { vehicleId, startedAt: session.startedAt, endedAt })
+    const departedAt = remote ? null : await departureWithin(database, vehicleId, session.startedAt, endedAt)
+    departures.set(session.id, departedAt)
+    const from = departedAt && departedAt >= session.startedAt && departedAt <= endedAt ? departedAt : session.startedAt
+    windows.push({ id: session.id, from: remote ? session.startedAt : from, to: remote ? session.startedAt : endedAt })
   }
-  return result
-}
 
-// Отрезок одометра целиком: и начало, и конец по одному правилу.
-//
-// Начало нельзя брать из снапшота, который застал зажигание включённым:
-// показание в нём снято раньше — иногда на час, — и следующая сессия
-// открывается на том же числе, которое предыдущая уже успела отдать как свой
-// конец. Взятые по одному правилу, соседние отрезки стыкуются: конец одного и
-// есть начало другого, и сумма сходится с одометром без остатка.
-export async function sessionOdometerSpan(database: Database, session: SessionWindow) {
-  const mileageStart = await odometerAt(database, session.vehicleId, session.startedAt)
-  const mileageEnd = await sessionOdometerEnd(database, session)
-  const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart
-    ? mileageEnd - mileageStart
-    : null
-  return { mileageStart, mileageEnd, distance }
+  const { distances, unattributed } = distributeOdometer(readings, windows)
+
+  // Показания одометра целые, а доли — нет. Чтобы соседние записи по-прежнему
+  // стыковались, начало каждой берётся там, где кончилась предыдущая: сумма
+  // тогда в точности равна разности крайних показаний.
+  let running: number | null = readings[0]?.value ?? null
+  const result: SessionDistance[] = []
+  for (const session of sessions) {
+    const distance = distances.get(session.id) ?? 0
+    const mileageStart: number | null = running
+    running = running == null ? null : running + distance
+    result.push({
+      sessionId: session.id,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt!,
+      departedAt: departures.get(session.id) ?? null,
+      mileageStart,
+      mileageEnd: running,
+      distance
+    })
+  }
+  return { sessions: result, unattributed }
 }

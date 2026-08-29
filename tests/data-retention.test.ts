@@ -24,7 +24,7 @@ const sourceRoots = ['db', 'scripts', 'server', 'worker'] as const
 // существующую поездку и ничего не стирает.
 const allowedToDelete = new Set([
   join('worker', 'starline', 'recompute.ts'),
-  join('worker', 'starline', 'events.ts')
+  join('worker', 'starline', 'distances.ts')
 ])
 
 async function sourceFiles(directory: string): Promise<string[]> {

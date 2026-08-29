@@ -1,8 +1,8 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
-import { sessionOdometerSpan } from '../../metrics/odometer'
 import { engineSessions, refuelEvents, vehicleSnapshots } from '../../db/schema'
 import { applyReceiptsToRefuel, rematchPendingReceipts } from '../../receipts/store'
+import { recalculateDistances } from './distances'
 import { hasMileageIncreased, snapshotTime } from './trips'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
@@ -23,6 +23,7 @@ export function isRefuelIncrease(litresDelta: number | null, percentDelta: numbe
 }
 
 async function updateEngineSession(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
+  let closed = false
   let session = await database.query.engineSessions.findFirst({
     where: and(eq(engineSessions.vehicleId, vehicleId), eq(engineSessions.isOpen, true)),
     orderBy: desc(engineSessions.startedAt)
@@ -46,24 +47,20 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
     await database.update(engineSessions).set({ firstMovementAt }).where(eq(engineSessions.id, session.id))
   }
 
-  if (current.ignition !== false) return
+  if (current.ignition !== false) return closed
   const reportedEnd = snapshotTime(current)
   const endedAt = reportedEnd >= session.startedAt ? reportedEnd : current.ts
-  // Не то, что показывает одометр в момент остановки, а то, что ему на этот
-  // момент принадлежит: показание могло быть снято за прошлую дорогу и доехать
-  // только сейчас — так прогрев на автозапуске получал чужие километры.
-  const span = await sessionOdometerSpan(database, {
-    vehicleId, startedAt: session.startedAt, endedAt
-  })
-  const mileageStart = span.mileageStart ?? session.mileageStart
-  const mileageEnd = span.mileageEnd ?? current.mileage
-  const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart
-    ? mileageEnd - mileageStart
+  // Пробег здесь только предварительный — то, что одометр успел сказать к
+  // остановке. Сколько на самом деле принадлежит этой сессии, решает общий
+  // пересчёт: доля зависит от соседей, деливших с ней тот же промежуток между
+  // показаниями, и в одиночку её не вычислить.
+  const mileageEnd = current.mileage
+  const distance = session.mileageStart != null && mileageEnd != null && mileageEnd >= session.mileageStart
+    ? mileageEnd - session.mileageStart
     : null
   await database.update(engineSessions).set({
     endedAt,
     firstMovementAt,
-    mileageStart,
     mileageEnd,
     fuelEnd: current.fuel,
     engineTempEnd: current.engineTemp,
@@ -73,6 +70,13 @@ async function updateEngineSession(database: Database, vehicleId: number, curren
     isStationary: distance == null ? null : distance === 0,
     isOpen: false
   }).where(eq(engineSessions.id, session.id))
+  // Закрылась сессия — появилось новое окно движения, и пробег соседей мог
+  // измениться: досылка одометра делится между всеми, кто ехал в том же
+  // промежутке между показаниями. Пересчёт стоит здесь, а не у вызывающего,
+  // чтобы записи не оставались рассогласованными ни на один вызов.
+  await recalculateDistances(database, vehicleId)
+  closed = true
+  return closed
 }
 
 async function detectRefuel(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
@@ -129,10 +133,13 @@ async function detectRefuel(database: Database, vehicleId: number, current: Snap
 }
 
 export async function aggregateSnapshot(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
-  await updateEngineSession(database, vehicleId, current, previous)
+  // Сессия закрылась — значит появилось новое окно движения, и пробег всех
+  // соседей мог измениться: досылка делится между теми, кто ехал в том же
+  // промежутке между показаниями одометра.
+  const sessionClosed = await updateEngineSession(database, vehicleId, current, previous)
   const refuelChanged = await detectRefuel(database, vehicleId, current, previous)
   // A receipt usually reaches the mailbox before the sensor reports the jump, so
   // whatever is still waiting gets another chance the moment an event appears.
   const linkedReceipts = refuelChanged ? await rematchPendingReceipts(database, vehicleId) : []
-  return { refuelChanged, linkedReceipts }
+  return { refuelChanged, linkedReceipts, sessionClosed: Boolean(sessionClosed) }
 }

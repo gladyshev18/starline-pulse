@@ -2,9 +2,10 @@ import { and, asc, desc, eq, gt, gte, isNotNull, lte } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { deviceEvents, engineSessions, trips, vehicleSnapshots } from '../../db/schema'
 import { armedMinutesBetween } from '../../metrics/engine'
-import { capImplausibleDistance, sessionOdometerSpan } from '../../metrics/odometer'
+import { departureWithin } from '../../metrics/odometer'
+import { recalculateDistances } from './distances'
 import { tripFuelUsed } from '../../shared/fuel'
-import { ENGINE_STARTED, ENGINE_STOPPED, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON } from '../../shared/starline-events'
+import { ENGINE_STARTED, ENGINE_STOPPED, IGNITION_OFF, IGNITION_ON } from '../../shared/starline-events'
 import { config } from '../config'
 import { getSlnet, starlineRequest } from './auth'
 
@@ -162,37 +163,6 @@ export interface BoundaryReport {
   removed: Array<{ tripId: number, startedAt: Date }>
 }
 
-// Когда машина тронулась. «Ручник опущен» — единственная точная отметка начала
-// движения: на боевых данных она есть у 63 поездок из 65 и ни у одного из девяти
-// прогревов на автозапуске, то есть не срабатывает там, где машина заведомо
-// стояла. Обратной отметки нет — «ручник поднят» пришёл 4 раза против 116
-// «опущен», потому что приехав глушат двигатель кнопкой и ручник встаёт уже
-// после того, как блоку нечего передавать.
-export async function departureWithin(database: Database, vehicleId: number, from: Date, to: Date) {
-  const event = await database.query.deviceEvents.findFirst({
-    columns: { ts: true },
-    where: and(
-      eq(deviceEvents.vehicleId, vehicleId),
-      eq(deviceEvents.type, HANDBRAKE_RELEASED),
-      gte(deviceEvents.ts, from),
-      lte(deviceEvents.ts, to)
-    ),
-    orderBy: asc(deviceEvents.ts)
-  })
-  return event?.ts ?? null
-}
-
-// Часы, за которые сессия могла ехать. От опущенного ручника, если он известен,
-// иначе от запуска двигателя — тогда получается верхняя оценка, и предел выйдет
-// мягче. Мягче — это правильно: сомнение толкуется в пользу записи.
-function movingHoursOf(session: { startedAt: Date, endedAt: Date | null }, departedAt: Date | null) {
-  if (!session.endedAt) return null
-  const from = departedAt && departedAt >= session.startedAt && departedAt <= session.endedAt
-    ? departedAt
-    : session.startedAt
-  return Math.max(0, session.endedAt.getTime() - from.getTime()) / 3_600_000
-}
-
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
   return await database.query.vehicleSnapshots.findFirst({
     where: and(
@@ -290,108 +260,22 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     sessions.push(created)
     report.created.push({ sessionId: created.id, startedAt: span.startedAt, endedAt: span.endedAt, distance: null })
   }
-  // Теперь километры — по всему окну, а не только по тронутым записям.
-  //
-  // Отрезок сессии кончается на запуске следующей, поэтому появление новой
-  // записи меняет и соседнюю слева. И проход обязан идти даже когда границы
-  // никто не двигал: если предыдущий заход упал между двумя фазами, только это
-  // и вылечит оставшиеся половинчатые записи. Пишется всё равно лишь то, что
-  // разошлось, так что повторный проход ничего не стоит.
-  const window = await database.select().from(engineSessions).where(and(
-    eq(engineSessions.vehicleId, vehicleId),
-    eq(engineSessions.isOpen, false),
-    gte(engineSessions.endedAt, earliest)
-  )).orderBy(asc(engineSessions.startedAt))
-
-  // Отрезки считаются все сразу, а не по одному: правило «машина не могла
-  // проехать больше, чем успевает» смотрит на соседа слева, и решить это на
-  // одной записи нельзя.
-  const departures = new Map<number, Date | null>()
-  for (const session of window) {
-    departures.set(session.id, await departureWithin(database, vehicleId, session.startedAt, session.endedAt!))
+  // Километры считаются одним проходом по всей истории, а не по этому окну:
+  // доля сессии зависит от того, кто ещё делил с ней промежуток между двумя
+  // показаниями одометра. Он же заводит поездки тем сессиям, что проехали без
+  // записи, и снимает те, за которые машина не сдвинулась.
+  const distances = await recalculateDistances(database, vehicleId)
+  report.removed.push(...distances.removed)
+  for (const item of distances.created) {
+    const known = report.created.find(entry => entry.startedAt.getTime() === item.startedAt.getTime())
+    if (known) known.distance = item.distance
+    else report.created.push({ sessionId: item.sessionId, startedAt: item.startedAt, endedAt: item.startedAt, distance: item.distance })
   }
-  const raw: Array<Awaited<ReturnType<typeof sessionOdometerSpan>>> = []
-  for (const session of window) raw.push(await sessionOdometerSpan(database, session))
-  const capped = capImplausibleDistance(window.map((session, index) => ({
-    mileageStart: raw[index]!.mileageStart,
-    mileageEnd: raw[index]!.mileageEnd,
-    movingHours: movingHoursOf(session, departures.get(session.id) ?? null)
-  })))
-
-  for (const [index, session] of window.entries()) {
-    const span = capped[index]!
-    const odometer = {
-      mileageStart: span.mileageStart,
-      mileageEnd: span.mileageEnd,
-      distance: span.mileageStart != null && span.mileageEnd != null && span.mileageEnd >= span.mileageStart
-        ? span.mileageEnd - span.mileageStart
-        : null
-    }
-    const entry = report.created.find(item => item.sessionId === session.id)
-    if (entry) entry.distance = odometer.distance
-    if (odometer.distance == null) continue
-    if (session.mileageStart !== odometer.mileageStart || session.mileageEnd !== odometer.mileageEnd) {
-      await database.update(engineSessions).set({
-        mileageStart: odometer.mileageStart,
-        mileageEnd: odometer.mileageEnd,
-        distance: odometer.distance,
-        isStationary: odometer.distance === 0
-      }).where(eq(engineSessions.id, session.id))
-    }
-
-    const trip = await database.query.trips.findFirst({
-      where: and(eq(trips.vehicleId, vehicleId), eq(trips.startedAt, session.startedAt))
-    })
-    if (trip && !trip.isOpen) {
-      // Машина никуда не уехала — это прогрев, а не поездка, и в журнале ей не
-      // место. Проверка стоит здесь, а не в момент закрытия: одометр досылает
-      // остаток минутами позже, и поездка, у которой в тот момент был ноль,
-      // запросто оказывается настоящей дорогой. К этому проходу окно досылки
-      // уже закрыто. Комментарий писали руками, и запись с ним остаётся.
-      if (odometer.distance === 0 && !trip.comment) {
-        await database.delete(trips).where(eq(trips.id, trip.id))
-        report.removed.push({ tripId: trip.id, startedAt: session.startedAt })
-        continue
-      }
-      const departedAt = departures.get(session.id) ?? null
-      const sameOdometer = trip.mileageStart === odometer.mileageStart && trip.mileageEnd === odometer.mileageEnd
-      const sameDeparture = trip.departedAt?.getTime() === departedAt?.getTime()
-      if (!sameOdometer || !sameDeparture) {
-        await database.update(trips).set({
-          mileageStart: odometer.mileageStart,
-          mileageEnd: odometer.mileageEnd,
-          distance: odometer.distance,
-          departedAt
-        }).where(eq(trips.id, trip.id))
-      }
-      continue
-    }
-    // Проехала, а поездки нет — значит запуск проспали, и дорогу надо записать.
-    // Стояла — это прогрев, сессии достаточно.
-    if (!trip && odometer.distance > 0) {
-      const covered = await database.query.trips.findFirst({
-        where: and(
-          eq(trips.vehicleId, vehicleId),
-          lte(trips.startedAt, session.endedAt!),
-          gt(trips.endedAt, session.startedAt)
-        )
-      })
-      if (covered) continue
-      await database.insert(trips).values({
-        vehicleId,
-        startedAt: session.startedAt,
-        endedAt: session.endedAt,
-        departedAt: departures.get(session.id) ?? null,
-        mileageStart: odometer.mileageStart,
-        mileageEnd: odometer.mileageEnd,
-        distance: odometer.distance,
-        fuelStart: session.fuelStart,
-        fuelEnd: session.fuelEnd,
-        fuelUsed: tripFuelUsed(session.fuelStart, session.fuelEnd),
-        armedMinutes: await armedMinutesBetween(database, vehicleId, session.startedAt, session.endedAt!),
-        isOpen: false
-      })
-    }
+  for (const entry of report.created) {
+    if (entry.distance != null) continue
+    const session = await database.query.engineSessions.findFirst({ where: eq(engineSessions.id, entry.sessionId) })
+    entry.distance = session?.distance ?? null
   }
+
   return report
 }

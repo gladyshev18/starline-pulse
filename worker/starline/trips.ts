@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { armedMinutesBetween } from '../../metrics/engine'
-import { sessionOdometerSpan } from '../../metrics/odometer'
-import { departureWithin } from './events'
+import { departureWithin } from '../../metrics/odometer'
+import { recalculateDistances } from './distances'
 import { tripFuelUsed } from '../../shared/fuel'
 import { engineSessions, jobs, trips, vehicleSnapshots } from '../../db/schema'
 import { tripCompletedText } from '../bot/trip-driver'
@@ -105,60 +105,10 @@ async function tripOrigin(database: Database, vehicleId: number, current: Snapsh
   }
 }
 
-// Сессия закрывается на том, что одометр успел сказать к выключению зажигания, а
-// это регулярно меньше проеханного. Оставить как есть нельзя: по `is_stationary`
-// минуты сессии уходят в счёт за холостой ход, а её литры — в ставку литров в
-// час, и дорога оказалась бы оплачена как прогрев.
-//
-// Но докуда сессия дотянулась, решает не тот, кто её расширяет, а правило
-// принадлежности показаний: своя досылка — да, но только до следующего запуска
-// двигателя. Иначе километры следующей дороги попадают сразу в две сессии, и обе
-// засчитывают их себе.
-async function extendSession(database: Database, vehicleId: number, startedAt: Date) {
-  const session = await database.query.engineSessions.findFirst({
-    where: and(eq(engineSessions.vehicleId, vehicleId), eq(engineSessions.startedAt, startedAt))
-  })
-  if (!session) return
-  const span = await sessionOdometerSpan(database, session)
-  if (span.distance == null) return
-  if (span.mileageStart === session.mileageStart && span.mileageEnd === session.mileageEnd) return
-  await database.update(engineSessions).set({
-    mileageStart: span.mileageStart,
-    mileageEnd: span.mileageEnd,
-    distance: span.distance,
-    isStationary: span.distance === 0
-  }).where(eq(engineSessions.id, session.id))
-}
-
-// The kilometres the odometer settles up with once the car is parked belong to
-// the journey that covered them, so they are written into the trip that already
-// records it — and into its session for the same reason.
-async function absorbLateOdometer(database: Database, vehicleId: number, current: Snapshot, previous: Snapshot) {
-  if (current.mileage == null) return
-  const trip = await database.query.trips.findFirst({
-    where: and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, false)),
-    orderBy: desc(trips.startedAt)
-  })
-  // Continuity is the proof of ownership: the reading the trip closed on is the
-  // one the flush picks up from. Anything else and these kilometres came from
-  // somewhere this cannot see, and guessing would be worse than leaving them.
-  if (!trip || trip.mileageEnd == null || !sameMileage(trip.mileageEnd, previous.mileage)) return
-
-  // Сколько именно досталось этой поездке, решает время съёма показаний, а не то,
-  // в каком опросе они приехали: после следующего запуска двигателя одометр
-  // считает уже чужие километры, даже если привёз их тот же ответ.
-  const span = await sessionOdometerSpan(database, {
-    vehicleId, startedAt: trip.startedAt, endedAt: trip.endedAt
-  })
-  const mileageEnd = span.mileageEnd
-  if (mileageEnd == null || !(mileageEnd > trip.mileageEnd)) return
-
-  const distance = trip.mileageStart != null && mileageEnd >= trip.mileageStart
-    ? mileageEnd - trip.mileageStart
-    : trip.distance
-  await database.update(trips).set({ mileageEnd, distance }).where(eq(trips.id, trip.id))
-  await extendSession(database, vehicleId, trip.startedAt)
-}
+// Досылка одометра по стоящей машине — не начало дороги. Раньше здесь её
+// разбирали вручную; теперь этим занимается общий пересчёт, который видит все
+// показания и все окна движения разом, поэтому живому опросу достаточно не
+// заводить на такой рост лишнюю поездку.
 
 export async function handleMileageProgress(database: Database, vehicleId: number, current: Snapshot, previous?: Snapshot) {
   let openTrip = await database.query.trips.findFirst({ where: and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, true)), orderBy: desc(trips.startedAt) })
@@ -173,8 +123,12 @@ export async function handleMileageProgress(database: Database, vehicleId: numbe
     // Раньше прогрев становился от этого отдельной поездкой.
     const remoteStart = current.ignition === true && current.armed === true
     const origin = remoteStart ? null : await tripOrigin(database, vehicleId, current, previous)
+    // Одометр вырос на стоящей машине: это досылка за дорогу, которая уже
+    // записана. Разложить её между теми, кто ехал в этом промежутке, может
+    // только общий пересчёт — он и вызывается, благо такое случается несколько
+    // раз в сутки, а не каждый опрос.
     if (!origin) {
-      await absorbLateOdometer(database, vehicleId, current, previous)
+      await recalculateDistances(database, vehicleId)
       return
     }
     const [createdTrip] = await database.insert(trips).values({
@@ -225,15 +179,14 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
   const fuelStartSnapshot = trip.fuelStart == null
     ? await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), isNotNull(vehicleSnapshots.fuel)), orderBy: asc(vehicleSnapshots.ts) }) : null
   const fuelEndSnapshot = await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), lte(vehicleSnapshots.ts, settledBy), isNotNull(vehicleSnapshots.fuel)), orderBy: desc(vehicleSnapshots.ts) })
-  // Одометр берётся не из снапшотов поездки, а по правилу принадлежности
-  // показаний: показание, застигнутое в момент запуска, снято раньше — иногда на
-  // час, — и поездка, взявшая его за начало, приписывала себе хвост предыдущей.
-  const span = await sessionOdometerSpan(database, {
-    vehicleId: payload.vehicleId, startedAt: trip.startedAt, endedAt
-  })
-  const mileageStart = span.mileageStart ?? trip.mileageStart ?? mileageStartSnapshot?.mileage ?? null
+  // Одометр здесь предварительный: к сроку закрытия досылка ещё в пути, и
+  // сколько километров принадлежит именно этой поездке, в одиночку не решить —
+  // доля зависит от соседей, деливших с ней промежуток между показаниями. Это
+  // считает общий пересчёт, который вызывается сразу следом.
+  const mileageEndSnapshot = await database.query.vehicleSnapshots.findFirst({ where: and(eq(vehicleSnapshots.vehicleId, payload.vehicleId), gte(vehicleSnapshots.ts, trip.startedAt), lte(vehicleSnapshots.ts, settledBy), isNotNull(vehicleSnapshots.mileage)), orderBy: desc(vehicleSnapshots.ts) })
+  const mileageStart = trip.mileageStart ?? mileageStartSnapshot?.mileage ?? null
   const fuelStart = trip.fuelStart ?? fuelStartSnapshot?.fuel ?? null
-  const mileageEnd = span.mileageEnd
+  const mileageEnd = mileageEndSnapshot?.mileage ?? null
   const fuelEnd = fuelEndSnapshot?.fuel ?? null
   const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart ? mileageEnd - mileageStart : null
   const fuelUsed = tripFuelUsed(fuelStart, fuelEnd)
@@ -247,7 +200,10 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
     endedAt, departedAt, mileageStart, mileageEnd, distance, fuelStart, fuelEnd, fuelUsed, armedMinutes,
     latEnd: latest.lat, lonEnd: latest.lon, isOpen: false
   }).where(eq(trips.id, trip.id)).returning()
-  await extendSession(database, payload.vehicleId, trip.startedAt)
+  // Досылка одометра прилетает минутами позже и делится между всеми, кто ехал
+  // в том же промежутке. Пересчёт разложит её правильно — и по этой поездке, и
+  // по соседним, которых она тоже касается.
+  await recalculateDistances(database, payload.vehicleId)
   if (closed) {
     // tripId в задаче — это и есть вопрос «кто был за рулём»: по нему к
     // уведомлению приклеиваются кнопки с именами.

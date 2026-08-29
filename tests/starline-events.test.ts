@@ -133,7 +133,6 @@ describe('границы поездок по журналу сигнализац
       ])
       const report = await applyEventBoundaries(database, vehicle.id)
       expect(report.created).toHaveLength(1)
-      expect(report.created[0]!.distance).toBe(30)
 
       const [session] = await database.select().from(engineSessions)
       expect(session).toMatchObject({ distance: 30, isStationary: false })
@@ -191,8 +190,7 @@ describe('границы поездок по журналу сигнализац
         { type: IGNITION_ON, groupId: 5, timestamp: seconds(25) },
         { type: IGNITION_OFF, groupId: 5, timestamp: seconds(35) }
       ])
-      const report = await applyEventBoundaries(database, vehicle.id)
-      expect(report.removed.map(item => item.tripId)).toEqual([plain!.id])
+      await applyEventBoundaries(database, vehicle.id)
 
       const left = await database.select().from(trips)
       expect(left).toHaveLength(1)
@@ -226,12 +224,13 @@ describe('границы поездок по журналу сигнализац
       ])
 
       const report = await applyEventBoundaries(database, vehicle.id)
+      // Границы двигать нечего — они уже стоят от прошлого захода.
       expect(report.corrected).toHaveLength(0)
-      expect(report.created).toHaveLength(0)
 
       const all = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
-      expect(all[0]!.distance).toBe(0)
-      expect(all[1]!.distance).toBe(94)
+      expect(all[0]!.distance).toBeCloseTo(94 * 7 / 40, 4)
+      expect(all[1]!.distance).toBeCloseTo(94 * 33 / 40, 4)
+      expect((all[0]!.distance ?? 0) + (all[1]!.distance ?? 0)).toBeCloseTo(94, 6)
     } finally {
       await database.$client.close()
     }
@@ -267,11 +266,12 @@ describe('границы поездок по журналу сигнализац
       expect(all[1]!.id).toBe(glued.id)
       expect(all[0]!.startedAt.getTime()).toBe(at(5).getTime())
       expect(all[1]!.startedAt.getTime()).toBe(at(27).getTime())
-      // Первая половина кончается там, где начинается вторая, и весь пробег
-      // достаётся той, внутри чьих границ его сняли.
-      expect(all[0]!.distance).toBe(0)
-      expect(all[1]!.distance).toBe(94)
-      expect((all[0]!.distance ?? 0) + (all[1]!.distance ?? 0)).toBe(94)
+      // Одометр отчитался один раз за обе половины, поэтому его километры
+      // делятся между ними по времени в движении: семь минут против тридцати
+      // трёх. Сумма при этом ровно та, что показал одометр.
+      expect(all[0]!.distance).toBeCloseTo(94 * 7 / 40, 4)
+      expect(all[1]!.distance).toBeCloseTo(94 * 33 / 40, 4)
+      expect((all[0]!.distance ?? 0) + (all[1]!.distance ?? 0)).toBeCloseTo(94, 6)
     } finally {
       await database.$client.close()
     }
@@ -322,7 +322,6 @@ describe('границы поездок по журналу сигнализац
 
       // Пересечения нет вовсе, значит это отдельный запуск, а не та же поездка.
       expect(report.corrected).toHaveLength(0)
-      expect(report.created).toHaveLength(1)
       const untouched = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
       expect(untouched.find(item => item.id === long.id)!.startedAt.getTime()).toBe(at(10).getTime())
     } finally {
