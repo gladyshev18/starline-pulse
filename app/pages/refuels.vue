@@ -38,6 +38,42 @@ const driftNote = computed(() => {
 })
 const details = reactive({ station: '', stationName: '', fuelType: '', pricePerLitre: '', totalAmount: '' })
 
+// Цена литра. Ряды с одним чеком показываются тоже — цена в них известна, — но
+// про изменение молчат: одна точка никуда не движется.
+const priceRows = computed(() => data.value?.prices.byFuelType || [])
+function stationLabel(station: string | null, stationName: string | null) {
+  return stationName || STATIONS.find(item => item.value === station)?.label || 'Другая АЗС'
+}
+// Сравнение сетей имеет смысл только внутри одного вида топлива: АИ-92 дешевле
+// АИ-95 везде, и таблица со всеми подряд сообщала бы именно это.
+const stationRows = computed(() => {
+  const leading = priceRows.value[0]?.fuelType
+  return (data.value?.prices.byStation || []).filter(item => item.fuelType === leading)
+})
+const overpay = computed(() => data.value?.prices.overpay.find(item => item.fuelType === priceRows.value[0]?.fuelType) || null)
+
+// Убыль на стоянке. Заголовок говорит средним за стоянку, а не суммой: сумма
+// растёт от того, что история длиннее, а среднее — только от того, что убыль
+// действительно есть.
+const standstillHeadline = computed(() => {
+  const standstill = data.value?.standstill
+  if (!standstill?.samples) return 'Пока не с чем сравнивать'
+  if (standstill.average == null || Math.abs(standstill.average) < 0.01) return 'Уровень не меняется'
+  const direction = standstill.average > 0 ? 'теряет' : 'прибавляет'
+  return `За стоянку бак ${direction} ${number(Math.abs(standstill.average), 2)} л`
+})
+const standstillNote = computed(() => {
+  const standstill = data.value?.standstill
+  if (!standstill?.samples) return ''
+  const parts = [`${standstill.samples} стоянок дольше шести часов`, `падений ${standstill.drops}, ростов ${standstill.rises}`]
+  if (standstill.systematic && standstill.probability != null) {
+    parts.push(`совпадение исключено: такой перевес даёт вероятность ${number(standstill.probability * 100, 1)} %`)
+  } else {
+    parts.push('перевеса пока нет — всё в пределах округления датчика')
+  }
+  return parts.join(' · ')
+})
+
 function number(value: number | null, digits = 1) {
   return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
 }
@@ -196,6 +232,65 @@ async function uploadReceipt(refuelId: number, file: File) {
         </div>
         <p class="metric metric--compact">{{ driftHeadline }}</p>
         <p class="muted">{{ driftNote }}</p>
+      </section>
+
+      <section v-if="priceRows.length" class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Цена литра</p>
+            <p class="muted">По чекам. Виды топлива не смешиваются: разница между ними больше, чем движение цены</p>
+          </div>
+        </div>
+        <div class="price-rows">
+          <div v-for="row in priceRows" :key="row.fuelType" class="price-row">
+            <div>
+              <strong>{{ row.fuelType }}</strong>
+              <span class="muted"> · {{ row.points.length }} чеков</span>
+            </div>
+            <p class="price-row__value">
+              <strong>{{ money(row.last.price) }}/л</strong>
+              <span v-if="row.change != null && Math.abs(row.change) >= 0.01" class="muted">
+                {{ row.change > 0 ? '+' : '−' }}{{ number(Math.abs(row.change), 2) }} ₽ с
+                {{ new Date(row.first.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) }}
+              </span>
+              <span v-else class="muted">цена держится</span>
+            </p>
+          </div>
+        </div>
+        <div v-if="stationRows.length > 1" class="price-stations">
+          <p class="metric-label">{{ priceRows[0]!.fuelType }} по сетям</p>
+          <div v-for="station in stationRows" :key="`${station.station}`" class="price-row">
+            <div>
+              <strong>{{ stationLabel(station.station, station.stationName) }}</strong>
+              <span class="muted"> · {{ number(station.litres) }} л</span>
+            </div>
+            <p class="price-row__value"><strong>{{ money(station.averagePrice) }}/л</strong></p>
+          </div>
+        </div>
+        <p v-if="overpay && overpay.amount >= 1" class="metric-meta">
+          Тот же бензин у {{ stationLabel(overpay.cheapest.station, overpay.cheapest.stationName) }} обошёлся бы
+          на {{ money(overpay.amount) }} дешевле — столько стоило то, что заправлялись не только там.
+        </p>
+      </section>
+
+      <section v-if="data.standstill.samples" class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Убыль на стоянке</p>
+            <p class="muted">
+              Уровень в момент остановки двигателя и в момент следующего запуска. Датчик округляет до пол-литра,
+              поэтому считаются не литры, а стороны: сколько стоянок кончились падением и сколько ростом
+            </p>
+          </div>
+          <span v-if="data.standstill.systematic" class="metric-badge">систематическое</span>
+        </div>
+        <p class="metric metric--compact">{{ standstillHeadline }}</p>
+        <p class="muted">{{ standstillNote }}</p>
+        <p v-if="data.standstill.systematic" class="metric-meta">
+          Всего {{ number(data.standstill.total, 1) }} л за всю историю. Через двигатель они не прошли, но в расход
+          записаны: баланс бака считает израсходованным всё, чего в баке не стало. Похоже на остывание топлива —
+          холодный бензин занимает меньше места, — и тогда днём объём возвращается.
+        </p>
       </section>
       <article v-for="refuel in data.items" :key="refuel.id" class="card refuel-card">
         <div class="refuel-card__summary">

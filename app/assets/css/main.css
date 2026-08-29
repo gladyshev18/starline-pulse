@@ -758,3 +758,11 @@ tbody tr:hover { background: var(--surface-subtle); }
 .heatmap__day { color: var(--muted); font-size: .68rem; }
 .heatmap__cell { aspect-ratio: 1; border-radius: 3px; background: color-mix(in srgb, var(--accent) calc(var(--heat, 0) * 85% + 15%), var(--surface-subtle)); }
 .heatmap__cell--empty { background: var(--surface-subtle); }
+
+/* Цены по видам топлива и по сетям: две одинаковые по устройству таблички из
+   двух колонок, поэтому строка у них одна на всех. */
+.price-rows, .price-stations { display: grid; gap: 2px; margin-top: 14px; }
+.price-stations { margin-top: 22px; }
+.price-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding: 9px 13px; border-radius: 10px; background: var(--surface-subtle); font-size: .82rem; }
+.price-row__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0; }
+.price-row__value .muted { font-size: .72rem; }
