@@ -5,8 +5,10 @@ import { costPerKilometre, fuelCost, summariseBySpeed } from '../shared/consumpt
 import { summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
-import { ambientTemperature, speedBreakdown } from './consumption'
+import { operatingRates } from '../shared/operating'
+import { ambientTemperature, consumptionQuality, speedBreakdown } from './consumption'
 import { resolveFuelPrice } from './idle'
+import { operatingSummary } from './operating'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
 
@@ -53,7 +55,12 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
     },
     bySpeed: priced(summariseBySpeed([]), null),
     byDriver: priced(summariseByDriver([]), null),
-    ambient: { average: null, min: null, max: null, days: 0, daily: [] }
+    ambient: { average: null, min: null, max: null, days: 0, daily: [] },
+    operating: {
+      periods: [] as ReturnType<typeof operatingRates>,
+      total: operatingRates([{ bucket: 'total', from: '', to: '', km: 0, motorMinutes: 0 }])[0]!
+    },
+    quality: { trips: [], total: 0, measured: 0, outliers: [] } as Awaited<ReturnType<typeof consumptionQuality>>
   }
 }
 
@@ -205,6 +212,11 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
       minutes: Number(row.minutes || 0)
     }))), pricePerLitre),
     bySpeed: priced(await speedBreakdown(database, vehicle.id, range.start, range.end), pricePerLitre),
-    ambient: await ambientTemperature(database, vehicle.id, range.start, range.end)
+    ambient: await ambientTemperature(database, vehicle.id, range.start, range.end),
+    // Километры на моточас считаются по счётчику сигнализации и одометру, а не
+    // по журналу поездок: это независимая от него величина, и в том её польза —
+    // если разложение пробега по поездкам поедет, она останется на месте.
+    operating: await operatingSummary(database, vehicle.id, range.start, range.end),
+    quality: await consumptionQuality(database, vehicle.id, range.start, range.end)
   }
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { DOUBT_LABELS, type ConsumptionDoubt } from '~~/shared/consumption-confidence'
+
 const route = useRoute()
 const page = computed(() => Math.max(1, Number(route.query.page) || 1))
 const selectedDay = computed(() => {
@@ -42,6 +44,19 @@ function litres(value: number | null) {
 }
 function unresolved(value: number | null) {
   return value != null && Math.abs(value) < 0.5
+}
+// Расход одной поездки — это разность двух показаний датчика, и промахнуться
+// она может на целый его шаг. На тридцати километрах это полтора литра на сотню
+// и ничего не меняет, на трёх — четырнадцать, то есть половина значения. Одно и
+// то же число «28 л/100 км» в этих двух случаях означает совершенно разное, и
+// граница ошибки рядом с ним — единственный способ это показать.
+function consumptionRange(trip: { consumption: number | null, consumptionErrorBound: number | null }) {
+  const value = number(trip.consumption)
+  if (trip.consumptionErrorBound == null) return `${value} л/100 км`
+  return `${value} ± ${number(trip.consumptionErrorBound)} л/100 км`
+}
+function doubtTitle(doubts: ConsumptionDoubt[]) {
+  return doubts.map(doubt => DOUBT_LABELS[doubt]).join(' · ') || undefined
 }
 // Копейки тут не значат ничего: цена литра сама выведена из чеков за месяц.
 function money(value: number | null | undefined) {
@@ -139,8 +154,15 @@ async function saveComment() {
               <td role="cell" data-label="Расход топлива">
                 <span class="cell-stack">
                   {{ litres(trip.fuelUsed) }}
-                  <span v-if="!unresolved(trip.fuelUsed)" class="trip-consumption">{{ number(trip.consumption) }} л/100 км</span>
+                  <span
+                    v-if="!unresolved(trip.fuelUsed)"
+                    class="trip-consumption"
+                    :title="doubtTitle(trip.doubts)"
+                  >{{ consumptionRange(trip) }}</span>
                   <span v-else class="trip-consumption muted">ниже точности датчика</span>
+                  <span v-if="trip.outlier" class="trip-flag">
+                    {{ trip.deviation! > 0 ? 'Выше' : 'Ниже' }} обычного на {{ number(Math.abs(trip.deviation!)) }} л/100 км
+                  </span>
                 </span>
               </td>
               <td role="cell" data-label="Стоимость">{{ money(trip.cost) }}</td>

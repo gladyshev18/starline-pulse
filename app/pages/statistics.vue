@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
+import { operatingDeviation } from '~~/shared/operating'
 
 const route = useRoute()
 
@@ -86,6 +87,37 @@ const speedSpread = computed(() => {
   return ratio >= 1.2 ? ratio : null
 })
 
+// Недели без часа работы двигателя не показываются: делить километры на десять
+// минут — это не режим эксплуатации, а случайность округления счётчика.
+const operatingWeeks = computed(() => (data.value?.operating.periods || []).filter(item => item.kmPerHour != null))
+const bestOperating = computed(() => Math.max(1, ...operatingWeeks.value.map(item => item.kmPerHour || 0)))
+function weekTitle(week: { from: string, to: string }) {
+  const format = (value: string, withMonth: boolean) => new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    ...(withMonth ? { month: 'short' } : {})
+  }).format(new Date(`${value}T00:00:00+03:00`))
+  return week.from === week.to ? format(week.from, true) : `${format(week.from, false)}–${format(week.to, true)}`
+}
+// Самая слабая неделя месяца — и только если она действительно выбилась.
+// Порог в четверть взят затем, чтобы подпись не появлялась на ровном месяце,
+// где недели отличаются на несколько процентов и объяснять нечего.
+const weakestWeek = computed(() => {
+  const weeks = operatingWeeks.value
+  if (weeks.length < 3) return null
+  const worst = weeks.reduce((found, item) => item.kmPerHour! < found.kmPerHour! ? item : found)
+  const deviation = operatingDeviation(weeks, worst)
+  return deviation != null && deviation <= -0.25 ? { week: worst, deviation } : null
+})
+
+function date(value: string | Date) {
+  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+// Ссылка ведёт в журнал за тот день, которому поездка принадлежит по Москве, —
+// журнал фильтрует ровно так же.
+function moscowDay(value: string | Date) {
+  return new Date(new Date(value).getTime() + 3 * 60 * 60_000).toISOString().slice(0, 10)
+}
+
 useHead({ title: computed(() => `Статистика — ${monthTitle.value} — StarLine Pulse`) })
 </script>
 
@@ -144,6 +176,17 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         </p>
       </section>
 
+      <section class="card metric-card history-metric">
+        <div class="card__top"><p class="metric-label">Километры на моточас</p></div>
+        <p class="metric">{{ number(data?.operating.total.kmPerHour) }} <small>км/ч работы</small></p>
+        <p class="metric-meta">
+          <span v-if="data?.operating.total.band">
+            {{ data.operating.total.band.label }} · двигатель работал {{ number(data.operating.total.motorHours) }} ч
+          </span>
+          <span v-else>Двигатель работал меньше часа</span>
+        </p>
+      </section>
+
       <section class="card card--wide history-chart-card">
         <div class="card__top">
           <div>
@@ -164,6 +207,36 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         />
         <p v-if="chartMode === 'daily' && !hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
         <p v-if="chartMode === 'odometer' && !hasOdometerData" class="muted history-empty">За этот месяц недостаточно показаний одометра.</p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Как работал двигатель</p>
+            <p class="muted">
+              Километры за час работы двигателя по неделям. В знаменателе всё время, что мотор крутился, —
+              прогревы и стояние тоже, поэтому число говорит не о скорости, а о том, сколько из работы двигателя досталось дороге
+            </p>
+          </div>
+        </div>
+        <p v-if="!operatingWeeks.length" class="muted empty-note">За этот месяц двигатель работал слишком мало, чтобы делить.</p>
+        <div v-else class="speed-rows">
+          <div v-for="week in operatingWeeks" :key="week.bucket" class="speed-row">
+            <div class="speed-row__head">
+              <strong>{{ weekTitle(week) }}</strong>
+              <span class="muted">{{ week.band?.label }}</span>
+            </div>
+            <span class="speed-row__track"><span class="speed-row__bar" :style="{ width: `${(week.kmPerHour || 0) / bestOperating * 100}%` }" /></span>
+            <p class="speed-row__value">
+              <strong>{{ number(week.kmPerHour) }} км/ч работы</strong>
+              <span class="muted">{{ number(week.km, 0) }} км · двигатель {{ number(week.motorHours) }} ч</span>
+            </p>
+          </div>
+        </div>
+        <p v-if="weakestWeek" class="metric-meta">
+          {{ weekTitle(weakestWeek.week) }}: двигатель наработал столько же, а километров вышло на
+          {{ number(Math.abs(weakestWeek.deviation) * 100, 0) }}% меньше обычного — эти часы машина простояла заведённой.
+        </p>
       </section>
 
       <section class="card card--wide">
@@ -227,6 +300,44 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         <p v-if="speedSpread" class="metric-meta">
           Километр в пробке обходится в {{ number(speedSpread) }} раза дороже, чем на трассе.
         </p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Насколько измерен расход</p>
+            <p class="muted">
+              Литры поездки — это разность двух показаний датчика, а он различает только целые проценты бака, то есть пол-литра.
+              На коротком выезде такая ступенька и есть весь расход, поэтому сравнивать между собой можно не все поездки
+            </p>
+          </div>
+        </div>
+        <p v-if="!data?.quality.total" class="muted empty-note">За этот месяц завершённых поездок нет.</p>
+        <template v-else>
+          <p class="quality-line">
+            <strong>{{ data.quality.measured }}</strong> из {{ data.quality.total }} поездок измерены достаточно точно,
+            чтобы их расход можно было с чем-то сравнить. Остальные не выброшены из месячных сумм — там ошибки округления
+            гасят друг друга, — но поодиночке их «л/100 км» не значат ничего.
+          </p>
+          <div v-if="data.quality.outliers.length" class="outliers">
+            <p class="metric-label">Выбиваются из своей корзины</p>
+            <ul class="outlier-list">
+              <li v-for="item in data.quality.outliers" :key="item.id" class="outlier-row">
+                <NuxtLink :to="`/trips?day=${moscowDay(item.startedAt)}`">{{ date(item.startedAt) }}</NuxtLink>
+                <span>
+                  {{ number(item.consumption) }} ± {{ number(item.errorBound) }} л/100 км ·
+                  {{ item.deviation! > 0 ? '+' : '−' }}{{ number(Math.abs(item.deviation!)) }} к медиане
+                  <template v-if="item.speed != null"> · {{ number(item.speed, 0) }} км/ч</template>
+                </span>
+              </li>
+            </ul>
+            <p class="metric-meta">
+              Отклонение больше и собственной ошибки поездки, и разброса её корзины. Это либо действительно другая
+              дорога, либо запись, которой достался чужой расход.
+            </p>
+          </div>
+          <p v-else class="muted empty-note">Поездок, выбивающихся из своей корзины скорости, за месяц нет.</p>
+        </template>
       </section>
     </div>
   </div>

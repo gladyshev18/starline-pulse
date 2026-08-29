@@ -396,6 +396,15 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .battery-trend__row span:not(:first-child) { color: var(--muted); }
 .empty-note { margin: 24px 0 0; }
 
+/* Сколько поездок вообще измерено. Строка сама по себе, без таблицы вокруг:
+   это не показатель месяца, а предупреждение о том, как читать остальные. */
+.quality-line { margin: 18px 0 0; font-size: .85rem; line-height: 1.5; }
+.quality-line strong { color: var(--accent-ink); }
+.outliers { margin-top: 22px; }
+.outlier-list { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.outlier-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 9px 13px; border-radius: 10px; background: var(--surface-subtle); font-size: .78rem; }
+.outlier-row span { color: var(--muted); }
+
 .history-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .month-switcher { display: grid; grid-template-columns: 40px minmax(155px, auto) 40px; align-items: center; gap: 8px; }
 .month-switcher strong { font-size: .9rem; font-weight: 650; text-align: center; }
@@ -420,6 +429,10 @@ tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
 .trip-consumption { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
+/* Отметка выброса. Их за месяц единицы, и это единственное место в журнале, где
+   строку нужно заметить, не читая, — поэтому она не приглушена, в отличие от
+   всего остального под значением. */
+.trip-flag { display: block; margin-top: 2px; color: var(--danger); font-size: .68rem; font-weight: 600; }
 /* Значение и подпись под ним — один элемент сетки: без обёртки они разъезжаются
    по разным колонкам карточной раскладки на телефоне. */
 .cell-stack { display: block; }
