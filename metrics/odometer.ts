@@ -2,6 +2,7 @@ import { and, asc, eq, gt, gte, isNotNull, lte, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, vehicleSnapshots } from '../db/schema'
 import { MAX_POLL_GAP_MS } from './engine'
+import { MAX_PLAUSIBLE_SPEED } from '../shared/consumption'
 
 export type SessionWindow = {
   vehicleId: number
@@ -160,6 +161,61 @@ async function sessionOdometerEnd(database: Database, session: SessionWindow) {
     return await odometerAt(database, session.vehicleId, session.startedAt)
   }
   return await odometerAt(database, session.vehicleId, boundary)
+}
+
+export interface CappedSpan {
+  mileageStart: number | null
+  mileageEnd: number | null
+  // Часы, за которые машина могла ехать: от опущенного ручника до выключения
+  // зажигания. Ноль означает, что двигаться было некогда.
+  movingHours: number | null
+}
+
+// Отрезок одометра принадлежит сессии по времени съёма показания, и обычно это
+// верно. Но досылка приходит с задержкой, а показание снимается тогда, когда
+// OBD проснётся, — и остаток длинной дороги запросто оказывается помечен
+// временем короткого запуска, случившегося следом. Тогда тридцатисекундная
+// сессия забирает себе километры, которые проехали до неё.
+//
+// Отличить такое можно, ничего не выдумывая: машина не могла проехать больше,
+// чем успевает за своё время в движении. Всё, что сверх этого, принадлежит
+// предыдущей дороге, и граница между ними сдвигается назад.
+//
+// Предел взят щедрым намеренно. Он не для того, чтобы поправить среднюю
+// скорость, — для этого он слишком груб, — а чтобы поймать физически
+// невозможное: 4 км за 45 секунд. Настоящие поездки его не задевают.
+export function capImplausibleDistance(spans: CappedSpan[], maxSpeed = MAX_PLAUSIBLE_SPEED) {
+  const result = spans.map(item => ({ ...item }))
+  const distanceOf = (span: CappedSpan) => (
+    span.mileageStart == null || span.mileageEnd == null ? null : span.mileageEnd - span.mileageStart
+  )
+  const capOf = (span: CappedSpan) => (
+    span.movingHours == null ? null : Math.floor(span.movingHours * maxSpeed)
+  )
+
+  // Справа налево: отдав лишнее соседу слева, тут же проверяем и его.
+  for (let index = result.length - 1; index > 0; index--) {
+    const span = result[index]!
+    const previous = result[index - 1]!
+    const distance = distanceOf(span)
+    const cap = capOf(span)
+    if (distance == null || cap == null || distance <= cap) continue
+
+    const boundary = span.mileageEnd! - cap
+    if (boundary <= span.mileageStart!) continue
+
+    // Отдавать некому, если сосед сам столько проехать не мог: прогрев на
+    // автозапуске никуда не ехал, и приписать ему чужую дорогу — та же ошибка,
+    // только в другую сторону. Такой отрезок остаётся как есть.
+    const previousCap = capOf(previous)
+    const previousDistance = distanceOf(previous)
+    if (previous.mileageEnd == null || previousCap == null || previousDistance == null) continue
+    if (previousDistance + (boundary - span.mileageStart!) > previousCap) continue
+
+    previous.mileageEnd = boundary
+    span.mileageStart = boundary
+  }
+  return result
 }
 
 // Отрезок одометра целиком: и начало, и конец по одному правилу.

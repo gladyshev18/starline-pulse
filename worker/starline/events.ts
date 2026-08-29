@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gt, gte, isNotNull, lte } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { deviceEvents, engineSessions, trips, vehicleSnapshots } from '../../db/schema'
 import { armedMinutesBetween } from '../../metrics/engine'
-import { sessionOdometerSpan } from '../../metrics/odometer'
+import { capImplausibleDistance, sessionOdometerSpan } from '../../metrics/odometer'
 import { tripFuelUsed } from '../../shared/fuel'
 import { ENGINE_STARTED, ENGINE_STOPPED, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON } from '../../shared/starline-events'
 import { config } from '../config'
@@ -182,6 +182,17 @@ export async function departureWithin(database: Database, vehicleId: number, fro
   return event?.ts ?? null
 }
 
+// Часы, за которые сессия могла ехать. От опущенного ручника, если он известен,
+// иначе от запуска двигателя — тогда получается верхняя оценка, и предел выйдет
+// мягче. Мягче — это правильно: сомнение толкуется в пользу записи.
+function movingHoursOf(session: { startedAt: Date, endedAt: Date | null }, departedAt: Date | null) {
+  if (!session.endedAt) return null
+  const from = departedAt && departedAt >= session.startedAt && departedAt <= session.endedAt
+    ? departedAt
+    : session.startedAt
+  return Math.max(0, session.endedAt.getTime() - from.getTime()) / 3_600_000
+}
+
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
   return await database.query.vehicleSnapshots.findFirst({
     where: and(
@@ -292,8 +303,30 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     gte(engineSessions.endedAt, earliest)
   )).orderBy(asc(engineSessions.startedAt))
 
+  // Отрезки считаются все сразу, а не по одному: правило «машина не могла
+  // проехать больше, чем успевает» смотрит на соседа слева, и решить это на
+  // одной записи нельзя.
+  const departures = new Map<number, Date | null>()
   for (const session of window) {
-    const odometer = await sessionOdometerSpan(database, session)
+    departures.set(session.id, await departureWithin(database, vehicleId, session.startedAt, session.endedAt!))
+  }
+  const raw: Array<Awaited<ReturnType<typeof sessionOdometerSpan>>> = []
+  for (const session of window) raw.push(await sessionOdometerSpan(database, session))
+  const capped = capImplausibleDistance(window.map((session, index) => ({
+    mileageStart: raw[index]!.mileageStart,
+    mileageEnd: raw[index]!.mileageEnd,
+    movingHours: movingHoursOf(session, departures.get(session.id) ?? null)
+  })))
+
+  for (const [index, session] of window.entries()) {
+    const span = capped[index]!
+    const odometer = {
+      mileageStart: span.mileageStart,
+      mileageEnd: span.mileageEnd,
+      distance: span.mileageStart != null && span.mileageEnd != null && span.mileageEnd >= span.mileageStart
+        ? span.mileageEnd - span.mileageStart
+        : null
+    }
     const entry = report.created.find(item => item.sessionId === session.id)
     if (entry) entry.distance = odometer.distance
     if (odometer.distance == null) continue
@@ -320,7 +353,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
         report.removed.push({ tripId: trip.id, startedAt: session.startedAt })
         continue
       }
-      const departedAt = await departureWithin(database, vehicleId, session.startedAt, session.endedAt!)
+      const departedAt = departures.get(session.id) ?? null
       const sameOdometer = trip.mileageStart === odometer.mileageStart && trip.mileageEnd === odometer.mileageEnd
       const sameDeparture = trip.departedAt?.getTime() === departedAt?.getTime()
       if (!sameOdometer || !sameDeparture) {
@@ -348,7 +381,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
         vehicleId,
         startedAt: session.startedAt,
         endedAt: session.endedAt,
-        departedAt: await departureWithin(database, vehicleId, session.startedAt, session.endedAt!),
+        departedAt: departures.get(session.id) ?? null,
         mileageStart: odometer.mileageStart,
         mileageEnd: odometer.mileageEnd,
         distance: odometer.distance,

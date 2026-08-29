@@ -3,7 +3,7 @@ import { migrate } from 'drizzle-orm/libsql/migrator'
 import { resolve } from 'node:path'
 import { createDatabase } from '../db/client'
 import { engineSessions, vehicles, vehicleSnapshots } from '../db/schema'
-import { sessionOdometerSpan } from '../metrics/odometer'
+import { capImplausibleDistance, sessionOdometerSpan } from '../metrics/odometer'
 
 // Одометр этой машины целочисленный, отдаёт пробег кусками по десять-двадцать
 // километров и досылает остаток уже после того, как зажигание выключили. Кому
@@ -40,6 +40,44 @@ describe('к какой сессии относится показание од�
     }
     return { database, vehicle: vehicle!, snapshot, session }
   }
+
+  // 22 августа зажигание включили в 09:58:50, двигатель завёлся в 10:00:40,
+  // ручник опустили в 10:00:47, заглушили в 10:01:19. За тридцать две секунды
+  // движения этой сессии достались три километра — их проехали в предыдущей
+  // поездке, а показание сняли уже здесь.
+  describe('пробег, которого не могло быть', () => {
+    it('возвращает предыдущей дороге то, что не влезает во время в движении', () => {
+      const [before, after] = capImplausibleDistance([
+        { mileageStart: 19226, mileageEnd: 19228, movingHours: 12.7 / 60 },
+        { mileageStart: 19228, mileageEnd: 19231, movingHours: 32 / 3600 }
+      ])
+      // Тридцать две секунды при 140 км/ч — это километр с четвертью, то есть
+      // один целый километр одометра.
+      expect(after!.mileageStart).toBe(19230)
+      expect(after!.mileageEnd! - after!.mileageStart!).toBe(1)
+      expect(before!.mileageEnd).toBe(19230)
+      expect(before!.mileageEnd! - before!.mileageStart!).toBe(4)
+    })
+
+    it('не трогает настоящие поездки', () => {
+      const spans = [
+        { mileageStart: 19326, mileageEnd: 19442, movingHours: 104 / 60 },
+        { mileageStart: 19442, mileageEnd: 19467, movingHours: 24 / 60 }
+      ]
+      expect(capImplausibleDistance(spans)).toEqual(spans)
+    })
+
+    it('не сваливает чужие километры на прогрев, которому их тоже некуда деть', () => {
+      // Слева прогрев на автозапуске: стоял на охране, ехать не мог. Отдавать
+      // ему нечего, и запись остаётся как есть — пусть неправдоподобной, но не
+      // испорченной в другую сторону.
+      const spans = [
+        { mileageStart: 19565, mileageEnd: 19565, movingHours: 0 },
+        { mileageStart: 19565, mileageEnd: 19590, movingHours: 40 / 3600 }
+      ]
+      expect(capImplausibleDistance(spans)).toEqual(spans)
+    })
+  })
 
   it('отдаёт досылку той дороге, которая её проехала, а не следующей', async () => {
     const { database, snapshot, session } = await build()
