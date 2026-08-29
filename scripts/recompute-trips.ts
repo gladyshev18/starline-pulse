@@ -1,4 +1,6 @@
+import { sql } from 'drizzle-orm'
 import { createDatabase } from '../db/client'
+import { engineSessions } from '../db/schema'
 import { recomputeTrips } from '../worker/starline/recompute'
 
 // Разовый проход по накопленной истории: границы поездок берутся из журнала
@@ -35,9 +37,18 @@ try {
     if (report.unattributed) {
       console.log(`Не досталось никому: ${report.unattributed} км — двигатель в это время не работал ни минуты.`)
     }
-    const drift = report.distanceAfter + report.unattributed - (report.odometerSpan ?? 0)
+    // Сверяется не журнал поездок, а сессии: доли меньше половины километра в
+    // журнал не попадают намеренно, и разница на них — не ошибка.
+    const [sessions] = await database.select({
+      total: sql<number>`coalesce(sum(${engineSessions.distance}), 0)`
+    }).from(engineSessions)
+    const total = Number(sessions?.total ?? 0)
+    const drift = total + report.unattributed - (report.odometerSpan ?? 0)
+    console.log(`Пробег по сессиям: ${total.toFixed(1)} км`)
     if (Math.abs(drift) > 0.5) console.log(`ВНИМАНИЕ: километры не сошлись с одометром на ${drift.toFixed(1)}, разбор нужно проверить.`)
     else console.log('Километры сошлись с одометром.')
+    const skipped = total - report.distanceAfter
+    if (skipped > 0.05) console.log(`В журнал поездок не попало ${skipped.toFixed(1)} км: доли меньше половины километра.`)
   }
 } finally {
   database.$client.close()

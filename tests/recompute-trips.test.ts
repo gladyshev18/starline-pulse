@@ -107,6 +107,37 @@ describe('recomputeTrips', () => {
     }
   })
 
+  // Комментарий писал человек, имя водителя он же подтвердил. Запись с
+  // неточными границами надо переносить на её сессию, а не удалять.
+  it('переносит запись с прежними границами на её сессию, не теряя комментарий', async () => {
+    const { database, vehicle, snapshot, session, events } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await snapshot(30, 110, 28, true)
+      await snapshot(60, 110, 28)
+      const real = await session(10, 20)
+      await events([[10, IGNITION_ON], [11, HANDBRAKE_RELEASED], [20, IGNITION_OFF]])
+      // Границы старые: на две минуты шире с обеих сторон.
+      const [stale] = await database.insert(trips).values({
+        vehicleId: vehicle.id, startedAt: at(8), endedAt: at(22),
+        mileageStart: 100, mileageEnd: 100, distance: 0,
+        comment: 'от рынка до рио', driver: 'Игорь', isOpen: false
+      }).returning()
+
+      await recomputeTrips(database, { apply: true })
+
+      const all = await database.select().from(trips)
+      expect(all).toHaveLength(1)
+      expect(all[0]!.id).toBe(stale!.id)
+      expect(all[0]!.comment).toBe('от рынка до рио')
+      expect(all[0]!.driver).toBe('Игорь')
+      expect(all[0]!.startedAt.getTime()).toBe(real.startedAt.getTime())
+      expect(all[0]!.distance).toBeCloseTo(10, 6)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   it('оставляет километры ничьими, если двигатель в это время не работал', async () => {
     const { database, snapshot, session, events } = await build()
     try {

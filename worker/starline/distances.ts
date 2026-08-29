@@ -46,9 +46,28 @@ export async function recalculateDistances(database: Database, vehicleId: number
   const starts = new Set(sessions.map(item => item.startedAt.getTime()))
   const stale = await database.select().from(trips).where(and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, false)))
   for (const trip of stale) {
-    if (starts.has(trip.startedAt.getTime()) || trip.comment || !trip.endedAt) continue
-    const shadowed = sessions.some(item => item.startedAt < trip.endedAt! && item.endedAt > trip.startedAt)
+    if (starts.has(trip.startedAt.getTime()) || !trip.endedAt) continue
+    const shadowed = sessions.find(item => item.startedAt < trip.endedAt! && item.endedAt > trip.startedAt)
     if (!shadowed) continue
+
+    const owner = await database.query.trips.findFirst({
+      where: and(eq(trips.vehicleId, vehicleId), eq(trips.startedAt, shadowed.startedAt))
+    })
+    // Своей поездки у сессии ещё нет — значит это она и есть, просто с прежними
+    // границами. Переносим, а не удаляем: комментарий писал человек, имя
+    // водителя он же и подтвердил, и терять их из-за неточных границ нельзя.
+    if (!owner) {
+      await database.update(trips).set({
+        startedAt: shadowed.startedAt,
+        endedAt: shadowed.endedAt,
+        departedAt: shadowed.departedAt
+      }).where(eq(trips.id, trip.id))
+      starts.add(shadowed.startedAt.getTime())
+      report.tripsUpdated++
+      continue
+    }
+    // Поездка у сессии уже есть, а эта запись — её дубль с чужими границами.
+    if (trip.comment) continue
     await database.delete(trips).where(eq(trips.id, trip.id))
     report.removed.push({ tripId: trip.id, startedAt: trip.startedAt })
   }
