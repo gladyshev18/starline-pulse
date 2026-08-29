@@ -5,6 +5,13 @@ import { sessionDistances } from '../../metrics/odometer'
 import { armedMinutesBetween } from '../../metrics/engine'
 import { tripFuelUsed } from '../../shared/fuel'
 
+// Доля меньше половины километра — не поездка. Одометр этой машины целый, и
+// такая доля целиком лежит внутри его собственной погрешности: отличить
+// «проехал триста метров» от «постоял, пока сосед по промежутку ехал» нечем.
+// Сессия свои километры сохраняет — по ней считается холостой ход, — а в журнал
+// поездок такая запись не попадает.
+const MIN_TRIP_DISTANCE = 0.5
+
 export interface DistanceReport {
   sessionsUpdated: number
   tripsUpdated: number
@@ -27,6 +34,23 @@ export async function recalculateDistances(database: Database, vehicleId: number
     sessionsUpdated: 0, tripsUpdated: 0, created: [], removed: [],
     total: sessions.reduce((sum, item) => sum + item.distance, 0),
     unattributed
+  }
+
+  // Записи со старыми границами, оставшиеся от прежнего разбора: у сессии они
+  // не числятся, но накрывают её по времени и мешают завести правильную. Такая
+  // запись — дубль той же дороги, а не отдельная: 29 августа из-за одной такой
+  // вторая поездка дня не появилась вовсе.
+  //
+  // Поездку, которой не соответствует ни одна сессия, трогать нельзя: это может
+  // быть дорога, которую опрос не увидел, и другого следа у неё нет.
+  const starts = new Set(sessions.map(item => item.startedAt.getTime()))
+  const stale = await database.select().from(trips).where(and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, false)))
+  for (const trip of stale) {
+    if (starts.has(trip.startedAt.getTime()) || trip.comment || !trip.endedAt) continue
+    const shadowed = sessions.some(item => item.startedAt < trip.endedAt! && item.endedAt > trip.startedAt)
+    if (!shadowed) continue
+    await database.delete(trips).where(eq(trips.id, trip.id))
+    report.removed.push({ tripId: trip.id, startedAt: trip.startedAt })
   }
 
   for (const item of sessions) {
@@ -55,7 +79,7 @@ export async function recalculateDistances(database: Database, vehicleId: number
     // Машина никуда не уехала — это прогрев, и в журнале поездок ему не место.
     // Сам прогрев остаётся сессией, по ней его считает счёт холостого хода.
     // Комментарий писали руками, и запись с ним остаётся.
-    if (trip && !trip.isOpen && item.distance === 0) {
+    if (trip && !trip.isOpen && item.distance < MIN_TRIP_DISTANCE) {
       if (!trip.comment) {
         await database.delete(trips).where(eq(trips.id, trip.id))
         report.removed.push({ tripId: trip.id, startedAt: trip.startedAt })
@@ -84,7 +108,7 @@ export async function recalculateDistances(database: Database, vehicleId: number
     // Сессия проехала, а поездки у неё нет: опрос проспал запуск целиком либо
     // одометр отчитался за неё только потом. Дорога была — значит ей место в
     // журнале.
-    if (!(item.distance > 0)) continue
+    if (!(item.distance >= MIN_TRIP_DISTANCE)) continue
     const covered = await database.query.trips.findFirst({
       where: and(
         eq(trips.vehicleId, vehicleId),
