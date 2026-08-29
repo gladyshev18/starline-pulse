@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
 import { operatingDeviation } from '~~/shared/operating'
+import { WEEKDAYS } from '~~/shared/usage-profile'
 
 const route = useRoute()
 
@@ -108,6 +109,36 @@ const weakestWeek = computed(() => {
   const deviation = operatingDeviation(weeks, worst)
   return deviation != null && deviation <= -0.25 ? { week: worst, deviation } : null
 })
+
+const usage = computed(() => data.value?.usage)
+// Показываются только те часы, в которые машина хоть раз выезжала. Все двадцать
+// четыре столбца отдали бы половину ширины ночи, где не бывает ничего: за август
+// ни одной поездки раньше шести и позже восемнадцати.
+const usageHours = computed(() => {
+  const profile = usage.value
+  if (!profile || profile.fromHour == null || profile.toHour == null) return []
+  return Array.from({ length: profile.toHour - profile.fromHour + 1 }, (_, index) => profile.fromHour! + index)
+})
+const usageGrid = computed(() => {
+  const profile = usage.value
+  if (!profile) return []
+  const byKey = new Map(profile.cells.map(cell => [`${cell.weekday}:${cell.hour}`, cell]))
+  return WEEKDAYS.map((label, weekday) => ({
+    weekday,
+    label,
+    cells: usageHours.value.map(hour => byKey.get(`${weekday}:${hour}`) ?? { weekday, hour, trips: 0, distance: 0 })
+  }))
+})
+const hottestCell = computed(() => Math.max(0, ...(usage.value?.cells || []).map(cell => cell.distance)))
+const busiestWeekdayLabel = computed(() => {
+  const index = usage.value?.busiestWeekday
+  return index == null ? null : WEEKDAYS[index]
+})
+function hours(value: number | null | undefined) {
+  if (value == null) return '—'
+  if (value < 24) return `${number(value, 0)} ч`
+  return `${number(value / 24, 1)} сут`
+}
 
 function date(value: string | Date) {
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -267,8 +298,47 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
           </div>
         </div>
         <p v-if="hasDrivers" class="metric-meta">
+          Известен водитель у {{ number((data?.driverCoverage.share || 0) * 100, 0) }}% пробега
+          ({{ number(data?.driverCoverage.answered, 0) }} из {{ number(data?.driverCoverage.trips, 0) }} поездок) —
+          сравнивать имена между собой можно только внутри этой доли.
           Литры здесь — по завершённым поездкам, поэтому в сумме их меньше, чем израсходовано за месяц: прогревы за руль никто не сажал.
         </p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Когда ездим</p>
+            <p class="muted">Поездки по часам и дням недели: клетка тем темнее, чем больше в ней километров</p>
+          </div>
+        </div>
+        <p v-if="!usage || !usage.trips" class="muted empty-note">За этот месяц завершённых поездок нет.</p>
+        <template v-else>
+          <div class="heatmap" :style="{ '--hours': usageHours.length }">
+            <div class="heatmap__row heatmap__row--head">
+              <span class="heatmap__day" />
+              <span v-for="hour in usageHours" :key="hour" class="heatmap__hour">{{ hour }}</span>
+            </div>
+            <div v-for="row in usageGrid" :key="row.weekday" class="heatmap__row">
+              <span class="heatmap__day">{{ row.label }}</span>
+              <span
+                v-for="cell in row.cells"
+                :key="cell.hour"
+                class="heatmap__cell"
+                :class="{ 'heatmap__cell--empty': !cell.trips }"
+                :style="{ '--heat': hottestCell > 0 ? cell.distance / hottestCell : 0 }"
+                :title="`${row.label}, ${cell.hour}:00 — ${cell.trips ? `${number(cell.trips, 0)} поездок, ${number(cell.distance, 0)} км` : 'не ездили'}`"
+              />
+            </div>
+          </div>
+          <p class="metric-meta">
+            Выезжают между {{ usage.fromHour }}:00 и {{ usage.toHour }}:00, чаще всего в {{ usage.busiestHour }}:00
+            <template v-if="busiestWeekdayLabel"> и по {{ busiestWeekdayLabel }}</template>.
+            Между поездками машина стоит в среднем {{ hours(usage.standstill.averageHours) }}, самый долгий простой —
+            {{ hours(usage.standstill.longestHours) }}. Без единой поездки прошло
+            {{ number(usage.standstill.idleDays, 0) }} из {{ number(usage.standstill.daysCovered, 0) }} дней.
+          </p>
+        </template>
       </section>
 
       <section class="card card--wide">

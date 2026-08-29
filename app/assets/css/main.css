@@ -748,3 +748,13 @@ tbody tr:hover { background: var(--surface-subtle); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Тепловая карта поездок. Клетки квадратные и без подписей: числа в них не
+   читаются на телефоне, а цвет читается — точное значение показывает title. */
+.heatmap { display: grid; gap: 3px; margin-top: 18px; overflow-x: auto; }
+.heatmap__row { display: grid; grid-template-columns: 28px repeat(var(--hours, 13), minmax(14px, 1fr)); gap: 3px; align-items: center; }
+.heatmap__row--head { color: var(--muted); font-size: .6rem; }
+.heatmap__hour { text-align: center; }
+.heatmap__day { color: var(--muted); font-size: .68rem; }
+.heatmap__cell { aspect-ratio: 1; border-radius: 3px; background: color-mix(in srgb, var(--accent) calc(var(--heat, 0) * 85% + 15%), var(--surface-subtle)); }
+.heatmap__cell--empty { background: var(--surface-subtle); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasNamedDriver, summariseByDriver } from '../shared/drivers'
+import { hasNamedDriver, summariseByDriver, driverCoverage } from '../shared/drivers'
 
 const row = (driver: string | null, distance: number, fuelUsed = 0, trips = 1, minutes = 30) =>
   ({ driver, trips, distance, fuelUsed, minutes })
@@ -50,5 +50,23 @@ describe('Разбивка поездок по водителям', () => {
     expect(hasNamedDriver(summariseByDriver([row(null, 10)]))).toBe(false)
     expect(hasNamedDriver(summariseByDriver([row(null, 10), row('Игорь', 1)]))).toBe(true)
     expect(hasNamedDriver(summariseByDriver([]))).toBe(false)
+  })
+})
+
+describe('driverCoverage', () => {
+  it('меряет покрытие километрами, а не поездками', () => {
+    // Одна дальняя поездка без ответа весит больше десяти городских с ответом,
+    // и разбивка по километрам это должна показывать.
+    const coverage = driverCoverage(summariseByDriver([
+      { driver: 'Игорь', trips: 10, distance: 100, fuelUsed: 8, minutes: 200 },
+      { driver: null, trips: 1, distance: 300, fuelUsed: 20, minutes: 240 }
+    ]))
+    expect(coverage.trips).toBe(11)
+    expect(coverage.answered).toBe(10)
+    expect(coverage.share).toBeCloseTo(0.25, 5)
+  })
+
+  it('не делит на ноль в месяце без поездок', () => {
+    expect(driverCoverage(summariseByDriver([])).share).toBeNull()
   })
 })

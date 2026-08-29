@@ -2,13 +2,15 @@ import { and, asc, count, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { refuelEvents, trips, vehicleSnapshots } from '../db/schema'
 import { costPerKilometre, fuelCost, summariseBySpeed } from '../shared/consumption'
-import { summariseByDriver } from '../shared/drivers'
+import { driverCoverage, summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
 import { operatingRates } from '../shared/operating'
+import { summariseStandstill, summariseUsage } from '../shared/usage-profile'
 import { ambientTemperature, consumptionQuality, speedBreakdown } from './consumption'
 import { resolveFuelPrice } from './idle'
 import { operatingSummary } from './operating'
+import { usageProfile } from './usage'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
 
@@ -60,7 +62,12 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
       periods: [] as ReturnType<typeof operatingRates>,
       total: operatingRates([{ bucket: 'total', from: '', to: '', km: 0, motorMinutes: 0 }])[0]!
     },
-    quality: { trips: [], total: 0, measured: 0, outliers: [] } as Awaited<ReturnType<typeof consumptionQuality>>
+    quality: { trips: [], total: 0, measured: 0, outliers: [] } as Awaited<ReturnType<typeof consumptionQuality>>,
+    driverCoverage: driverCoverage([]),
+    usage: {
+      ...summariseUsage([]),
+      standstill: summariseStandstill({ gaps: [], daysWithTrips: 0, daysCovered: 0 })
+    }
   }
 }
 
@@ -179,6 +186,13 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
   })
 
   const { pricePerLitre } = await resolveFuelPrice(database, vehicle.id, range.start, range.end)
+  const byDriver = summariseByDriver(driverRows.map(row => ({
+    driver: row.driver,
+    trips: Number(row.trips || 0),
+    distance: Number(row.distance || 0),
+    fuelUsed: Number(row.fuelUsed || 0),
+    minutes: Number(row.minutes || 0)
+  })))
 
   return {
     month: range.month,
@@ -204,19 +218,17 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     },
     // Литры здесь — по завершённым поездкам, а не по баку: прогревы и то, что
     // не досталось ни одной поездке, за руль никто не сажал.
-    byDriver: priced(summariseByDriver(driverRows.map(row => ({
-      driver: row.driver,
-      trips: Number(row.trips || 0),
-      distance: Number(row.distance || 0),
-      fuelUsed: Number(row.fuelUsed || 0),
-      minutes: Number(row.minutes || 0)
-    }))), pricePerLitre),
+    byDriver: priced(byDriver, pricePerLitre),
+    // Какая часть этого пробега вообще имеет водителя. Без неё две строки в
+    // таблице читаются как весь месяц.
+    driverCoverage: driverCoverage(byDriver),
     bySpeed: priced(await speedBreakdown(database, vehicle.id, range.start, range.end), pricePerLitre),
     ambient: await ambientTemperature(database, vehicle.id, range.start, range.end),
     // Километры на моточас считаются по счётчику сигнализации и одометру, а не
     // по журналу поездок: это независимая от него величина, и в том её польза —
     // если разложение пробега по поездкам поедет, она останется на месте.
     operating: await operatingSummary(database, vehicle.id, range.start, range.end),
-    quality: await consumptionQuality(database, vehicle.id, range.start, range.end)
+    quality: await consumptionQuality(database, vehicle.id, range.start, range.end),
+    usage: await usageProfile(database, vehicle.id, range.start, range.end, now)
   }
 }

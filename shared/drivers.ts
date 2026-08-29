@@ -48,3 +48,29 @@ export function summariseByDriver(rows: DriverTrips[]): DriverTotals[] {
 export function hasNamedDriver(rows: DriverTotals[]) {
   return rows.some(row => row.driver)
 }
+
+export interface DriverCoverage {
+  trips: number
+  answered: number
+  distance: number
+  answeredDistance: number
+  // Доля пробега, у которого известен водитель. Именно пробега, а не поездок:
+  // разбивка ниже сравнивает километры, и честно сказать, какая их часть в неё
+  // вообще попала.
+  share: number | null
+}
+
+// Сколько разбивки по водителям на самом деле измерено. Без этого числа таблица
+// из двух имён читается как «весь месяц ездили эти двое», хотя треть пробега
+// может стоять в строке «Не указан» — или не стоять там вовсе, потому что на
+// вопрос бота не ответили и поездка досталась пустому водителю.
+export function driverCoverage(rows: DriverTotals[]): DriverCoverage {
+  const totals = rows.reduce((sum, row) => ({
+    trips: sum.trips + row.trips,
+    answered: sum.answered + (row.driver ? row.trips : 0),
+    distance: sum.distance + row.distance,
+    answeredDistance: sum.answeredDistance + (row.driver ? row.distance : 0)
+  }), { trips: 0, answered: 0, distance: 0, answeredDistance: 0 })
+
+  return { ...totals, share: totals.distance > 0 ? totals.answeredDistance / totals.distance : null }
+}

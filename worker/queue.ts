@@ -1,6 +1,6 @@
 import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
-import { jobs, vehicles } from '../db/schema'
+import { jobs, trips, vehicles } from '../db/schema'
 import { ingestReceiptMail } from '../receipts/mail/ingest'
 import { parseActDocument } from '../receipts/act-job'
 import { notifyAllowedChats } from './bot'
@@ -144,7 +144,12 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     // Клавиатура строится в момент отправки, а не при постановке задачи: между
     // ними мог смениться список тех, кто вообще получает уведомления.
     const tripId = Number(payload.tripId)
-    const keyboard = Number.isInteger(tripId) && tripId > 0 ? await buildDriverKeyboard(database, tripId) : null
+    // Время начала нужно, чтобы предложить того, кто обычно ездит в этот час
+    // этого дня недели, — иначе на вопрос отвечают вдвое реже, чем спрашивают.
+    const trip = Number.isInteger(tripId) && tripId > 0
+      ? await database.query.trips.findFirst({ where: eq(trips.id, tripId) })
+      : null
+    const keyboard = trip ? await buildDriverKeyboard(database, trip.id, trip.startedAt) : null
     await notifyAllowedChats(String(payload.text || 'Уведомление'), { html: payload.html === true, keyboard: keyboard || undefined })
   }
   if (job.type === 'telegram:report') {
