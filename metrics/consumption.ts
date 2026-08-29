@@ -14,6 +14,8 @@ export async function speedBreakdown(database: Database, vehicleId: number, star
     distance: trips.distance,
     fuelUsed: trips.fuelUsed,
     armedMinutes: trips.armedMinutes,
+    preDepartureMinutes: sql<number | null>`case when ${trips.departedAt} is not null
+      then (${trips.departedAt} - ${trips.startedAt}) / 60000.0 else null end`,
     durationMinutes: sql<number | null>`case when ${trips.endedAt} is not null
       then (${trips.endedAt} - ${trips.startedAt}) / 60000.0 else null end`
   }).from(trips).where(and(
@@ -26,6 +28,7 @@ export async function speedBreakdown(database: Database, vehicleId: number, star
     distance: row.distance,
     fuelUsed: row.fuelUsed,
     armedMinutes: row.armedMinutes,
+    preDepartureMinutes: row.preDepartureMinutes == null ? null : Number(row.preDepartureMinutes),
     durationMinutes: row.durationMinutes == null ? null : Number(row.durationMinutes)
   })))
 }

@@ -11,6 +11,7 @@ type TripMetricSource = {
   fuelEnd: number | null
   fuelUsed: number | null
   armedMinutes?: number | null
+  departedAt?: Date | string | number | null
 }
 
 function nonNegative(value: number | null) {
@@ -40,11 +41,24 @@ export function calculateTripMetrics(trip: TripMetricSource) {
   const durationMinutes = startedAt != null && endedAt != null && endedAt >= startedAt
     ? (endedAt - startedAt) / 60_000
     : null
-  const shape = { distance, fuelUsed, durationMinutes, armedMinutes: trip.armedMinutes ?? null }
+  // Сколько машина стояла с работающим двигателем, прежде чем тронуться:
+  // от включения зажигания до того, как опустили ручник.
+  const departedAt = timestamp(trip.departedAt ?? null)
+  const preDepartureMinutes = startedAt != null && departedAt != null && departedAt >= startedAt
+    ? (departedAt - startedAt) / 60_000
+    : null
+  const shape = {
+    distance,
+    fuelUsed,
+    durationMinutes,
+    armedMinutes: trip.armedMinutes ?? null,
+    preDepartureMinutes
+  }
 
   return {
     distance,
     durationMinutes,
+    preDepartureMinutes,
     // What is left of the duration once the warm-up on the alarm is taken out:
     // the time the speed is measured over, and the reason it can differ from the
     // length of the trip the driver remembers.

@@ -4,7 +4,7 @@ import { deviceEvents, engineSessions, trips, vehicleSnapshots } from '../../db/
 import { armedMinutesBetween } from '../../metrics/engine'
 import { sessionOdometerSpan } from '../../metrics/odometer'
 import { tripFuelUsed } from '../../shared/fuel'
-import { ENGINE_STARTED, ENGINE_STOPPED, IGNITION_OFF, IGNITION_ON } from '../../shared/starline-events'
+import { ENGINE_STARTED, ENGINE_STOPPED, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON } from '../../shared/starline-events'
 import { config } from '../config'
 import { getSlnet, starlineRequest } from './auth'
 
@@ -162,6 +162,26 @@ export interface BoundaryReport {
   removed: Array<{ tripId: number, startedAt: Date }>
 }
 
+// Когда машина тронулась. «Ручник опущен» — единственная точная отметка начала
+// движения: на боевых данных она есть у 63 поездок из 65 и ни у одного из девяти
+// прогревов на автозапуске, то есть не срабатывает там, где машина заведомо
+// стояла. Обратной отметки нет — «ручник поднят» пришёл 4 раза против 116
+// «опущен», потому что приехав глушат двигатель кнопкой и ручник встаёт уже
+// после того, как блоку нечего передавать.
+export async function departureWithin(database: Database, vehicleId: number, from: Date, to: Date) {
+  const event = await database.query.deviceEvents.findFirst({
+    columns: { ts: true },
+    where: and(
+      eq(deviceEvents.vehicleId, vehicleId),
+      eq(deviceEvents.type, HANDBRAKE_RELEASED),
+      gte(deviceEvents.ts, from),
+      lte(deviceEvents.ts, to)
+    ),
+    orderBy: asc(deviceEvents.ts)
+  })
+  return event?.ts ?? null
+}
+
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
   return await database.query.vehicleSnapshots.findFirst({
     where: and(
@@ -300,11 +320,15 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
         report.removed.push({ tripId: trip.id, startedAt: session.startedAt })
         continue
       }
-      if (trip.mileageStart !== odometer.mileageStart || trip.mileageEnd !== odometer.mileageEnd) {
+      const departedAt = await departureWithin(database, vehicleId, session.startedAt, session.endedAt!)
+      const sameOdometer = trip.mileageStart === odometer.mileageStart && trip.mileageEnd === odometer.mileageEnd
+      const sameDeparture = trip.departedAt?.getTime() === departedAt?.getTime()
+      if (!sameOdometer || !sameDeparture) {
         await database.update(trips).set({
           mileageStart: odometer.mileageStart,
           mileageEnd: odometer.mileageEnd,
-          distance: odometer.distance
+          distance: odometer.distance,
+          departedAt
         }).where(eq(trips.id, trip.id))
       }
       continue
@@ -324,6 +348,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
         vehicleId,
         startedAt: session.startedAt,
         endedAt: session.endedAt,
+        departedAt: await departureWithin(database, vehicleId, session.startedAt, session.endedAt!),
         mileageStart: odometer.mileageStart,
         mileageEnd: odometer.mileageEnd,
         distance: odometer.distance,

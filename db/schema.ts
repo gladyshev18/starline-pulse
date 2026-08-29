@@ -109,6 +109,15 @@ export const trips = sqliteTable('trips', {
   vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
   startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
   endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+  // Момент, когда машина тронулась: «ручник опущен» из журнала сигнализации.
+  // Единственная точная отметка начала движения, какая вообще есть, — одометр
+  // отчитывается кусками и говорит лишь о том, что ехали, но не когда начали.
+  //
+  // Обратной отметки нет: «ручник поднят» пришёл 4 раза за месяц против 116
+  // «опущен». Приехав, глушат двигатель кнопкой, и ручник встаёт уже после
+  // того, как блоку стало нечего передавать. Поэтому конец поездки — по
+  // выключению зажигания.
+  departedAt: integer('departed_at', { mode: 'timestamp_ms' }),
   mileageStart: real('mileage_start'),
   mileageEnd: real('mileage_end'),
   distance: real('distance'),

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, or } from 'drizzle
 import type { Database } from '../../db/client'
 import { armedMinutesBetween } from '../../metrics/engine'
 import { sessionOdometerSpan } from '../../metrics/odometer'
+import { departureWithin } from './events'
 import { tripFuelUsed } from '../../shared/fuel'
 import { engineSessions, jobs, trips, vehicleSnapshots } from '../../db/schema'
 import { tripCompletedText } from '../bot/trip-driver'
@@ -237,9 +238,13 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
   const distance = mileageStart != null && mileageEnd != null && mileageEnd >= mileageStart ? mileageEnd - mileageStart : null
   const fuelUsed = tripFuelUsed(fuelStart, fuelEnd)
   const armedMinutes = await armedMinutesBetween(database, payload.vehicleId, trip.startedAt, endedAt)
+  // Когда тронулись. Журнал событий подтягивается отдельной задачей и к этому
+  // моменту мог ещё не доехать — тогда отметка пустая, а разбор журнала
+  // проставит её следующим заходом.
+  const departedAt = await departureWithin(database, payload.vehicleId, trip.startedAt, endedAt)
 
   const [closed] = await database.update(trips).set({
-    endedAt, mileageStart, mileageEnd, distance, fuelStart, fuelEnd, fuelUsed, armedMinutes,
+    endedAt, departedAt, mileageStart, mileageEnd, distance, fuelStart, fuelEnd, fuelUsed, armedMinutes,
     latEnd: latest.lat, lonEnd: latest.lon, isOpen: false
   }).where(eq(trips.id, trip.id)).returning()
   await extendSession(database, payload.vehicleId, trip.startedAt)

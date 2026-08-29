@@ -22,6 +22,10 @@ export interface ConsumptionTrip {
   // driven, so this is a warm-up sitting inside the trip rather than time spent
   // covering ground.
   armedMinutes?: number | null
+  // Минуты от включения зажигания до того, как опустили ручник. Сел, завёл,
+  // пристегнулся, поставил навигатор — машина всё это время стоит. Отметка
+  // приходит из журнала сигнализации и есть у 97 % поездок.
+  preDepartureMinutes?: number | null
 }
 
 export interface SpeedBucket {
@@ -46,10 +50,14 @@ export interface SpeedBucket {
 // are the one stretch the data can prove was not movement.
 export function movingMinutes(trip: ConsumptionTrip) {
   if (trip.durationMinutes == null || !Number.isFinite(trip.durationMinutes)) return null
-  const armed = trip.armedMinutes != null && Number.isFinite(trip.armedMinutes) && trip.armedMinutes > 0
-    ? trip.armedMinutes
-    : 0
-  return Math.max(0, trip.durationMinutes - armed)
+  const positive = (value: number | null | undefined) => (
+    value != null && Number.isFinite(value) && value > 0 ? value : 0
+  )
+  // Оба отрезка отсчитываются от начала поездки и потому накладываются друг на
+  // друга: прогрев на автозапуске кончается тем же, чем и ожидание отъезда, —
+  // машина трогается. Сложить их значило бы вычесть одни и те же минуты дважды.
+  const standing = Math.max(positive(trip.armedMinutes), positive(trip.preDepartureMinutes))
+  return Math.max(0, trip.durationMinutes - standing)
 }
 
 // Быстрее этого машина в среднем за поездку не едет — с учётом светофоров,

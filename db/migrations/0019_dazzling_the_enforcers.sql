@@ -1,0 +1,1 @@
+ALTER TABLE `trips` ADD `departed_at` integer;

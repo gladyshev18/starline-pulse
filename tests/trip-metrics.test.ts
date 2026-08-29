@@ -12,7 +12,7 @@ describe('trip metrics', () => {
       fuelStart: 30,
       fuelEnd: 28.5,
       fuelUsed: 1.5
-    })).toEqual({ distance: 12.5, durationMinutes: 75, movingMinutes: 75, fuelUsed: 1.5, consumption: 12, averageSpeed: 10 })
+    })).toEqual({ distance: 12.5, durationMinutes: 75, preDepartureMinutes: null, movingMinutes: 75, fuelUsed: 1.5, consumption: 12, averageSpeed: 10 })
   })
 
   it('measures speed over the moving time, leaving out the warm-up on the alarm', () => {
@@ -33,6 +33,63 @@ describe('trip metrics', () => {
     expect(metrics.durationMinutes).toBe(30)
     expect(metrics.movingMinutes).toBe(20)
     expect(metrics.averageSpeed).toBe(45)
+  })
+
+  // Ручник — уточнение к тому, что уже считается: есть отметка — время в
+  // движении меряется от неё, нет — всё остаётся как было.
+  it('меряет скорость от того момента, когда опустили ручник', () => {
+    const metrics = calculateTripMetrics({
+      startedAt: '2026-08-05T09:00:00.000Z',
+      departedAt: '2026-08-05T09:05:00.000Z',
+      endedAt: '2026-08-05T09:35:00.000Z',
+      mileageStart: 100,
+      mileageEnd: 115,
+      distance: 15,
+      fuelStart: null,
+      fuelEnd: null,
+      fuelUsed: null
+    })
+
+    // Тридцать пять минут зажигания, из них пять машина стояла с работающим
+    // двигателем: сел, завёл, тронулся. Пятнадцать километров за тридцать минут.
+    expect(metrics.durationMinutes).toBe(35)
+    expect(metrics.preDepartureMinutes).toBe(5)
+    expect(metrics.movingMinutes).toBe(30)
+    expect(metrics.averageSpeed).toBe(30)
+  })
+
+  it('без отметки ручника считает ровно как раньше', () => {
+    const metrics = calculateTripMetrics({
+      startedAt: '2026-08-05T09:00:00.000Z',
+      endedAt: '2026-08-05T09:30:00.000Z',
+      mileageStart: 100,
+      mileageEnd: 115,
+      distance: 15,
+      fuelStart: null,
+      fuelEnd: null,
+      fuelUsed: null,
+      armedMinutes: 10
+    })
+    expect(metrics.preDepartureMinutes).toBeNull()
+    expect(metrics.movingMinutes).toBe(20)
+  })
+
+  // Оба отрезка отсчитываются от начала поездки, поэтому накладываются: если бы
+  // они складывались, из тридцати минут вычлось бы двадцать вместо двенадцати.
+  it('не вычитает дважды прогрев на охране и ожидание отъезда', () => {
+    const metrics = calculateTripMetrics({
+      startedAt: '2026-08-05T09:00:00.000Z',
+      departedAt: '2026-08-05T09:12:00.000Z',
+      endedAt: '2026-08-05T09:30:00.000Z',
+      mileageStart: 100,
+      mileageEnd: 115,
+      distance: 15,
+      fuelStart: null,
+      fuelEnd: null,
+      fuelUsed: null,
+      armedMinutes: 8
+    })
+    expect(metrics.movingMinutes).toBe(18)
   })
 
   it('keeps a fuel reading that dipped below zero on rounding alone', () => {
@@ -84,7 +141,7 @@ describe('trip metrics', () => {
       fuelStart: 20,
       fuelEnd: 21,
       fuelUsed: null
-    })).toEqual({ distance: null, durationMinutes: null, movingMinutes: null, fuelUsed: null, consumption: null, averageSpeed: null })
+    })).toEqual({ distance: null, durationMinutes: null, preDepartureMinutes: null, movingMinutes: null, fuelUsed: null, consumption: null, averageSpeed: null })
   })
 
   it('does not calculate average speed for a trip with zero duration', () => {

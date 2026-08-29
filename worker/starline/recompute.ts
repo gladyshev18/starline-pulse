@@ -194,7 +194,7 @@ export async function recomputeTrips(database: Database, options: { apply: boole
     // Пробный прогон: запись нужна только чтобы километры сошлись в отчёте, в
     // базу она не попадёт. Отрицательный идентификатор отличает её от настоящей.
     closedTrips.push({
-      ...values, id: -session.id, latStart: null, lonStart: null, latEnd: null, lonEnd: null,
+      ...values, id: -session.id, departedAt: null, latStart: null, lonStart: null, latEnd: null, lonEnd: null,
       comment: null, driver: null
     })
   }
