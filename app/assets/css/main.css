@@ -410,7 +410,10 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .table-wrap { overflow-x: auto; margin: 19px -7px 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 17px 14px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
-th { color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+/* Заголовок в одну строку — самая дорогая часть столбца: «Расход топлива»
+   требует больше места, чем любое своё значение. Пусть переносится: две строки
+   в шапке дешевле, чем полоса прокрутки под таблицей. */
+th { color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; white-space: normal; }
 td { font-size: .86rem; }
 tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
@@ -420,8 +423,12 @@ tbody tr:hover { background: var(--surface-subtle); }
 /* Значение и подпись под ним — один элемент сетки: без обёртки они разъезжаются
    по разным колонкам карточной раскладки на телефоне. */
 .cell-stack { display: block; }
-.trip-comment-cell { width: 34%; min-width: 240px; white-space: normal; }
-.trip-comment-button { max-width: 360px; min-height: 24px; padding: 3px 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+/* Имя водителя короче любого комментария, и раньше эти две ячейки делили одно
+   правило: 240 точек минимума каждой — почти половина таблицы, отданная восьми
+   буквам. Ширины теперь долевые, и обе ячейки уступают место, а не требуют его. */
+.trip-driver-cell { width: 11%; white-space: normal; }
+.trip-comment-cell { width: 26%; white-space: normal; }
+.trip-comment-button { min-height: 24px; padding: 3px 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .8rem; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
 .trip-comment-button:hover { color: var(--accent-ink); }
 .trip-comment-button:focus-visible { border-radius: 4px; outline: 2px solid var(--accent); outline-offset: 4px; }
 .trip-comment-button--empty { color: var(--accent-ink); font-weight: 650; }
@@ -679,15 +686,20 @@ tbody tr:hover { background: var(--surface-subtle); }
   .receipt-file { grid-template-columns: minmax(50px, auto) minmax(0, 1fr); }
   .receipt-file__action { display: none; }
 }
-/* Таблица шириной в восемь столбцов на экране в 360 точек — это прокрутка, в
-   которой шапка уезжает первой, и оставшиеся числа уже не к чему привязать.
-   Поэтому строка становится карточкой, а подпись столбца переезжает в саму
-   ячейку через data-label: читать можно сверху вниз, ничего не двигая.
+/* Таблица шириной в восемь столбцов — это прокрутка, в которой шапка уезжает
+   первой, и оставшиеся числа уже не к чему привязать. Поэтому строка становится
+   карточкой, а подпись столбца переезжает в саму ячейку через data-label:
+   читать можно сверху вниз, ничего не двигая.
+
+   Порог стоит там, где перестают помещаться поездки — самая широкая таблица
+   проекта: её восьми столбцам нужно 930 точек, а на окне около тысячи карточка
+   даёт уже меньше. Остальным таблицам столько и не требуется, но общий порог
+   лучше разнобоя: ниже него ни одна из них не уезжает вбок.
 
    Смена display стирает у таблицы её роли, поэтому в разметке они проставлены
    явно (role="table" и далее) — иначе для скринридера остались бы просто
    вложенные блоки. */
-@media (max-width: 820px) {
+@media (max-width: 1020px) {
   .table-wrap { overflow-x: visible; margin-inline: 0; }
   .table-wrap table, .table-wrap thead, .table-wrap tbody,
   .table-wrap tr, .table-wrap th, .table-wrap td { display: block; }
@@ -709,8 +721,7 @@ tbody tr:hover { background: var(--surface-subtle); }
   /* Ячейка с одними кнопками подписи не имеет — ей вся ширина. */
   .table-wrap td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
   .table-wrap td:not([data-label])::before { content: none; }
-  .table-wrap .trip-comment-cell { width: auto; min-width: 0; }
-  .table-wrap .trip-comment-button { max-width: none; }
+  .table-wrap .trip-driver-cell, .table-wrap .trip-comment-cell { width: auto; }
   .table-wrap .endpoint-cell { max-width: none; overflow-wrap: anywhere; }
   .table-wrap .document-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .table-wrap .document-actions .btn { flex: 1 1 auto; }

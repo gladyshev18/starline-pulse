@@ -144,7 +144,7 @@ async function saveComment() {
                 </span>
               </td>
               <td role="cell" data-label="Стоимость">{{ money(trip.cost) }}</td>
-              <td role="cell" data-label="За рулём" class="trip-comment-cell">
+              <td role="cell" data-label="За рулём" class="trip-driver-cell">
                 <button
                   class="trip-comment-button"
                   :class="{ 'trip-comment-button--empty': !trip.driver }"
