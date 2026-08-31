@@ -187,6 +187,18 @@ describe('a Rosneft receipt from Первый ОФД', () => {
     expect(parsed.purchasedAt?.toISOString()).toBe('2026-08-15T07:10:00.000Z')
   })
 
+  // The letter the OFD sends straight to the mailbox: the same receipt, but the
+  // brand only ever appeared in the forwarded copy's plain-text link targets.
+  it('recognises the chain by the seller INN when nothing names the brand', () => {
+    const direct = rosneftLetter
+      .split('\n')
+      .filter(line => !/mailcb|Тема:|receiptRosneft/.test(line))
+      .join('\n')
+
+    expect(/роснефт|rosneft/i.test(direct)).toBe(false)
+    expect(parseReceiptText(direct)).toMatchObject({ station: 'rosneft', stationName: null, sellerInn: '3664002554' })
+  })
+
   it('joins the address split across wrapped lines and drops the repeat', () => {
     expect(parseReceiptText(rosneftLetter).address)
       .toBe('АЗК №322 Тамбовская область, муниципальный округ Моршанский, поселок Пригородный, улица Кузнецова, дом 1д')
@@ -311,6 +323,31 @@ describe('a Rostelecom receipt that shares the operator with the fuel ones', () 
 
   it('finds no fuel in it', () => {
     expect(parseReceiptText(rostelecomLetter)).toMatchObject({ station: null, fuelType: null, litres: null })
+  })
+})
+
+describe('an unfamiliar chain', () => {
+  const gazprom = [
+    'ООО "Газпромнефть-Центр"',
+    'ИНН: 7709219099',
+    'АЗС №11 Тамбовская обл., г. Тамбов, ул. Мичуринская, 100',
+    'Кассовый чек. Приход',
+    '20.08.2026 09:44',
+    '1. АИ-95-К5 N 3:00000 66.10 30 1983.00',
+    'ИТОГО: 1983.00'
+  ].join('\n')
+
+  it('signs the receipt with the seller name when the INN is unknown', () => {
+    expect(parseReceiptText(gazprom)).toMatchObject({
+      station: 'other',
+      stationName: 'ООО «Газпромнефть-Центр»',
+      litres: 30,
+      totalAmount: 1983
+    })
+  })
+
+  it('leaves a letter with no fuel in it without a station', () => {
+    expect(parseReceiptText(rostelecomLetter)).toMatchObject({ station: null, stationName: null })
   })
 })
 

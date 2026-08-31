@@ -27,6 +27,25 @@ const stationKeywords: [RegExp, ReceiptStation][] = [
   [/лукойл|lukoil|ликард/i, 'lukoil']
 ]
 
+// A receipt names the seller, never the chain: a Rosneft pump prints
+// «АО "ВОРОНЕЖНЕФТЕПРОДУКТ"» and the word «Роснефть» appears nowhere on it — in
+// the OFD letter the brand survives only inside the banner links, which the
+// markup strip throws away with the rest of the tags. The seller's INN is the
+// one identifier every fiscal receipt carries, so the chain is recognised by it.
+const stationsByInn: Record<string, ReceiptStation> = {
+  '3664002554': 'rosneft', // АО «Воронежнефтепродукт»
+  '7701285928': 'lukoil' // ООО «ЛУКОЙЛ-Центрнефтепродукт»
+}
+
+// The seller line is a legal entity in quotes, sometimes behind a label:
+// «Пользователь ООО "ЛУКОЙЛ-Центрнефтепродукт"». Cyrillic has no ASCII word
+// boundary, so the abbreviation is closed with lookarounds — otherwise «ИП»
+// matches inside the first word that happens to hold those two letters.
+export function parseSellerName(text: string) {
+  const match = /(?<![А-ЯЁA-Z])(АО|ОАО|ПАО|ЗАО|ООО|ИП)(?![А-ЯЁ])\s*[«"]([^»"\n]{2,80})[»"]/i.exec(text)
+  return match ? `${match[1]!.toUpperCase()} «${match[2]!.trim()}»` : null
+}
+
 const BLOCK_BREAK = '@@line@@'
 
 // Mail templates wrap markup across source lines, so a label and its value can
@@ -138,9 +157,13 @@ const fuelEvidence = [
   /(?<![А-ЯЁ])(?:АЗ[СК]|ТРК|ДТ)(?![А-ЯЁ])/i
 ]
 
+export function hasFuelEvidence(text: string) {
+  return fuelEvidence.some(pattern => pattern.test(text))
+}
+
 export function looksLikeFuelReceipt(text: string, parsed: Pick<ParsedReceipt, 'station' | 'fuelType'>) {
   if (parsed.station != null || parsed.fuelType != null) return true
-  return fuelEvidence.some(pattern => pattern.test(text))
+  return hasFuelEvidence(text)
 }
 
 // Mail clients wrap the address across several quoted lines, and the OFD letter
@@ -217,6 +240,19 @@ export function parseReceiptText(text: string): ParsedReceipt {
     if (pattern.test(text)) {
       result.station = station
       break
+    }
+  }
+  result.station ??= (result.sellerInn && stationsByInn[result.sellerInn]) || null
+
+  // A chain we have no INN for is still worth naming: the receipt of an unknown
+  // seller keeps its legal name instead of arriving blank. The evidence check
+  // stays because «Другая АЗС» would otherwise turn every phone bill the
+  // operator forwards into a refuel.
+  if (result.station == null && (result.fuelType != null || hasFuelEvidence(text))) {
+    const seller = parseSellerName(text)
+    if (seller) {
+      result.station = 'other'
+      result.stationName = seller
     }
   }
 
