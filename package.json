@@ -15,6 +15,8 @@
     "fuel:backfill": "tsx scripts/backfill-fuel-from-percent.ts",
     "trips:recompute": "tsx scripts/recompute-trips.ts",
     "seed": "tsx scripts/seed.ts",
+    "digest:facts": "tsx scripts/weekly-facts.ts",
+    "digest:send": "tsx scripts/send-telegram.ts",
     "worker": "tsx watch worker/index.ts",
     "worker:start": "tsx worker/index.ts",
     "worker:once": "tsx worker/index.ts --once",
