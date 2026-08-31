@@ -22,7 +22,9 @@ if (bot) void bot.start({ onStart: async info => {
     { command: 'receipts', description: 'Заправки без чеков' },
     { command: 'day', description: 'Отчёт за вчера' },
     { command: 'week', description: 'Отчёт за прошлую неделю' },
-    { command: 'month', description: 'Отчёт за прошлый месяц' }
+    { command: 'month', description: 'Отчёт за прошлый месяц' },
+    { command: 'menu', description: 'Показать кнопки меню' },
+    { command: 'hide', description: 'Убрать кнопки меню' }
   ])
   console.log(`Telegram bot @${info.username} started`)
 } })

@@ -6,7 +6,7 @@ import { fuelForecast } from '../../metrics/forecast'
 import { FUEL_TANK_CAPACITY_LITRES, fuelToFull } from '../../shared/fuel'
 import { parseMonthInput } from '../../shared/moscow-month'
 import { config, normalizeTelegramUsername } from '../config'
-import { buttonLabels, mainKeyboard } from './keyboard'
+import { buttonLabels, hiddenKeyboard, mainKeyboard } from './keyboard'
 import { buildReport, type ReportPeriod } from './reports'
 import { buildMonthStats } from './stats'
 
@@ -45,8 +45,11 @@ function engineState(online: boolean | null, ignition: boolean | null) {
   return 'состояние неизвестно'
 }
 
-async function reply(context: Context, text: string, keyboard = true) {
-  return context.reply(text, keyboard ? { ...replyOptions, reply_markup: mainKeyboard } : replyOptions)
+// Меню живёт в чате само по себе: Telegram помнит его, пока какое-нибудь
+// сообщение не пришлёт другую разметку. Поэтому обычные ответы клавиатуру не
+// носят — её ставит /start и /menu, а снимает /hide.
+async function reply(context: Context, text: string, markup?: typeof mainKeyboard | typeof hiddenKeyboard) {
+  return context.reply(text, markup ? { ...replyOptions, reply_markup: markup } : replyOptions)
 }
 
 async function report(context: Context, database: Database, period: ReportPeriod) {
@@ -56,8 +59,8 @@ async function report(context: Context, database: Database, period: ReportPeriod
 const MONTH_HINT = 'Не понял месяц. Напишите <code>/stats июль</code>, <code>/stats 07.2026</code> или <code>/stats 2026-07</code>.'
 
 // The month arrows live on the message itself, so the statistics reply carries an
-// inline keyboard instead of the main one. The main keyboard is persistent and
-// stays on screen regardless.
+// inline keyboard instead of the main one. That costs nothing: the chat
+// remembers the main keyboard, and inline buttons never replace it.
 async function showStats(context: Context, database: Database, requested?: string) {
   const month = requested ? parseMonthInput(requested) : null
   if (requested && !month) return reply(context, MONTH_HINT)
@@ -70,8 +73,8 @@ async function showStats(context: Context, database: Database, requested?: strin
 export function registerCommands(bot: Bot, database: Database) {
   bot.command('start', async (context: Context) => {
     const username = normalizeTelegramUsername(context.from?.username)
-    if (!username) return reply(context, 'Чтобы подключить уведомления, задайте публичный username в Telegram и снова отправьте /start.', false)
-    if (!config.telegramAllowedUsernames.has(username)) return reply(context, `Для ${escapeHtml(username)} доступ к уведомлениям не настроен.`, false)
+    if (!username) return reply(context, 'Чтобы подключить уведомления, задайте публичный username в Telegram и снова отправьте /start.')
+    if (!config.telegramAllowedUsernames.has(username)) return reply(context, `Для ${escapeHtml(username)} доступ к уведомлениям не настроен.`)
 
     const chatId = context.chat?.id.toString()
     if (!chatId) return
@@ -89,10 +92,10 @@ export function registerCommands(bot: Bot, database: Database) {
       'Chat ID определён и сохранён автоматически.',
       '',
       'Все автоматические сообщения приходят без звука.',
-      'Выберите нужное действие на клавиатуре ниже.',
+      'Выберите нужное действие на клавиатуре ниже. Убрать её — <code>/hide</code>, вернуть — <code>/menu</code>.',
       '',
       'Статистика за другой месяц: <code>/stats июль</code>, <code>/stats 07.2026</code> или стрелками под сообщением.'
-    ].join('\n'))
+    ].join('\n'), mainKeyboard)
   })
 
   const showStatus = async (context: Context) => {
@@ -138,6 +141,9 @@ export function registerCommands(bot: Bot, database: Database) {
       ...rangeLines(forecast)
     ].join('\n'))
   }
+
+  bot.command('menu', context => reply(context, 'Меню кнопок снова на месте. Убрать — /hide.', mainKeyboard))
+  bot.command('hide', context => reply(context, 'Меню убрано. Команды и автоматические сообщения работают как раньше, вернуть кнопки — /menu.', hiddenKeyboard))
 
   bot.command('status', showStatus)
   bot.command('fuel', showFuelToFull)

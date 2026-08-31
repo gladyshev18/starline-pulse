@@ -31,7 +31,6 @@ import {
   saveReceiptFile
 } from '../../receipts/storage'
 import { config } from '../config'
-import { mainKeyboard } from './keyboard'
 import { telegramFetch } from './proxy'
 
 const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
@@ -50,7 +49,7 @@ function escapeHtml(value: string) {
 }
 
 async function reply(context: Context, text: string, keyboard?: InlineKeyboard) {
-  return context.reply(text, { ...replyOptions, reply_markup: keyboard || mainKeyboard })
+  return context.reply(text, keyboard ? { ...replyOptions, reply_markup: keyboard } : replyOptions)
 }
 
 function receiptSummary(receipt: RefuelReceipt) {

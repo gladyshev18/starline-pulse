@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buttonLabels, mainKeyboard } from '../worker/bot/keyboard'
+import { buttonLabels, hiddenKeyboard, mainKeyboard } from '../worker/bot/keyboard'
 
 describe('Telegram bot keyboard', () => {
   it('contains all primary actions in a compact layout', () => {
@@ -11,9 +11,14 @@ describe('Telegram bot keyboard', () => {
     ])
   })
 
-  it('stays visible and uses a compact client layout', () => {
-    expect(mainKeyboard.is_persistent).toBe(true)
+  it('uses a compact client layout and can be collapsed', () => {
     expect(mainKeyboard.resize_keyboard).toBe(true)
     expect(mainKeyboard.input_field_placeholder).toBe('Выберите, что показать')
+    // Закреплённую клавиатуру Telegram не даёт свернуть значком у поля ввода.
+    expect(mainKeyboard.is_persistent).toBeUndefined()
+  })
+
+  it('offers a way to remove the keyboard entirely', () => {
+    expect(hiddenKeyboard).toEqual({ remove_keyboard: true })
   })
 })

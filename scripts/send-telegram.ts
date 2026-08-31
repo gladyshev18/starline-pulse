@@ -1,7 +1,6 @@
 import { Bot } from 'grammy'
 import { readFile } from 'node:fs/promises'
 import { createDatabase } from '../db/client'
-import { mainKeyboard } from '../worker/bot/keyboard'
 import { createTelegramProxyFetch, closeTelegramProxy } from '../worker/bot/proxy'
 import { allowedRecipients, recipientName } from '../worker/bot/recipients'
 import { config } from '../worker/config'
@@ -77,8 +76,7 @@ for (const { recipient, text } of planned) {
       parse_mode: 'HTML',
       // Подборка приходит сама, без просьбы, поэтому будит телефон: раз в
       // неделю это уместно, чаще этот скрипт и не зовут.
-      disable_notification: payload.silent === true,
-      reply_markup: mainKeyboard
+      disable_notification: payload.silent === true
     })
     console.log(`✓ ${recipient.username}`)
   } catch (error) {
