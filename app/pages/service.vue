@@ -40,6 +40,44 @@ function percent(share: number | null | undefined) {
 
 const clockLabels: Record<string, string> = { km: 'пробег', hours: 'моточасы', months: 'календарь' }
 
+const fixedCostForm = reactive({ label: '', amount: '', startsAt: '', endsAt: '' })
+const fixedCostError = ref('')
+// Средний месяц года, а не тот, что на календаре: колонка сравнивает расходы
+// между собой, и для этого им нужен один и тот же знаменатель.
+const AVERAGE_MONTH_DAYS = 30.437
+function monthlyShare(item: { amount: number, startsAt: string | Date, endsAt: string | Date }) {
+  const days = (new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime()) / (24 * 60 * 60_000)
+  return days > 0 ? item.amount / days * AVERAGE_MONTH_DAYS : null
+}
+async function addFixedCost() {
+  if (pending.value) return
+  pending.value = true
+  fixedCostError.value = ''
+  try {
+    await $fetch('/api/fixed-costs', { method: 'POST', body: { ...fixedCostForm } })
+    fixedCostForm.label = ''
+    fixedCostForm.amount = ''
+    fixedCostForm.endsAt = ''
+    await refresh()
+  } catch (error) {
+    fixedCostError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+async function removeFixedCost(id: number) {
+  if (pending.value) return
+  pending.value = true
+  try {
+    await $fetch(`/api/fixed-costs/${id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (error) {
+    fixedCostError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+
 const oil = computed(() => data.value?.oil)
 // The whole point of the engine-hour clock is that it can disagree with the
 // odometer; saying which one the service is actually due on is the answer the
@@ -413,6 +451,53 @@ async function remove(id: number) {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section class="card card--wide card--table">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Постоянные расходы</p>
+            <p class="muted">
+              Страховка, налог и прочее, оплаченное за период целиком. В стоимость километра они входят теми днями,
+              которыми пересеклись с месяцем, — годовой полис не ложится в август целиком
+            </p>
+          </div>
+        </div>
+        <p v-if="!data?.fixedCosts.length" class="muted">
+          Записей пока нет. Километр считается только по топливу и заказ-нарядам.
+        </p>
+        <div v-else class="table-wrap">
+          <table role="table">
+            <thead role="rowgroup"><tr role="row"><th role="columnheader">Название</th><th role="columnheader">Сумма</th><th role="columnheader">Период</th><th role="columnheader">В месяц</th><th role="columnheader" /></tr></thead>
+            <tbody role="rowgroup">
+              <tr v-for="item in data.fixedCosts" :key="item.id" role="row">
+                <td role="cell" data-label="Название">{{ item.label }}</td>
+                <td role="cell" data-label="Сумма">{{ money(item.amount) }}</td>
+                <td role="cell" data-label="Период">{{ date(item.startsAt) }} — {{ date(item.endsAt) }}</td>
+                <td role="cell" data-label="В месяц">{{ money(monthlyShare(item)) }}</td>
+                <td role="cell"><AppButton variant="secondary" size="small" :disabled="pending" @click="removeFixedCost(item.id)">Удалить</AppButton></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <AppForm id="fixed-cost-form" class="fixed-cost-form" @submit="addFixedCost">
+          <AppField label="Название">
+            <AppInput v-model="fixedCostForm.label" maxlength="80" placeholder="Например, ОСАГО" :disabled="pending" required />
+          </AppField>
+          <AppField label="Сумма, ₽">
+            <AppInput v-model="fixedCostForm.amount" inputmode="decimal" :disabled="pending" required />
+          </AppField>
+          <AppField label="Оплачено с">
+            <AppInput v-model="fixedCostForm.startsAt" type="date" :disabled="pending" required />
+          </AppField>
+          <AppField label="По" hint="Пусто — год с даты начала">
+            <AppInput v-model="fixedCostForm.endsAt" type="date" :disabled="pending" />
+          </AppField>
+          <AppAlert v-if="fixedCostError" class="form-wide">{{ fixedCostError }}</AppAlert>
+          <div class="form-wide">
+            <AppButton type="submit" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Добавить расход' }}</AppButton>
+          </div>
+        </AppForm>
       </section>
     </div>
 

@@ -310,6 +310,25 @@ export const serviceDocuments = sqliteTable('service_documents', {
   uniqueIndex('service_documents_stored_name_unique').on(table.storedName)
 ])
 
+// Расходы, которые не привязаны ни к километру, ни к литру: страховка, налог,
+// что угодно ещё, оплаченное за период целиком. Журнала мелких трат здесь
+// намеренно нет — мойку и омывайку заносят три недели, а потом бросают, и
+// «полная стоимость» превращается в неполную, о чём по самой цифре уже не
+// догадаться. Одна сумма на год такого не требует и не врёт.
+export const fixedCosts = sqliteTable('fixed_costs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  kind: text('kind', { enum: ['insurance', 'tax', 'other'] }).notNull().default('other'),
+  label: text('label').notNull(),
+  amount: real('amount').notNull(),
+  // Период, за который заплачено. Он же делает сумму сравнимой с месяцем:
+  // годовой полис входит в август одной двенадцатой, а не целиком.
+  startsAt: integer('starts_at', { mode: 'timestamp_ms' }).notNull(),
+  endsAt: integer('ends_at', { mode: 'timestamp_ms' }).notNull(),
+  note: text('note'),
+  ...timestamps
+}, table => [index('fixed_costs_vehicle_period_idx').on(table.vehicleId, table.startsAt)])
+
 export const imapState = sqliteTable('imap_state', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   mailbox: text('mailbox').notNull(),
@@ -329,3 +348,4 @@ export type RefuelEvent = typeof refuelEvents.$inferSelect
 export type RefuelReceipt = typeof refuelReceipts.$inferSelect
 export type ServiceEvent = typeof serviceEvents.$inferSelect
 export type ServiceDocument = typeof serviceDocuments.$inferSelect
+export type FixedCost = typeof fixedCosts.$inferSelect

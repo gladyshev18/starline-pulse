@@ -38,6 +38,15 @@ const vehicleState = computed(() => {
   return snapshot.ignition ? 'Заведена' : 'Припаркована'
 })
 const litresToFull = computed(() => fuelToFull(data.value?.snapshot?.fuel))
+// Дни — диапазоном, а не одним числом: в тихий день машина проезжает тринадцать
+// километров, в активный сто тридцать, и любое среднее между ними обещает не то.
+const rangeInDays = computed(() => {
+  const days = data.value?.forecast.days
+  if (!days) return null
+  const busy = Math.round(days.busy)
+  const quiet = Math.round(days.quiet)
+  return busy === quiet ? `${busy} дней поездок` : `${busy}–${quiet} дней поездок`
+})
 // A month rarely holds more than a handful of refuels, so the count lands on
 // every one of the three Russian forms and the wrong one is impossible to miss.
 function refuelWord(count: number) {
@@ -142,7 +151,7 @@ function duration(minutes: number | null | undefined) {
           </div>
         </section>
         <section class="card metric-card"><div class="card__top"><p class="metric-label">Пробег</p><span class="metric-badge">{{ dailyChange(data?.today.distance, '+', 'км') }}</span></div><p class="metric">{{ number(data?.snapshot?.mileage, 1) }} <small>км</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.mileageTs) }">{{ updated(data?.snapshot?.mileageTs) }}</p></section>
-        <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
+        <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p v-if="data?.forecast.km != null" class="metric-meta">Хватит на {{ number(data.forecast.km, 0) }} км<template v-if="rangeInDays"> · {{ rangeInDays }}</template></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
         <section class="card metric-card"><div class="card__top"><p class="metric-label">Аккумулятор</p></div><p class="metric">{{ number(data?.snapshot?.battery, 1) }} <small>{{ batteryUnit(data?.snapshot?.batteryType) }}</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.commonTs) }">{{ updated(data?.snapshot?.commonTs) }}</p></section>
       </div>
       <section class="card card--wide activity-card">

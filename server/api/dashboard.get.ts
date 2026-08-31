@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
 import { engineSessions, refuelEvents, trips, vehicleSnapshots, vehicles } from '../../db/schema'
+import { fuelForecast } from '../../metrics/forecast'
 import { emptyIdleSummary, idleSummary } from '../../metrics/idle'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
@@ -38,7 +39,8 @@ export default defineEventHandler(async () => {
     month: { distance: 0, fuelUsed: 0, consumption: null, trips: 0 },
     daily: [], today: { distance: 0, fuelUsed: 0 }, engine: { sessions: 0 }, idle: emptyIdleSummary(),
     refuels: { count: 0, litres: 0, recent: [] }, batteryTrend: [],
-    fuelCost: { amount: null, refuels: 0, unknown: 0, pricePerLitre: null }
+    fuelCost: { amount: null, refuels: 0, unknown: 0, pricePerLitre: null },
+    forecast: { litres: null, consumption: null, km: null, days: null, trips: null }
   }
 
   const snapshot = await database.query.vehicleSnapshots.findFirst({
@@ -116,6 +118,7 @@ export default defineEventHandler(async () => {
       refuels: paidRefuels,
       unknown: refuelsCount - paidRefuels,
       pricePerLitre: fuelAmount != null && paidLitres > 0 ? fuelAmount / paidLitres : null
-    }
+    },
+    forecast: await fuelForecast(database, vehicle.id)
   }
 })

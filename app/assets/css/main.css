@@ -766,3 +766,7 @@ tbody tr:hover { background: var(--surface-subtle); }
 .price-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding: 9px 13px; border-radius: 10px; background: var(--surface-subtle); font-size: .82rem; }
 .price-row__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0; }
 .price-row__value .muted { font-size: .72rem; }
+
+/* Форма постоянного расхода стоит под таблицей той же карточки, поэтому ей
+   нужна отбивка сверху — иначе поля липнут к последней строке. */
+.fixed-cost-form { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }

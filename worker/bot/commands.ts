@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import type { Bot, Context } from 'grammy'
 import type { Database } from '../../db/client'
 import { telegramRecipients, trips, vehicleSnapshots } from '../../db/schema'
+import { fuelForecast } from '../../metrics/forecast'
 import { FUEL_TANK_CAPACITY_LITRES, fuelToFull } from '../../shared/fuel'
 import { parseMonthInput } from '../../shared/moscow-month'
 import { config, normalizeTelegramUsername } from '../config'
@@ -19,6 +20,22 @@ function escapeHtml(value: string) {
 
 function number(value: number | null | undefined, suffix: string) {
   return value == null ? '—' : `${decimal.format(value)} ${suffix}`
+}
+
+// Запас хода — километрами, а потом днями. Дней три, а не одно среднее: в
+// тихий день машина проезжает тринадцать километров, в активный сто тридцать, и
+// «хватит на пять дней» было бы враньём в обе стороны сразу.
+function rangeLines(forecast: Awaited<ReturnType<typeof fuelForecast>>) {
+  if (forecast.km == null) return []
+  const lines = ['', `Хватит примерно на <b>${Math.round(forecast.km)} км</b>`]
+  if (forecast.consumption != null) lines.push(`при расходе ${number(forecast.consumption, 'л/100 км')} за месяц`)
+  if (forecast.days) {
+    lines.push(`Это ${Math.round(forecast.days.busy)}–${Math.round(forecast.days.quiet)} дней с поездками, обычно около ${Math.round(forecast.days.typical)}`)
+  }
+  if (forecast.trips) {
+    lines.push(`Или ${Math.round(forecast.trips.longCount)} дальних поездок по ${Math.round(forecast.trips.long)} км`)
+  }
+  return lines
 }
 
 function engineState(online: boolean | null, ignition: boolean | null) {
@@ -111,12 +128,14 @@ export function registerCommands(bot: Bot, database: Database) {
     const snapshot = await database.query.vehicleSnapshots.findFirst({ where: eq(vehicleSnapshots.vehicleId, vehicle.id), orderBy: desc(vehicleSnapshots.ts) })
     const toFull = fuelToFull(snapshot?.fuel)
     if (toFull == null) return reply(context, 'Уровень топлива пока неизвестен.')
+    const forecast = await fuelForecast(database, vehicle.id)
     return reply(context, [
       '⛽ <b>Заправка до полного бака</b>',
       '',
       `Сейчас в баке: ${number(snapshot?.fuel, 'л')}`,
       `Нужно заправить: <b>${number(toFull, 'л')}</b>`,
-      `Объём бака: ${number(FUEL_TANK_CAPACITY_LITRES, 'л')}`
+      `Объём бака: ${number(FUEL_TANK_CAPACITY_LITRES, 'л')}`,
+      ...rangeLines(forecast)
     ].join('\n'))
   }
 

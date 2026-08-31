@@ -110,6 +110,14 @@ const weakestWeek = computed(() => {
   return deviation != null && deviation <= -0.25 ? { week: worst, deviation } : null
 })
 
+// Названия постоянных расходов, вошедших в этот месяц. Без них «1019 ₽» выглядит
+// взявшимся ниоткуда, а с ними понятно, что это полис и налог.
+const fixedCostLabels = computed(() => {
+  const items = (data.value?.ownership.fixed || []).filter(item => item.share > 0)
+  if (!items.length) return 'Постоянные расходы'
+  return items.slice(0, 3).map(item => item.label).join(', ') + (items.length > 3 ? ' и ещё' : '')
+})
+
 const usage = computed(() => data.value?.usage)
 // Показываются только те часы, в которые машина хоть раз выезжала. Все двадцать
 // четыре столбца отдали бы половину ширины ночи, где не бывает ничего: за август
@@ -200,10 +208,24 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
       </section>
       <section class="card metric-card history-metric">
         <div class="card__top"><p class="metric-label">Километр стоит</p></div>
-        <p class="metric">{{ money(data?.totals.costPerKm) }}</p>
+        <p class="metric">{{ money(data?.ownership.variablePerKm ?? data?.totals.costPerKm) }}</p>
         <p class="metric-meta">
-          <span v-if="data?.totals.pricePerLitre != null">Топливо по {{ money(data.totals.pricePerLitre) }}/л · {{ number(data.totals.fuelUsed) }} л на {{ number(data.totals.distance) }} км</span>
+          <span v-if="data?.ownership.servicePerKm != null">
+            Топливо {{ money(data.ownership.fuelPerKm) }} + обслуживание {{ money(data.ownership.servicePerKm) }}
+          </span>
+          <span v-else-if="data?.totals.pricePerLitre != null">Топливо по {{ money(data.totals.pricePerLitre) }}/л · {{ number(data.totals.fuelUsed) }} л на {{ number(data.totals.distance) }} км</span>
           <span v-else>Нет чеков — цена литра неизвестна</span>
+        </p>
+      </section>
+
+      <section class="card metric-card history-metric">
+        <div class="card__top"><p class="metric-label">С учётом владения</p></div>
+        <p class="metric">{{ money(data?.ownership.totalPerKm) }}</p>
+        <p class="metric-meta">
+          <span v-if="data?.ownership.fixedPerKm != null">
+            {{ fixedCostLabels }} — {{ money(data.ownership.fixedAmount, 0) }} за месяц, это {{ money(data.ownership.fixedPerKm) }} на километр
+          </span>
+          <span v-else>Постоянные расходы не заведены — добавить можно на странице обслуживания</span>
         </p>
       </section>
 

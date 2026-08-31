@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
-import { serviceEvents, vehicleSnapshots } from '../../../db/schema'
+import { fixedCosts, serviceEvents, vehicleSnapshots } from '../../../db/schema'
 import { batteryHealth } from '../../../metrics/battery'
 import { emptyOilStatus, engineSummary, oilStatus } from '../../../metrics/engine'
 import { currentMoscowMonth, moscowMonthRange } from '../../../shared/moscow-month'
@@ -22,7 +22,8 @@ export default defineEventHandler(async () => {
       battery: null,
       motorMinutes: null,
       mileage: null,
-      events: []
+      events: [],
+      fixedCosts: [] as Array<typeof fixedCosts.$inferSelect>
     }
   }
 
@@ -54,6 +55,11 @@ export default defineEventHandler(async () => {
     mileage: odometer?.mileage ?? null,
     events: await database.select().from(serviceEvents)
       .where(eq(serviceEvents.vehicleId, vehicle.id))
-      .orderBy(desc(serviceEvents.performedAt))
+      .orderBy(desc(serviceEvents.performedAt)),
+    // Страховка и налог живут рядом с обслуживанием: и то и другое — деньги за
+    // машину, которые никак не следуют из телеметрии и вводятся руками.
+    fixedCosts: await database.select().from(fixedCosts)
+      .where(eq(fixedCosts.vehicleId, vehicle.id))
+      .orderBy(desc(fixedCosts.startsAt))
   }
 })

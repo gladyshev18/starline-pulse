@@ -6,10 +6,12 @@ import { driverCoverage, summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
 import { operatingRates } from '../shared/operating'
+import { ownershipCost, serviceCostPerKilometre } from '../shared/ownership'
 import { summariseStandstill, summariseUsage } from '../shared/usage-profile'
 import { ambientTemperature, consumptionQuality, speedBreakdown } from './consumption'
 import { resolveFuelPrice } from './idle'
 import { operatingSummary } from './operating'
+import { ownershipSummary } from './ownership'
 import { usageProfile } from './usage'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
@@ -64,6 +66,12 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
     },
     quality: { trips: [], total: 0, measured: 0, outliers: [] } as Awaited<ReturnType<typeof consumptionQuality>>,
     driverCoverage: driverCoverage([]),
+    ownership: {
+      ...ownershipCost({ fuelPerKm: null, servicePerKm: null, fixedAmount: 0, distance: 0 }),
+      service: serviceCostPerKilometre([]),
+      fixedAmount: 0,
+      fixed: [] as Awaited<ReturnType<typeof ownershipSummary>>['fixed']
+    },
     usage: {
       ...summariseUsage([]),
       standstill: summariseStandstill({ gaps: [], daysWithTrips: 0, daysCovered: 0 })
@@ -229,6 +237,13 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     // если разложение пробега по поездкам поедет, она останется на месте.
     operating: await operatingSummary(database, vehicle.id, range.start, range.end),
     quality: await consumptionQuality(database, vehicle.id, range.start, range.end),
-    usage: await usageProfile(database, vehicle.id, range.start, range.end, now)
+    usage: await usageProfile(database, vehicle.id, range.start, range.end, now),
+    // Километр целиком: к топливу добавляются заказ-наряды и постоянные
+    // расходы. Топливная часть берётся ровно та же, что в `totals.costPerKm`, —
+    // иначе на одной странице оказалось бы две цены одного километра.
+    ownership: await ownershipSummary(database, vehicle.id, range.start, range.end, {
+      fuelPerKm: costPerKilometre(balance.fuelUsed, totals.distance, pricePerLitre),
+      distance: totals.distance
+    })
   }
 }
