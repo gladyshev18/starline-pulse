@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS } from '~~/shared/service'
+import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS, OIL_KM_PER_DAY, OIL_MOTOR_HOURS_PER_DAY } from '~~/shared/service'
 
 const { data, status, refresh } = await useFetch('/api/service')
 const { data: documents, refresh: refreshDocuments } = await useFetch('/api/service-documents')
@@ -115,6 +115,53 @@ const oilNote = computed(() => {
   if (!life?.binding) return 'Запишите последнюю замену — без неё ресурс не от чего отсчитывать.'
   return `Считаем по строке «${clockLabels[life.binding.name]}» — она заканчивается первой.`
 })
+// Темп — второй вопрос после остатка. «Осталось 4000 км» означает и полгода
+// спокойной жизни, и шесть недель, и разницу между ними знает только суточный
+// пробег.
+const pace = computed(() => data.value?.oil?.pace ?? null)
+function paceOf(name: 'km' | 'hours' | 'months') {
+  return pace.value?.clocks.find(item => item.name === name) ?? null
+}
+const kmPace = computed(() => paceOf('km'))
+const hoursPace = computed(() => paceOf('hours'))
+
+// Знак читается быстрее величины: «+51 %» и «−20 %» сразу говорят про обгон и
+// отставание, а «151 % нормы» приходится делить в уме.
+function signedPercent(ratio: number | null | undefined) {
+  if (ratio == null) return '—'
+  const excess = (ratio - 1) * 100
+  const sign = excess >= 0.5 ? '+' : excess <= -0.5 ? '−' : ''
+  return `${sign}${number(Math.abs(excess), 0)} %`
+}
+
+// Насколько пробег обгоняет время — то же самое число, что и превышение
+// суточной нормы: обе доли меряются от одного интервала, поэтому одна фраза
+// отвечает сразу на оба вопроса.
+const paceSummary = computed(() => {
+  const km = kmPace.value
+  if (!km) return ''
+  const excess = Math.round((km.ratio - 1) * 100)
+  if (excess > 5) return `Пробег обгоняет время на ${excess} %: ${number(OIL_INTERVAL_KM)} км при таком темпе кончатся раньше года.`
+  if (excess < -5) return `Пробег отстаёт от времени на ${Math.abs(excess)} %: раньше выйдет календарный срок, а не километры.`
+  return 'Пробег и календарь идут вровень — обе шкалы кончатся примерно вместе.'
+})
+
+// Дата, а не доля: «осталось 47 %» ничего не говорит о том, когда записываться,
+// а «около 3 марта» говорит.
+const paceDue = computed(() => {
+  const item = pace.value
+  if (!item?.dueAt || !item.binding || item.daysLeft == null) return ''
+  const days = Math.round(item.daysLeft)
+  return `${date(item.dueAt)} · через ${number(days)} ${plural(days, 'день', 'дня', 'дней')}, по строке «${clockLabels[item.binding.name]}»`
+})
+
+// Сколько можно проезжать в сутки, чтобы километры дотянули ровно до
+// календарного срока. Это уже не наблюдение, а норма на остаток интервала.
+const paceAllowance = computed(() => {
+  const km = kmPace.value
+  return km?.allowancePerDay == null ? '' : `${number(km.allowancePerDay, 1)} км/сут`
+})
+
 // Positive gap means the engine has been running more than the distance implies:
 // the odometer would call for a change later than the oil deserves.
 const clockAdvice = computed(() => {
@@ -359,6 +406,26 @@ async function remove(id: number) {
             </p>
           </div>
         </div>
+        <div v-if="pace" class="pace-list">
+          <p class="pace-caption">Темп за {{ number(pace.days) }} {{ plural(Math.round(pace.days), 'день', 'дня', 'дней') }} после замены</p>
+          <p v-if="kmPace" class="pace-row">
+            <span>Пробег</span>
+            <strong>{{ number(kmPace.perDay, 1) }} км/сут · норма {{ number(OIL_KM_PER_DAY, 1) }} · {{ signedPercent(kmPace.ratio) }}</strong>
+          </p>
+          <p v-if="hoursPace" class="pace-row">
+            <span>Моточасы</span>
+            <strong>{{ number(hoursPace.perDay, 2) }} ч/сут · норма {{ number(OIL_MOTOR_HOURS_PER_DAY, 2) }} · {{ signedPercent(hoursPace.ratio) }}</strong>
+          </p>
+          <p v-if="paceAllowance" class="pace-row">
+            <span>Чтобы дотянуть до срока</span>
+            <strong>не больше {{ paceAllowance }}</strong>
+          </p>
+          <p v-if="paceDue" class="pace-row">
+            <span>При этом темпе замена</span>
+            <strong>{{ paceDue }}</strong>
+          </p>
+        </div>
+        <p v-if="paceSummary" class="metric-meta">{{ paceSummary }}</p>
         <p v-if="clockAdvice" class="metric-meta">{{ clockAdvice }}</p>
         <p v-if="oil?.service" class="metric-meta">
           Последняя замена {{ date(oil.service.performedAt) }}<span v-if="oil.service.mileage"> на {{ number(oil.service.mileage) }} км</span>

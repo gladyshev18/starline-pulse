@@ -91,3 +91,94 @@ export function kmPerMotorHour(km: number | null, motorHours: number | null) {
   if (km == null || motorHours == null || !(motorHours > 0)) return null
   return km / motorHours
 }
+
+// Календарный интервал задан в месяцах, а темп считается в сутках, поэтому
+// средний месяц нужен обоим: без него «12 месяцев» не переводятся в дни, а
+// суточный темп не с чем сравнивать.
+const DAYS_IN_MONTH = 30.437
+const DAY_MS = 24 * 60 * 60_000
+export const OIL_INTERVAL_DAYS = OIL_INTERVAL_MONTHS * DAYS_IN_MONTH
+
+// Норма пробега: столько километров в сутки укладывается ровно в интервал —
+// 10 000 км за год. Едешь больше — километры кончатся раньше календаря, и ровно
+// во столько раз раньше, во сколько суточный темп выше нормы.
+export const OIL_KM_PER_DAY = OIL_INTERVAL_KM / OIL_INTERVAL_DAYS
+export const OIL_MOTOR_HOURS_PER_DAY = OIL_INTERVAL_MOTOR_HOURS / OIL_INTERVAL_DAYS
+
+// Меньше суток после замены темп не показывает: сорок километров за два часа
+// превращаются в пятьсот километров в день, и прогноз по такому числу — не
+// осторожная оценка, а арифметика без смысла.
+const MIN_PACE_DAYS = 1
+
+export interface OilPaceClock {
+  name: OilClockName
+  // Сколько ресурса шкала тратит в сутки на самом деле.
+  perDay: number
+  // Сколько в сутки отпускает интервал.
+  normPerDay: number
+  // Отношение одного к другому: 1,5 значит, что шкала обгоняет календарь в
+  // полтора раза, то есть на 50 %. Это же число получается делением долей
+  // пройденного — «пробег на столько-то процентов впереди времени» и «темп на
+  // столько-то процентов выше нормы» здесь одно и то же.
+  ratio: number
+  // Сколько суток осталось, если ехать так же дальше. Null — шкала стоит на
+  // месте и сама по себе не кончится никогда.
+  daysLeft: number | null
+  // Сколько можно тратить в сутки, чтобы остатка хватило ровно до конца
+  // календарного интервала. Null, когда календарь уже вышел.
+  allowancePerDay: number | null
+}
+
+export interface OilPace {
+  // Суток с последней замены — знаменатель всех темпов ниже.
+  days: number
+  clocks: OilPaceClock[]
+  // Шкала, которая при нынешнем темпе кончится первой. Это не обязательно та,
+  // что дальше всех прошла: календарь может опережать пробег сегодня и всё
+  // равно уступить ему через месяц активной езды.
+  binding: OilPaceClock | null
+  daysLeft: number | null
+  dueAt: Date | null
+}
+
+// Где машина окажется, если продолжит в том же духе. `oilLife` отвечает, сколько
+// ресурса истрачено, и этого мало для решения: остаток в 4000 км означает и
+// «полгода спокойной жизни», и «шесть недель», смотря сколько машина ездит.
+export function oilPace(life: OilLife, days: number, now = new Date()): OilPace | null {
+  if (!(days >= MIN_PACE_DAYS) || !life.clocks.length) return null
+
+  const calendarDaysLeft = Math.max(0, OIL_INTERVAL_DAYS - days)
+  const clocks = life.clocks.map<OilPaceClock>(item => {
+    const normPerDay = item.interval / OIL_INTERVAL_DAYS
+    const perDay = item.used / days
+    return {
+      name: item.name,
+      perDay,
+      normPerDay,
+      ratio: perDay / normPerDay,
+      daysLeft: perDay > 0 ? item.remaining / perDay : null,
+      allowancePerDay: calendarDaysLeft > 0 ? item.remaining / calendarDaysLeft : null
+    }
+  })
+
+  const binding = clocks.reduce<OilPaceClock | null>((soonest, item) => {
+    if (item.daysLeft == null) return soonest
+    return !soonest || item.daysLeft < soonest.daysLeft! ? item : soonest
+  }, null)
+
+  return {
+    days,
+    clocks,
+    binding,
+    daysLeft: binding?.daysLeft ?? null,
+    dueAt: binding?.daysLeft == null ? null : new Date(now.getTime() + binding.daysLeft * DAY_MS)
+  }
+}
+
+// Насколько шкала обгоняет календарь — то же отношение, что и `ratio`, но
+// выраженное так, как о нём говорят: 0,49 значит «на 49 % впереди времени»,
+// −0,2 — «на 20 % позади».
+export function oilPaceExcess(pace: OilPace | null, name: OilClockName) {
+  const clock = pace?.clocks.find(item => item.name === name)
+  return clock ? clock.ratio - 1 : null
+}

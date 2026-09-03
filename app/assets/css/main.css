@@ -327,6 +327,22 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
   .oil-clock { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .oil-clock__value { white-space: normal; }
 }
+.pace-list { display: grid; gap: 6px; margin-top: 20px; }
+.pace-caption { margin: 0 0 2px; color: var(--muted); font-size: .7rem; font-weight: 620; }
+.pace-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 9px 13px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-size: .78rem;
+}
+.pace-row span { color: var(--muted); }
+.pace-row strong { font-weight: 620; }
 .card__top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .card__top .eyebrow { margin: 0; }
 .metric-label { margin: 0; color: var(--muted); font-size: .8rem; font-weight: 620; }

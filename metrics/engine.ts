@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, serviceEvents, vehicleSnapshots } from '../db/schema'
-import { kmPerMotorHour, oilClockGap, oilLife } from '../shared/service'
+import { kmPerMotorHour, oilClockGap, oilLife, oilPace } from '../shared/service'
 
 // A single step larger than this is the counter being reset or garbled rather
 // than the engine having run: even a whole night of idling stays under it.
@@ -182,16 +182,19 @@ async function currentMileage(database: Database, vehicleId: number, before: Dat
   return row?.mileage ?? null
 }
 
-const MONTH_MS = 30.437 * 24 * 60 * 60_000
+const DAY_MS = 24 * 60 * 60_000
+const MONTH_MS = 30.437 * DAY_MS
 
 export const emptyOilStatus = () => ({
   service: null as { performedAt: Date, mileage: number | null, note: string | null } | null,
   km: null as number | null,
   motorHours: null as number | null,
   months: null as number | null,
+  days: null as number | null,
   kmPerHour: null as number | null,
   clockGap: null as number | null,
-  life: oilLife({ km: null, motorHours: null, months: null })
+  life: oilLife({ km: null, motorHours: null, months: null }),
+  pace: null as ReturnType<typeof oilPace>
 })
 
 // Everything is counted from the recorded service rather than from the counter's
@@ -207,6 +210,7 @@ export async function oilStatus(database: Database, vehicleId: number, now = new
   const mileage = await currentMileage(database, vehicleId, now)
   const km = mileage != null && service.mileage != null ? Math.max(0, mileage - service.mileage) : null
   const motorHours = await engineMinutesBetween(database, vehicleId, service.performedAt, now) / 60
+  const days = Math.max(0, (now.getTime() - service.performedAt.getTime()) / DAY_MS)
   const months = Math.max(0, (now.getTime() - service.performedAt.getTime()) / MONTH_MS)
   const life = oilLife({ km, motorHours, months })
 
@@ -215,8 +219,12 @@ export async function oilStatus(database: Database, vehicleId: number, now = new
     km,
     motorHours,
     months,
+    days,
     kmPerHour: kmPerMotorHour(km, motorHours),
     clockGap: oilClockGap(life),
-    life
+    life,
+    // Доли пройденного говорят, сколько израсходовано, но не когда кончится:
+    // это решает темп, с которым машина ездила с самой замены.
+    pace: oilPace(life, days, now)
   }
 }

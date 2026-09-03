@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   OIL_EQUIVALENT_SPEED_KMH,
+  OIL_INTERVAL_DAYS,
   OIL_INTERVAL_KM,
   OIL_INTERVAL_MONTHS,
   OIL_INTERVAL_MOTOR_HOURS,
+  OIL_KM_PER_DAY,
+  OIL_MOTOR_HOURS_PER_DAY,
   kmPerMotorHour,
   oilClockGap,
-  oilLife
+  oilLife,
+  oilPace,
+  oilPaceExcess
 } from '../shared/service'
 
 describe('oil intervals', () => {
@@ -88,5 +93,92 @@ describe('kmPerMotorHour', () => {
     expect(kmPerMotorHour(100, 0)).toBeNull()
     expect(kmPerMotorHour(null, 10)).toBeNull()
     expect(kmPerMotorHour(100, null)).toBeNull()
+  })
+})
+
+describe('daily norms', () => {
+  it('spreads each interval over the calendar year it is meant to last', () => {
+    expect(OIL_INTERVAL_DAYS).toBeCloseTo(365.24, 1)
+    expect(OIL_KM_PER_DAY).toBeCloseTo(27.4, 1)
+    expect(OIL_MOTOR_HOURS_PER_DAY).toBeCloseTo(0.68, 2)
+  })
+})
+
+describe('oilPace', () => {
+  const now = new Date('2026-09-03T12:00:00Z')
+
+  it('measures the daily pace against the norm the interval implies', () => {
+    // 4000 км за 100 дней — сорок в сутки при норме двадцать семь.
+    const pace = oilPace(oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 }), 100, now)!
+    const km = pace.clocks.find(item => item.name === 'km')!
+    expect(km.perDay).toBeCloseTo(40)
+    expect(km.normPerDay).toBeCloseTo(OIL_KM_PER_DAY)
+    expect(km.ratio).toBeCloseTo(40 / OIL_KM_PER_DAY, 3)
+  })
+
+  // «На сколько пробег обгоняет время» и «на сколько темп выше нормы» — одно и
+  // то же число, и это должно оставаться правдой, а не совпадением.
+  it('reads the same whether you compare paces or shares of the interval', () => {
+    const life = oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 })
+    const pace = oilPace(life, 100, now)!
+    const kmShare = life.clocks.find(item => item.name === 'km')!.share
+    const monthShare = life.clocks.find(item => item.name === 'months')!.share
+    expect(oilPaceExcess(pace, 'km')!).toBeCloseTo(kmShare / monthShare - 1, 6)
+  })
+
+  it('leaves the calendar exactly on its own norm', () => {
+    const pace = oilPace(oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 }), 100, now)!
+    expect(pace.clocks.find(item => item.name === 'months')!.ratio).toBeCloseTo(1, 6)
+    expect(oilPaceExcess(pace, 'months')!).toBeCloseTo(0, 6)
+  })
+
+  it('projects the date on whichever clock runs out first at this pace', () => {
+    // Сорок километров в сутки: шесть тысяч остатка — сто пятьдесят дней, и это
+    // раньше, чем истечёт год.
+    const pace = oilPace(oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 }), 100, now)!
+    expect(pace.binding?.name).toBe('km')
+    expect(pace.daysLeft).toBeCloseTo(150, 0)
+    expect(pace.dueAt!.getTime()).toBeCloseTo(now.getTime() + 150 * 24 * 60 * 60_000, -7)
+  })
+
+  // Дальше всех прошла та шкала, что ближе к концу сегодня; кончится первой —
+  // та, что быстрее идёт. Это разные шкалы, и прогноз обязан брать вторую.
+  it('does not confuse the clock that is furthest along with the one that will finish first', () => {
+    const life = oilLife({ km: 2000, motorHours: 60, months: 10 })
+    expect(life.binding?.name).toBe('months')
+    const pace = oilPace(life, 10 * 30.437, now)!
+    expect(pace.binding?.name).toBe('months')
+
+    // Та же машина, но за те же десять месяцев проехавшая девять тысяч: остаток
+    // километров теперь кончится намного раньше календаря.
+    const busy = oilPace(oilLife({ km: 9000, motorHours: 200, months: 10 }), 10 * 30.437, now)!
+    expect(busy.binding?.name).toBe('km')
+  })
+
+  it('says how much may be driven per day to reach the calendar date', () => {
+    const pace = oilPace(oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 }), 100, now)!
+    const km = pace.clocks.find(item => item.name === 'km')!
+    expect(km.allowancePerDay).toBeCloseTo(6000 / (OIL_INTERVAL_DAYS - 100), 3)
+    // Ехать можно вчетверо меньше, чем сейчас, — потому и запись к сроку.
+    expect(km.allowancePerDay!).toBeLessThan(km.perDay)
+  })
+
+  it('has no allowance and no distance forecast for a car standing still past its date', () => {
+    const pace = oilPace(oilLife({ km: 500, motorHours: 20, months: 14 }), 14 * 30.437, now)!
+    expect(pace.clocks.find(item => item.name === 'km')!.allowancePerDay).toBeNull()
+    // Календарь уже вышел, и он же держит прогноз на сегодня.
+    expect(pace.daysLeft).toBe(0)
+  })
+
+  it('refuses to extrapolate from the first hours after a service', () => {
+    expect(oilPace(oilLife({ km: 40, motorHours: 1, months: 0 }), 0.08, now)).toBeNull()
+    expect(oilPace(oilLife({ km: null, motorHours: null, months: null }), 30, now)).toBeNull()
+  })
+
+  it('never promises a date for a clock that is not moving', () => {
+    const parked = oilPace(oilLife({ km: 0, motorHours: 0, months: 3 }), 3 * 30.437, now)!
+    expect(parked.clocks.find(item => item.name === 'km')!.daysLeft).toBeNull()
+    // Календарь идёт всегда, поэтому именно он и остаётся прогнозом.
+    expect(parked.binding?.name).toBe('months')
   })
 })
