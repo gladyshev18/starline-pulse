@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "fuel:backfill": "tsx scripts/backfill-fuel-from-percent.ts",
+    "stations:backfill": "tsx scripts/backfill-stations.ts",
     "trips:recompute": "tsx scripts/recompute-trips.ts",
     "seed": "tsx scripts/seed.ts",
     "digest:facts": "tsx scripts/weekly-facts.ts",

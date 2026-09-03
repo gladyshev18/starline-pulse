@@ -37,6 +37,13 @@ const stationsByInn: Record<string, ReceiptStation> = {
   '7701285928': 'lukoil' // ООО «ЛУКОЙЛ-Центрнефтепродукт»
 }
 
+// Exported because the map grows after the fact: a chain added here today has
+// receipts already in the database that were parsed before it was known, and
+// `scripts/backfill-stations.ts` goes back over them with the same lookup.
+export function stationByInn(inn: string | null | undefined) {
+  return inn ? stationsByInn[inn] ?? null : null
+}
+
 // The seller line is a legal entity in quotes, sometimes behind a label:
 // «Пользователь ООО "ЛУКОЙЛ-Центрнефтепродукт"». Cyrillic has no ASCII word
 // boundary, so the abbreviation is closed with lookarounds — otherwise «ИП»
@@ -242,7 +249,7 @@ export function parseReceiptText(text: string): ParsedReceipt {
       break
     }
   }
-  result.station ??= (result.sellerInn && stationsByInn[result.sellerInn]) || null
+  result.station ??= stationByInn(result.sellerInn)
 
   // A chain we have no INN for is still worth naming: the receipt of an unknown
   // seller keeps its legal name instead of arriving blank. The evidence check

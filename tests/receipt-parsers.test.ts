@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { looksLikeFuelReceipt, parseFiscalLink, parseFuelLineItem, parseReceiptDate, parseReceiptMail, parseReceiptText, parseTotalAmount, stripHtml } from '../receipts/parsers'
+import { looksLikeFuelReceipt, parseFiscalLink, parseFuelLineItem, parseReceiptDate, parseReceiptMail, parseReceiptText, parseTotalAmount, stationByInn, stripHtml } from '../receipts/parsers'
 import { matchesSenderAllowlist, parseForwardedSenders, type ReceiptMailMessage } from '../receipts/mail/types'
 
 function mail(values: Partial<ReceiptMailMessage>): ReceiptMailMessage {
@@ -197,6 +197,17 @@ describe('a Rosneft receipt from Первый ОФД', () => {
 
     expect(/роснефт|rosneft/i.test(direct)).toBe(false)
     expect(parseReceiptText(direct)).toMatchObject({ station: 'rosneft', stationName: null, sellerInn: '3664002554' })
+  })
+
+  // Список ИНН пополняется задним числом, и чеки, разобранные до пополнения,
+  // лежат в базе без сети. `scripts/backfill-stations.ts` подписывает их этой же
+  // функцией, поэтому она отвечает и на голый ИНН, без всякого чека вокруг.
+  it('answers on a bare INN, which is what the backfill has to work from', () => {
+    expect(stationByInn('3664002554')).toBe('rosneft')
+    expect(stationByInn('7701285928')).toBe('lukoil')
+    expect(stationByInn('7706107510')).toBeNull()
+    expect(stationByInn(null)).toBeNull()
+    expect(stationByInn(undefined)).toBeNull()
   })
 
   it('joins the address split across wrapped lines and drops the repeat', () => {
