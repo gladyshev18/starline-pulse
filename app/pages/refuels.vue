@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FUEL_TYPES, STATIONS } from '~~/shared/stations'
+import { plural } from '~~/shared/plural'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024
 const { data, status, refresh } = await useFetch('/api/refuels')
@@ -41,16 +42,27 @@ const details = reactive({ station: '', stationName: '', fuelType: '', pricePerL
 // Цена литра. Ряды с одним чеком показываются тоже — цена в них известна, — но
 // про изменение молчат: одна точка никуда не движется.
 const priceRows = computed(() => data.value?.prices.byFuelType || [])
+// Виды топлива не смешиваются и на графике: у АИ-92 и АИ-95 разные этажи цен, на
+// общей шкале движение каждого из них превращается в прямую. Поэтому карточка
+// показывает один вид, а остальные ждут в переключателе.
+const priceFuel = ref('')
+const fuelOptions = computed(() => priceRows.value.map(row => ({ value: row.fuelType, label: row.fuelType })))
+watchEffect(() => {
+  if (!priceRows.value.some(row => row.fuelType === priceFuel.value)) priceFuel.value = priceRows.value[0]?.fuelType || ''
+})
+const priceRow = computed(() => priceRows.value.find(row => row.fuelType === priceFuel.value) || null)
+function priceChange(row: { change: number | null, first: { at: string | Date } }) {
+  if (row.change == null || Math.abs(row.change) < 0.01) return 'цена держится'
+  const since = new Date(row.first.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  return `${row.change > 0 ? '+' : '−'}${number(Math.abs(row.change), 2)} ₽ с ${since}`
+}
 function stationLabel(station: string | null, stationName: string | null) {
   return stationName || STATIONS.find(item => item.value === station)?.label || 'Другая АЗС'
 }
 // Сравнение сетей имеет смысл только внутри одного вида топлива: АИ-92 дешевле
 // АИ-95 везде, и таблица со всеми подряд сообщала бы именно это.
-const stationRows = computed(() => {
-  const leading = priceRows.value[0]?.fuelType
-  return (data.value?.prices.byStation || []).filter(item => item.fuelType === leading)
-})
-const overpay = computed(() => data.value?.prices.overpay.find(item => item.fuelType === priceRows.value[0]?.fuelType) || null)
+const stationRows = computed(() => (data.value?.prices.byStation || []).filter(item => item.fuelType === priceFuel.value))
+const overpay = computed(() => data.value?.prices.overpay.find(item => item.fuelType === priceFuel.value) || null)
 
 // Убыль на стоянке. Заголовок говорит средним за стоянку, а не суммой: сумма
 // растёт от того, что история длиннее, а среднее — только от того, что убыль
@@ -240,26 +252,25 @@ async function uploadReceipt(refuelId: number, file: File) {
             <p class="metric-label">Цена литра</p>
             <p class="muted">По чекам. Виды топлива не смешиваются: разница между ними больше, чем движение цены</p>
           </div>
+          <AppSegmented v-if="fuelOptions.length > 1" v-model="priceFuel" :options="fuelOptions" label="Вид топлива" tabs />
         </div>
-        <div class="price-rows">
-          <div v-for="row in priceRows" :key="row.fuelType" class="price-row">
-            <div>
-              <strong>{{ row.fuelType }}</strong>
-              <span class="muted"> · {{ row.points.length }} чеков</span>
-            </div>
-            <p class="price-row__value">
-              <strong>{{ money(row.last.price) }}/л</strong>
-              <span v-if="row.change != null && Math.abs(row.change) >= 0.01" class="muted">
-                {{ row.change > 0 ? '+' : '−' }}{{ number(Math.abs(row.change), 2) }} ₽ с
-                {{ new Date(row.first.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) }}
-              </span>
-              <span v-else class="muted">цена держится</span>
-            </p>
-          </div>
-        </div>
+        <template v-if="priceRow">
+          <!-- Строка над графиком: где цена сейчас и куда она сдвинулась. -->
+          <p class="price-summary">
+            <span class="price-summary__item">
+              <strong>{{ priceRow.fuelType }}</strong>
+              <span class="muted">{{ priceRow.points.length }} {{ plural(priceRow.points.length, 'чек', 'чека', 'чеков') }}</span>
+              <strong>{{ money(priceRow.last.price) }}/л</strong>
+              <span class="muted">{{ priceChange(priceRow) }}</span>
+            </span>
+          </p>
+          <!-- Единственный чек — это цена, но не её движение: линии из него не выйдет. -->
+          <FuelPriceChart v-if="priceRow.points.length > 1" :fuel-type="priceRow.fuelType" :points="priceRow.points" />
+          <p v-else class="metric-meta">Одного чека мало для графика: цена по нему известна, движение — нет.</p>
+        </template>
         <div v-if="stationRows.length > 1" class="price-stations">
-          <p class="metric-label">{{ priceRows[0]!.fuelType }} по сетям</p>
-          <div v-for="station in stationRows" :key="`${station.station}`" class="price-row">
+          <p class="metric-label">{{ priceFuel }} по сетям · средняя за литр</p>
+          <div v-for="station in stationRows" :key="station.station || 'other'" class="price-row">
             <div>
               <strong>{{ stationLabel(station.station, station.stationName) }}</strong>
               <span class="muted"> · {{ number(station.litres) }} л</span>

@@ -700,6 +700,7 @@ tbody tr:hover { background: var(--surface-subtle); }
   .history-chart-card .card__top { align-items: stretch; flex-direction: column; padding-inline: 8px; }
   .segmented { align-self: flex-start; overflow-x: auto; }
   .history-chart { height: 300px; }
+  .price-chart { height: 260px; }
   .history-empty { max-width: calc(100% - 32px); text-align: center; white-space: normal; }
   .refuels-heading__note { text-align: left; }
   .refuel-card, .receipt-card { gap: 22px; padding: 20px; }
@@ -775,13 +776,21 @@ tbody tr:hover { background: var(--surface-subtle); }
 .heatmap__cell { aspect-ratio: 1; border-radius: 3px; background: color-mix(in srgb, var(--accent) calc(var(--heat, 0) * 85% + 15%), var(--surface-subtle)); }
 .heatmap__cell--empty { background: var(--surface-subtle); }
 
-/* Цены по видам топлива и по сетям: две одинаковые по устройству таблички из
-   двух колонок, поэтому строка у них одна на всех. */
-.price-rows, .price-stations { display: grid; gap: 2px; margin-top: 14px; }
-.price-stations { margin-top: 22px; }
+/* Сравнение сетей: табличка из двух колонок под графиком цены. */
+.price-stations { display: grid; gap: 2px; margin-top: 22px; }
 .price-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding: 9px 13px; border-radius: 10px; background: var(--surface-subtle); font-size: .82rem; }
 .price-row__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0; }
 .price-row__value .muted { font-size: .72rem; }
+
+/* Сводка над графиком цены: вид топлива, сколько чеков, где цена сейчас и куда
+   сдвинулась. Части разделяются точкой, чтобы строка не слипалась. */
+.price-summary { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 16px 0 0; font-size: .82rem; }
+.price-summary__item { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; }
+.price-summary__item > * + *::before { margin-right: 5px; color: var(--muted); content: '·'; font-weight: 500; }
+.price-summary__item .muted { font-size: .72rem; }
+/* График цены живёт в общей карточке под сводкой, поэтому отбивка сверху у него
+   меньше, чем у графика на отдельной карточке статистики. */
+.price-chart { width: 100%; height: 300px; margin-top: 8px; }
 
 /* Форма постоянного расхода стоит под таблицей той же карточки, поэтому ей
    нужна отбивка сверху — иначе поля липнут к последней строке. */
