@@ -117,6 +117,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/www/acme:/var/www/acme:ro
       - caddy-data:/data
       - caddy-config:/config
     read_only: true

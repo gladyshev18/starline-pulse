@@ -1,19 +1,27 @@
-{$APP_DOMAIN} {
-  encode zstd gzip
+http://45.11.92.185 {
+	handle /.well-known/acme-challenge/* {
+		root * /var/www/acme
+		file_server
+	}
 
-  header {
-    -Server
-    X-Content-Type-Options "nosniff"
-    Referrer-Policy "strict-origin-when-cross-origin"
-    Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    Strict-Transport-Security "max-age=31536000; includeSubDomains"
-  }
-
-  reverse_proxy web:3000
-
-  log {
-    output stdout
-    format json
-  }
+	respond 404
 }
 
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	reverse_proxy web:3000
+
+	log {
+		output stdout
+		format json
+	}
+}

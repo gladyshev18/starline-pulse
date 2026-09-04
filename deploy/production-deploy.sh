@@ -22,6 +22,7 @@ fi
 
 chmod 600 .env.production "$NEXT_ENV"
 install -d -m 700 "$BACKUP_DIR"
+install -d -m 755 /var/www/acme
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
 current_compose() {
