@@ -303,6 +303,68 @@ describe('границы поездок по журналу сигнализац
     }
   })
 
+  // 2 и 4 сентября прогрев на автозапуске и дорога сразу за ним доехали до
+  // опроса одним непрерывно включённым зажиганием: между ними двигатель глушат
+  // на десяток секунд, а опрос заглядывает раз в полминуты. Журнал разделил их
+  // и завёл каждому свою сессию, но склейка осталась поверх — и поездка висела
+  // на ней, а настоящая дорога своей записи не получала вовсе. Так пропали две
+  // поездки на девять с половиной километров.
+  it('снимает склейку опроса и отдаёт поездку той сессии, что и была дорогой', async () => {
+    const { database, vehicle, snapshot, session } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await snapshot(70, 110, 65)
+      // Опрос застал зажигание уже на прогреве и не заметил, что между ним и
+      // дорогой двигатель глушили: на охране — значит автозапуск, снятой с
+      // охраны — уже дорога.
+      const running = async (minute: number, armed: boolean) => {
+        await database.insert(vehicleSnapshots).values({
+          vehicleId: vehicle.id, ts: at(minute), activityTs: at(minute), ignition: true, armed,
+          mileage: 100, mileageTs: at(0), fuel: 30, fuelSource: 'converted', fuelTs: at(minute), rawJson: '{}'
+        })
+      }
+      await running(7, true)
+      await running(20, false)
+      const glued = await session(6, 45, 100, 110)
+      const [trip] = await database.insert(trips).values({
+        vehicleId: vehicle.id, startedAt: at(6), endedAt: at(45),
+        mileageStart: 100, mileageEnd: 110, distance: 10, driver: 'Кристина', isOpen: false
+      }).returning()
+
+      await storeEvents(database, vehicle.id, [
+        // Прогрев на автозапуске: зажигание не включали, ручник не опускали.
+        { type: ENGINE_STARTED, groupId: 5, timestamp: seconds(5) },
+        { type: ENGINE_STOPPED, groupId: 5, timestamp: seconds(10) },
+        // Дорога.
+        { type: IGNITION_ON, groupId: 5, timestamp: seconds(11) },
+        { type: HANDBRAKE_RELEASED, groupId: 5, timestamp: seconds(12) },
+        { type: IGNITION_OFF, groupId: 5, timestamp: seconds(30) }
+      ])
+      const report = await applyEventBoundaries(database, vehicle.id)
+      expect(report.merged).toHaveLength(1)
+      expect(report.merged[0]!.sessionId).toBe(glued.id)
+
+      // От склейки не осталось следа: каждому запуску журнал завёл свою запись.
+      const all = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
+      expect(all).toHaveLength(2)
+      expect(all.map(item => item.startedAt.getTime())).toEqual([at(5).getTime(), at(11).getTime()])
+      expect(all[0]!.distance).toBe(0)
+      expect(all[1]!.distance).toBe(10)
+
+      // Поездка одна и та же — с именем водителя, — но теперь она стоит на
+      // дороге, а не на прогреве перед ней.
+      const left = await database.select().from(trips)
+      expect(left).toHaveLength(1)
+      expect(left[0]!.id).toBe(trip!.id)
+      expect(left[0]!.driver).toBe('Кристина')
+      expect(left[0]!.startedAt.getTime()).toBe(at(11).getTime())
+      expect(left[0]!.endedAt!.getTime()).toBe(at(30).getTime())
+      expect(left[0]!.distance).toBe(10)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
   // На боевых данных 27 августа машину заводили семь раз за час. Сопоставление
   // «ближайший интервал в пределах получаса» приписало тогда стодесятиминутной
   // поездке семиминутный интервал и выдало 842 км/ч.

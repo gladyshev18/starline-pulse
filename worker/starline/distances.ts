@@ -1,7 +1,7 @@
 import { and, eq, gt, lte } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { engineSessions, trips } from '../../db/schema'
-import { sessionDistances } from '../../metrics/odometer'
+import { type SessionDistance, sessionDistances } from '../../metrics/odometer'
 import { armedMinutesBetween } from '../../metrics/engine'
 import { tripFuelUsed } from '../../shared/fuel'
 
@@ -20,6 +20,17 @@ export interface DistanceReport {
   removed: Array<{ tripId: number, startedAt: Date }>
   total: number
   unattributed: number
+}
+
+// Сессия, с которой запись делит больше всего времени.
+function mostOverlapping(sessions: SessionDistance[], from: Date, to: Date) {
+  let best: SessionDistance | null = null
+  let bestShared = 0
+  for (const item of sessions) {
+    const shared = Math.min(item.endedAt.getTime(), to.getTime()) - Math.max(item.startedAt.getTime(), from.getTime())
+    if (shared > bestShared) { best = item; bestShared = shared }
+  }
+  return best
 }
 
 // Единственное место, где решается, сколько километров у какой записи.
@@ -47,7 +58,13 @@ export async function recalculateDistances(database: Database, vehicleId: number
   const stale = await database.select().from(trips).where(and(eq(trips.vehicleId, vehicleId), eq(trips.isOpen, false)))
   for (const trip of stale) {
     if (starts.has(trip.startedAt.getTime()) || !trip.endedAt) continue
-    const shadowed = sessions.find(item => item.startedAt < trip.endedAt! && item.endedAt > trip.startedAt)
+    // Из накрытых сессий берётся та, с которой запись делит больше всего
+    // времени, а не первая по порядку. Прежние границы поездки почти всегда
+    // начинаются раньше настоящих — опрос застаёт зажигание уже включённым, —
+    // и первой в этот промежуток попадает предыдущая сессия. 4 сентября так
+    // вышло бы, что дорога досталась пятиминутному прогреву перед ней, а не
+    // шестнадцати минутам, которые она и есть.
+    const shadowed = mostOverlapping(sessions, trip.startedAt, trip.endedAt)
     if (!shadowed) continue
 
     const owner = await database.query.trips.findFirst({

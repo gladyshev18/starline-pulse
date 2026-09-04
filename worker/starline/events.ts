@@ -161,6 +161,9 @@ export interface BoundaryReport {
   created: Array<{ sessionId: number, startedAt: Date, endedAt: Date, distance: number | null }>
   // Записи, оказавшиеся прогревом: одометр за них так и не сдвинулся.
   removed: Array<{ tripId: number, startedAt: Date }>
+  // Сессии опроса, накрывшие сразу несколько запусков: журнал завёл каждому
+  // свою, а склейка осталась поверх них.
+  merged: Array<{ sessionId: number, startedAt: Date, spans: number }>
 }
 
 async function snapshotAround(database: Database, vehicleId: number, at: Date, direction: 'before' | 'after') {
@@ -200,7 +203,7 @@ async function moveTripWithSession(database: Database, session: EngineSession, s
 //
 // Пробег остаётся за одометром: в журнале его нет.
 export async function applyEventBoundaries(database: Database, vehicleId: number, since?: Date) {
-  const report: BoundaryReport = { corrected: [], created: [], removed: [] }
+  const report: BoundaryReport = { corrected: [], created: [], removed: [], merged: [] }
   const spans = await ignitionSpans(database, vehicleId, since)
   if (!spans.length) return report
 
@@ -258,7 +261,41 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     }).returning()
     if (!created) continue
     sessions.push(created)
+    // Этот запуск теперь описан своей записью, и другому интервалу она не
+    // достанется.
+    taken.add(created.id)
     report.created.push({ sessionId: created.id, startedAt: span.startedAt, endedAt: span.endedAt, distance: null })
+  }
+
+  // Сессия опроса, накрывающая несколько запусков подряд.
+  //
+  // Прогрев на автозапуске и дорогу сразу за ним опрос видит одним непрерывно
+  // включённым зажиганием: между ними двигатель глушат на десяток секунд, а он
+  // заглядывает раз в полминуты. Журнал разделил их и завёл каждому свою
+  // запись, но склейка осталась поверх — и поездка висит на ней. Настоящая
+  // дорога своей записи из-за этого не получает вовсе: пересчёт видит
+  // промежуток занятым и молча его пропускает. Так пропали 2 сентября и
+  // 4 сентября две поездки на девять с половиной километров.
+  //
+  // Одного интервала внутри сессии для такого вывода мало: он может оказаться
+  // половиной пары, доехавшей до журнала не целиком, — и тогда сессию режут по
+  // единственному пересечению, чего делать нельзя. Два и больше — уже
+  // свидетельство, что запусков было несколько.
+  //
+  // Поездку со снятой склейки не трогаем: её перенесёт на настоящую сессию
+  // пересчёт ниже — он один видит, какой из них она принадлежит.
+  for (const session of sessions) {
+    if (taken.has(session.id) || !session.endedAt) continue
+    const covering = spans.filter(span => overlap(span, session) > 0)
+    if (covering.length < 2) continue
+    // Незакрытая поездка ещё ждёт своего закрытия по этой сессии — снимать её
+    // сейчас значит оставить поездку без записи о двигателе.
+    const openTrip = await database.query.trips.findFirst({
+      where: and(eq(trips.vehicleId, vehicleId), eq(trips.startedAt, session.startedAt), eq(trips.isOpen, true))
+    })
+    if (openTrip) continue
+    await database.delete(engineSessions).where(eq(engineSessions.id, session.id))
+    report.merged.push({ sessionId: session.id, startedAt: session.startedAt, spans: covering.length })
   }
   // Километры считаются одним проходом по всей истории, а не по этому окну:
   // доля сессии зависит от того, кто ещё делил с ней промежуток между двумя
