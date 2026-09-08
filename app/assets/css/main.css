@@ -34,19 +34,32 @@
   --danger-soft: #fff0f2;
   --shadow: 0 12px 34px rgb(24 57 42 / .055);
   --sans: ManropeLocal, Aptos, "Segoe UI", Arial, sans-serif;
+  /* Отступ от верха окна, ниже которого начинается свободное место: щель над
+     шапкой плюс её высота. От него считаются липкое оглавление статистики и
+     `scroll-margin-top` у якорей — иначе раздел встаёт под панель. */
+  --header-space: 84px;
+  /* Подсветка угла страницы. Вынесена в переменную, потому что её же рисуют
+     полосы, закрывающие зазоры над липкими панелями: заливать там плоский --bg
+     нельзя — на фоне градиента полоса читается прямоугольным пятном. */
+  --page-wash: radial-gradient(circle at 92% 0, color-mix(in srgb, var(--accent) 7%, transparent), transparent 28rem);
   color-scheme: light;
   font-family: var(--sans);
   font-synthesis: none;
 }
 
+/* Фон уведён глубже, а поверхность поднята: раньше карточка отличалась от
+   страницы в 1.09 — почти неразличимо, и весь экран читался одним полотном.
+   Теперь 1.24, а граница карточки — 1.6 против её же фона вместо 1.35. Мелкий
+   текст на этом не потерял: --muted держит 6.4 на поверхности и 5.9 на
+   приглушённой подложке. */
 :root[data-theme='dark'] {
-  --bg: #0b1210;
-  --surface: #121c18;
-  --surface-subtle: #17241e;
+  --bg: #050907;
+  --surface: #18231e;
+  --surface-subtle: #23322a;
   --ink: #edf7f2;
   --muted: #91a39a;
-  --line: #24352d;
-  --line-strong: #334b40;
+  --line: #31463c;
+  --line-strong: #3d574a;
   --accent: #38d39c;
   --accent-hover: #60e2b3;
   --accent-soft: #12382a;
@@ -54,7 +67,8 @@
   --success: #38d39c;
   --danger: #ff8795;
   --danger-soft: #371b21;
-  --shadow: 0 18px 44px rgb(0 0 0 / .18);
+  --shadow: 0 18px 44px rgb(0 0 0 / .38);
+  --date-icon-filter: invert(1);
   color-scheme: dark;
 }
 
@@ -66,9 +80,7 @@ body {
   min-height: 100dvh;
   margin: 0;
   overflow-x: clip;
-  background:
-    radial-gradient(circle at 92% 0, color-mix(in srgb, var(--accent) 7%, transparent), transparent 28rem),
-    var(--bg);
+  background: var(--page-wash) fixed, var(--bg);
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
@@ -196,6 +208,32 @@ button { color: inherit; }
   transition: border-color .16s ease, box-shadow .16s ease;
 }
 textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line-height: 1.5; }
+/* Системная стрелка у select и иконка календаря у input[type=date] рисуются
+   браузером и не знают про тему: рядом с остальными полями они выпадали из
+   набора. Стрелку рисуем сами — через обёртку, потому что в фоне-картинке цвет
+   нельзя связать с переменной темы; иконку календаря приглушаем и в тёмной
+   теме инвертируем, иначе она остаётся чёрной на тёмном поле. */
+.select { position: relative; display: block; }
+.select::after {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid var(--muted);
+  border-bottom: 1.6px solid var(--muted);
+  content: '';
+  pointer-events: none;
+  transform: translateY(-70%) rotate(45deg);
+}
+.select:has(:disabled)::after { opacity: .5; }
+select.control { padding-right: 38px; appearance: none; }
+input[type='date'].control::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: var(--date-icon-filter, none);
+  opacity: .6;
+}
+input[type='date'].control::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .control:hover { border-color: color-mix(in srgb, var(--muted) 70%, transparent); }
 .control:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .control:disabled { opacity: .65; }
@@ -213,16 +251,31 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .brand-logo--compact .brand-logo__mark { width: 38px; height: 38px; flex-basis: 38px; }
 .brand-logo--compact .brand-logo__name { font-size: 1rem; }
 
+/* Плашка висит на 12 точках от верха окна, и в эту щель контент проезжает
+   насквозь: над шапкой мелькают обрезанные цифры и куски строк. Полоса под
+   `::before` закрывает её фоном страницы — она шире шапки на поля контейнера,
+   потому что по бокам от плашки контент виден до самого края. */
+.app-header::before {
+  position: absolute;
+  z-index: -1;
+  right: -20px;
+  bottom: 100%;
+  left: -20px;
+  height: calc(var(--header-gap) + 12px);
+  background: var(--page-wash) fixed, var(--bg);
+  content: '';
+}
 .app-header {
+  --header-gap: 12px;
   position: sticky;
   z-index: 10;
-  top: 12px;
+  top: var(--header-gap);
   display: flex;
   min-height: 64px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 12px;
+  margin-top: var(--header-gap);
   padding: 10px 11px 10px 14px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   border-radius: 18px;
@@ -291,16 +344,22 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
 .card {
   grid-column: span 4;
-  min-height: 168px;
   padding: 23px;
   border: 1px solid var(--line);
   border-radius: 19px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
-.card--wide { grid-column: span 12; min-height: 198px; }
+.card--wide { grid-column: span 12; }
 .card--half { grid-column: span 6; }
-.card--table { grid-column: 1 / -1; min-height: 0; }
+.card--table { grid-column: 1 / -1; }
+/* Минимальная высота нужна карточке с крупной цифрой: без неё соседи по ряду
+   разъезжаются, а метрика липнет к своей подписи. Карточке из одного текста она
+   добавляет только пустоты — пустой инбокс чеков занимал 198 точек ради двух
+   строк. Поэтому высоту держат те, у кого внутри метрика, и заглушка загрузки,
+   которой иначе нечем занять место. */
+.card:has(.metric), .card.state-card, .card.skeleton { min-height: 168px; }
+.card--wide:has(.metric), .card--wide.skeleton { min-height: 198px; }
 .metric-badge--warn { border-color: color-mix(in srgb, var(--danger) 30%, transparent); background: var(--danger-soft); color: var(--danger); }
 .document-actions { display: flex; gap: 8px; white-space: nowrap; }
 .speed-rows { display: grid; gap: 16px; margin-top: 22px; }
@@ -368,6 +427,15 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .metric--compact { font-size: clamp(1.8rem, 3.5vw, 2.75rem); }
 .metric small { color: var(--muted); font-size: .26em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 .metric-meta { margin: 17px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+/* У `.metric-meta` две роли: подпись под цифрой в тесной карточке метрики и
+   абзац-объяснение в широкой. Во второй роли это и есть содержание страницы —
+   почему число посчитано именно так, — и 11 точек для связного текста мало. */
+/* Не до кегля описания над ним (.82rem): описание и сноска должны читаться
+   как разные уровни, а не как один абзац, разорванный отступом. */
+.card--wide .metric-meta, .refuel-card .metric-meta, .receipt-card .metric-meta {
+  font-size: .76rem;
+  line-height: 1.5;
+}
 .metric-card__footer { margin-top: 17px; }
 .metric-card__footer .metric-meta { margin-top: 0; }
 .metric-card__footer .metric-meta--primary { margin-bottom: 4px; color: var(--ink); font-weight: 650; }
@@ -398,7 +466,7 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .status-dot--offline { background: var(--danger); box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 13%, transparent); }
 .skeleton { color: var(--muted); }
 
-.activity-card, .battery-card { min-height: 0; }
+.card.activity-card, .card.battery-card { min-height: 0; }
 .activity-card .card__top .muted, .battery-card .card__top .muted { margin: 5px 0 0; font-size: .75rem; }
 .daily-chart { display: grid; height: 180px; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 7px; margin-top: 25px; }
 .daily-chart__item { display: grid; min-width: 0; grid-template-rows: 20px 1fr 19px; gap: 5px; border-radius: 8px; outline: none; text-align: center; transition: transform .16s ease; }
@@ -425,10 +493,66 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 .outlier-row span { color: var(--muted); }
 
 .history-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+
+/* Оглавление статистики. Страница идёт на пять с лишним тысяч точек, и без
+   него до нужного раздела можно только долистать. Панель липкая и садится
+   сразу под шапку; текущий раздел отмечается наблюдателем в самой странице. */
+/* Между шапкой и оглавлением остаётся зазор, и в нём, как и над самой шапкой,
+   контент виден насквозь: закрываем его такой же полосой фона. */
+.section-nav::before {
+  position: absolute;
+  right: -20px;
+  bottom: 100%;
+  left: -20px;
+  height: 10px;
+  background: var(--page-wash) fixed, var(--bg);
+  content: '';
+}
+.section-nav {
+  position: sticky;
+  z-index: 9;
+  top: var(--header-space);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 26px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 8px 28px rgb(24 57 42 / .04);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.section-nav__link {
+  display: inline-flex;
+  min-height: 33px;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 590;
+  transition: color .16s ease, background-color .16s ease;
+}
+.section-nav__link:hover { background: var(--surface-subtle); color: var(--ink); }
+.section-nav__link--current { background: var(--accent-soft); color: var(--accent-ink); }
+.section-nav__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.stats-section + .stats-section { margin-top: 46px; }
+/* Якорь ведёт на секцию, а над ней стоят две липкие панели: заголовок раздела
+   иначе оказывается ровно под ними. */
+.stats-section { scroll-margin-top: calc(var(--header-space) + 62px); }
+.stats-section__title {
+  margin: 0 0 16px;
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -.03em;
+}
 .month-switcher { display: grid; grid-template-columns: 40px minmax(155px, auto) 40px; align-items: center; gap: 8px; }
 .month-switcher strong { font-size: .9rem; font-weight: 650; text-align: center; }
 .month-switcher__arrow { border-color: var(--line-strong); }
-.history-metric { min-height: 178px; }
+.card.history-metric { min-height: 178px; }
 .history-chart-card { position: relative; min-height: 430px; }
 .history-chart-card .card__top { align-items: flex-start; gap: 20px; }
 .history-chart-card .card__top .muted { margin: 5px 0 0; font-size: .75rem; }
@@ -473,6 +597,7 @@ tbody tr:hover { background: var(--surface-subtle); }
 .refuels-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .refuels-heading__note { max-width: 310px; margin: 0 0 5px; color: var(--muted); font-size: .78rem; text-align: right; }
 .refuels-empty { display: block; }
+.refuels-empty .muted { margin: 10px 0 0; font-size: .85rem; }
 /* The children are `.card`, and a card carries a column span meant for the
    dashboard's twelve-column grid. Left to itself this list would inherit those
    spans as implicit columns and stand the refuels three to a row, off the side
@@ -545,7 +670,7 @@ tbody tr:hover { background: var(--surface-subtle); }
 .api-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 /* The card stands on its own here, outside any .grid, so the column span and the
    dashboard's card height do not apply. */
-.api-limit { min-height: 0; margin-bottom: 14px; }
+.card.api-limit { min-height: 0; margin-bottom: 14px; }
 .api-limit .metric { margin-top: 14px; }
 .log-filters { display: grid; grid-template-columns: minmax(240px, 1fr) 190px 180px; gap: 12px; margin-bottom: 22px; }
 .log-table tbody tr.is-selected { background: var(--accent-soft); }
@@ -611,6 +736,23 @@ tbody tr:hover { background: var(--surface-subtle); }
 .login-card h1 { margin: 0; font-size: clamp(2.4rem, 5vw, 3.4rem); font-weight: 360; line-height: 1; letter-spacing: -.055em; }
 .login-form { margin-top: 34px; }
 .login-form .btn { margin-top: 3px; }
+
+/* Страница ошибки рисуется вместо всего приложения, поэтому берёт шапку и
+   отступы на себя: раскладка сюда не приходит. */
+.error-header { display: flex; align-items: center; justify-content: space-between; padding-block: 28px 0; }
+.error-shell { max-width: 44rem; padding-block: clamp(64px, 16vh, 150px) 64px; }
+.error-shell .page-title { font-size: clamp(2.2rem, 5.5vw, 3.6rem); }
+.error-shell__text { margin: 20px 0 0; color: var(--muted); font-size: .95rem; line-height: 1.55; }
+.error-shell__detail {
+  margin: 16px 0 0;
+  padding: 12px 15px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font: 12px/1.55 Consolas, "SFMono-Regular", monospace;
+  overflow-wrap: anywhere;
+}
+.error-shell__action { margin-top: 30px; }
 
 /* Below this the four-across overview squeezes the metric cards under the width
    the odometer reading needs, and the two-column refuel and receipt cards stop
@@ -685,11 +827,20 @@ tbody tr:hover { background: var(--surface-subtle); }
   .nav__logout { flex: 1 1 auto; min-height: 40px; border-radius: 12px; font-size: .84rem; }
 }
 @media (max-width: 560px) {
-  .app-header { top: 8px; min-height: 60px; margin-top: 8px; padding: 9px; border-radius: 16px; }
+  :root { --header-space: 76px; }
+  .app-header { --header-gap: 8px; min-height: 60px; padding: 9px; border-radius: 16px; }
+  .stats-section + .stats-section { margin-top: 34px; }
+  .stats-section__title { font-size: 1.28rem; }
+  /* Панель разделов на телефоне переносится в две-три строки и съедала бы
+     треть экрана: здесь она едет вбок одной строкой. */
+  .section-nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .section-nav::-webkit-scrollbar { display: none; }
+  .section-nav__link { flex: 0 0 auto; }
   .page-heading { margin-bottom: 25px; }
   .page-title { font-size: clamp(2.7rem, 14vw, 4rem); }
   .grid { gap: 11px; }
-  .card, .card--wide, .card--half { grid-column: 1 / -1; min-height: 150px; padding: 20px; border-radius: 17px; }
+  .card, .card--wide, .card--half { grid-column: 1 / -1; padding: 20px; border-radius: 17px; }
+  .card:has(.metric), .card.state-card, .card.skeleton, .card--wide:has(.metric) { min-height: 150px; }
   .status-overview { grid-template-columns: 1fr; gap: 11px; }
   .status-overview .card, .status-overview .state-card { grid-column: 1 / -1; min-height: 0; padding: 18px; }
   .state-card__body { margin-top: 24px; }

@@ -10,7 +10,7 @@ export function useTheme() {
     localStorage.setItem('starline-pulse-theme', value)
     document.querySelector('meta[name="theme-color"]')?.setAttribute(
       'content',
-      value === 'dark' ? '#0b1210' : '#f4f8f6'
+      value === 'dark' ? '#050907' : '#f4f8f6'
     )
   }
 
