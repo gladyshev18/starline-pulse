@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { MONTHLY_METRICS, monthlyMetric, type MonthlyMetricValue } from '~~/shared/monthly-metrics'
 import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
 import { operatingDeviation } from '~~/shared/operating'
+import { plural } from '~~/shared/plural'
+import { STATIONS } from '~~/shared/stations'
 import { WEEKDAYS } from '~~/shared/usage-profile'
 
 const route = useRoute()
@@ -23,6 +26,20 @@ const odometerDistance = computed(() => {
 })
 
 const monthTitle = computed(() => formatMonthTitle(month.value))
+
+// Помесячные графики живут отдельным запросом: окно у них своё — вся история до
+// текущего месяца, — поэтому переключение месяцев их не перезагружает.
+const { data: monthly } = await useFetch('/api/statistics/monthly')
+// Тем же окном живут зависимости и тренды: темп цены, сезонность, напряжение
+// перед пуском. Месяц для них — одна точка, и переключать их вместе с месяцем
+// было бы нечем.
+const { data: insights } = await useFetch('/api/statistics/insights')
+const trendMetric = ref<MonthlyMetricValue>('distance')
+const trendOptions = MONTHLY_METRICS.map(item => ({ value: item.value, label: item.label }))
+const trend = computed(() => monthlyMetric(trendMetric.value))
+const monthlyRows = computed(() => monthly.value?.months || [])
+// Один месяц — это не график, а то же самое число, что и на карточках выше.
+const hasMonthlyData = computed(() => monthlyRows.value.length > 1)
 
 function number(value: number | null | undefined, digits = 1) {
   return value == null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(value)
@@ -50,6 +67,106 @@ function duration(minutes: number | null | undefined) {
   const hours = Math.floor(rounded / 60)
   const rest = rounded % 60
   return hours ? `${hours} ч ${rest} мин` : `${rest} мин`
+}
+
+function trendValue(row: { [key in MonthlyMetricValue]?: number | null } | null | undefined) {
+  const value = row?.[trend.value.value]
+  if (value == null) return '—'
+  if (trend.value.money) return money(value, trend.value.digits)
+  return trend.value.unit ? `${number(value, trend.value.digits)} ${trend.value.unit}` : number(value, trend.value.digits)
+}
+
+// Соседние месяцы — единственное сравнение, которое график не показывает сам:
+// глазом по столбцам видно направление, но не то, на сколько процентов.
+const trendComparison = computed(() => {
+  const rows = monthlyRows.value
+  const selected = rows.findIndex(row => row.month === month.value)
+  const index = selected >= 0 ? selected : rows.length - 1
+  const current = rows[index]
+  const previous = rows[index - 1]
+  if (!current || !previous) return null
+  const now = current[trend.value.value]
+  const before = previous[trend.value.value]
+  return { current, previous, share: now != null && before != null && before > 0 ? now / before - 1 : null }
+})
+
+// Клик по столбцу — переход к тому месяцу: график и карточки над ним смотрят на
+// одно и то же, и возвращаться ради этого к стрелкам вверху незачем.
+function goToMonth(value: string) {
+  if (value !== month.value) navigateTo({ query: { month: value } })
+}
+
+// Рубли за бензин — это чеки, а не бак: заправка без суммы в итог не попадает,
+// и сколько их было, сказано рядом, иначе сумма выглядит просто заниженной.
+const fuelSpendNote = computed(() => {
+  const spend = data.value?.fuelSpend
+  if (!spend || !spend.total) return 'За этот месяц заправок не было'
+  if (!spend.refuels) return `Ни у одной из ${number(spend.total, 0)} ${plural(spend.total, 'заправки', 'заправок', 'заправок')} нет чека`
+  const parts = [`${number(spend.refuels, 0)} ${plural(spend.refuels, 'заправка', 'заправки', 'заправок')} с чеком`]
+  if (spend.pricePerLitre != null) parts.push(`${money(spend.pricePerLitre)}/л`)
+  if (spend.unknown > 0) parts.push(`у ${number(spend.unknown, 0)} нет суммы`)
+  return parts.join(' · ')
+})
+
+// Полнота учёта: какая доля залитых литров подтверждена чеком. Пока она не
+// близка к единице, сумма затрат — это не «сколько ушло на бензин», а «сколько
+// из этого удалось увидеть».
+const coverageNote = computed(() => {
+  const coverage = data.value?.coverage
+  if (!coverage?.refuels) return null
+  if (coverage.share == null) return null
+  if (coverage.missing === 0) return 'Чеки есть у всех заправок месяца'
+  const parts = [`Чеками закрыто ${number(coverage.share * 100, 0)}% залитых литров`]
+  if (coverage.missingAmount != null) parts.push(`без чека осталось примерно на ${money(coverage.missingAmount, 0)}`)
+  return parts.join(' · ')
+})
+
+// Стояние с заведённым двигателем в рублях — та часть топливного бюджета,
+// которая не увезла машину никуда.
+const idleShare = computed(() => {
+  const idle = data.value?.idle
+  const spent = data.value?.fuelSpend.amount
+  if (!idle?.cost || !spent) return null
+  return idle.cost / spent
+})
+
+const cold = computed(() => data.value?.coldStarts)
+
+const starts = computed(() => insights.value?.starts)
+const warmup = computed(() => insights.value?.warmup)
+const inflation = computed(() => insights.value?.inflation.main)
+const overpay = computed(() => insights.value?.overpay)
+const seasonality = computed(() => insights.value?.seasonality)
+const yearAhead = computed(() => insights.value?.year)
+const yearComparison = computed(() => insights.value?.comparison)
+const records = computed(() => insights.value?.records)
+const recordRows = computed(() => {
+  const found = records.value
+  if (!found?.busiest) return []
+  return [
+    { label: 'Больше всего километров', record: found.busiest, format: (value: number) => `${number(value, 0)} км` },
+    { label: 'Меньше всего километров', record: found.quietest, format: (value: number) => `${number(value, 0)} км` },
+    { label: 'Самый экономичный', record: found.thriftiest, format: (value: number) => `${number(value)} л/100 км` },
+    { label: 'Самый прожорливый', record: found.thirstiest, format: (value: number) => `${number(value)} л/100 км` },
+    { label: 'Самый дешёвый километр', record: found.cheapestKm, format: (value: number) => money(value) },
+    { label: 'Самый дорогой километр', record: found.dearestKm, format: (value: number) => money(value) }
+  ].filter(row => row.record)
+})
+
+// Сети, у которых переплата вообще набралась: строка «Роснефть — 0 ₽» говорит
+// лишь о том, что она и была самой дешёвой, и в списке переплат ей нечего
+// делать.
+const overpayStations = computed(() => (overpay.value?.byStation || []).filter(item => item.amount > 0))
+
+// Имя сети берётся из чека, а если его там нет — из общего списка: в базе у
+// заправки лежит код вроде `lukoil`, и показывать код на странице незачем.
+function stationLabel(station: string | null, name: string | null) {
+  return name || STATIONS.find(item => item.value === station)?.label || 'Другая АЗС'
+}
+
+function percent(value: number | null | undefined, digits = 0) {
+  if (value == null) return '—'
+  return `${value > 0 ? '+' : '−'}${number(Math.abs(value) * 100, digits)}%`
 }
 
 const driverRows = computed(() => data.value?.byDriver || [])
@@ -207,6 +324,39 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         </p>
       </section>
       <section class="card metric-card history-metric">
+        <div class="card__top"><p class="metric-label">Затраты на бензин</p></div>
+        <p class="metric metric--compact">{{ money(data?.fuelSpend.amount, 0) }}</p>
+        <p class="metric-meta">{{ fuelSpendNote }}</p>
+        <p v-if="coverageNote" class="metric-meta">{{ coverageNote }}</p>
+      </section>
+
+      <section class="card metric-card history-metric">
+        <div class="card__top"><p class="metric-label">Стояли заведёнными</p></div>
+        <p class="metric metric--compact">{{ money(data?.idle.cost, 0) }}</p>
+        <p class="metric-meta">
+          <template v-if="data?.idle.minutes">
+            {{ duration(data.idle.minutes) }} работы двигателя без единого километра · {{ number(data.idle.litres) }} л
+            <template v-if="idleShare"> · это {{ number(idleShare * 100, 0) }}% всех денег на бензин</template>
+          </template>
+          <template v-else>За этот месяц машина заведённой не стояла</template>
+        </p>
+      </section>
+
+      <section class="card metric-card history-metric">
+        <div class="card__top"><p class="metric-label">Холодные пуски</p></div>
+        <p class="metric">{{ number(cold?.cold, 0) }} <small>раз</small></p>
+        <p class="metric-meta">
+          <template v-if="cold?.per1000Km != null">
+            {{ number(cold.per1000Km, 1) }} на тысячу километров — именно они изнашивают двигатель, а не пробег
+            <template v-if="cold.neverWarm">
+              · в {{ number(cold.neverWarm, 0) }} {{ plural(cold.neverWarm, 'поездке', 'поездках', 'поездках') }}
+              двигатель так и не прогрелся
+            </template>
+          </template>
+          <template v-else>За этот месяц двигатель не заводили</template>
+        </p>
+      </section>
+      <section class="card metric-card history-metric">
         <div class="card__top"><p class="metric-label">Километр стоит</p></div>
         <p class="metric">{{ money(data?.ownership.variablePerKm ?? data?.totals.costPerKm) }}</p>
         <p class="metric-meta">
@@ -260,6 +410,305 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
         />
         <p v-if="chartMode === 'daily' && !hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
         <p v-if="chartMode === 'odometer' && !hasOdometerData" class="muted history-empty">За этот месяц недостаточно показаний одометра.</p>
+      </section>
+
+      <section class="card card--wide history-chart-card monthly-card">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">{{ trend.title }}</p>
+            <p class="muted">{{ trend.hint }}</p>
+          </div>
+          <AppSegmented v-model="trendMetric" :options="trendOptions" label="Параметр помесячно" tabs />
+        </div>
+        <MonthlyChart
+          v-if="hasMonthlyData"
+          :items="monthlyRows"
+          :metric="trend"
+          :selected="month"
+          @select="goToMonth"
+        />
+        <p v-if="!hasMonthlyData" class="muted history-empty">Помесячный график появится, когда наберётся второй месяц наблюдений.</p>
+        <p v-else-if="trendComparison" class="metric-meta">
+          {{ formatMonthTitle(trendComparison.current.month) }} против предыдущего месяца:
+          {{ trendValue(trendComparison.previous) }} → {{ trendValue(trendComparison.current) }}
+          <template v-if="trendComparison.share != null">
+            · {{ trendComparison.share > 0 ? '+' : '−' }}{{ number(Math.abs(trendComparison.share) * 100, 0) }}%
+          </template>
+          <template v-if="trendComparison.current.month === data?.currentMonth">
+            · месяц ещё не кончился, и сравнивать его с полным можно только с поправкой на это
+          </template>
+        </p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Год целиком</p>
+            <p class="muted">
+              Сколько уже проехано с начала наблюдений этого года, к чему год придёт к декабрю при нынешней езде
+              и чем он отличается от прошлого — по одним и тем же месяцам, а не по календарю
+            </p>
+          </div>
+        </div>
+        <p v-if="!yearAhead" class="muted empty-note">Год ещё не начался — данных за него нет.</p>
+        <template v-else>
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>Проехано с начала года</span>
+              <strong>{{ number(yearAhead.distance, 0) }} км за {{ number(yearAhead.daysGone, 0) }} дней</strong>
+            </p>
+            <p class="pace-row">
+              <span>Выходит в среднем</span>
+              <strong>{{ number(yearAhead.perDay) }} км в сутки</strong>
+            </p>
+            <p class="pace-row">
+              <span>К концу года при такой езде</span>
+              <strong>
+                {{ number(yearAhead.projectedDistance, 0) }} км
+                <template v-if="yearAhead.projectedSpend != null"> · {{ money(yearAhead.projectedSpend, 0) }} на бензин</template>
+              </strong>
+            </p>
+            <p v-if="yearComparison" class="pace-row">
+              <span>Те же {{ number(yearComparison.months, 0) }} {{ plural(yearComparison.months, 'месяц', 'месяца', 'месяцев') }} год назад</span>
+              <strong>
+                {{ number(yearComparison.previousDistance, 0) }} км
+                <template v-if="yearComparison.distanceShare != null"> · {{ percent(yearComparison.distanceShare) }}</template>
+              </strong>
+            </p>
+          </div>
+          <p v-if="!yearComparison" class="metric-meta">
+            Сравнить с прошлым годом пока не с чем: тех же месяцев год назад в данных ещё нет. Прогноз на декабрь —
+            простой перенос среднего дня на остаток года, сезонности он не знает.
+          </p>
+          <template v-if="recordRows.length">
+            <p class="pace-caption">Рекорды по законченным месяцам</p>
+            <div class="pace-list">
+              <p v-for="row in recordRows" :key="row.label" class="pace-row">
+                <span>{{ row.label }}</span>
+                <strong>{{ formatMonthTitle(row.record!.month) }} — {{ row.format(row.record!.value) }}</strong>
+              </p>
+            </div>
+          </template>
+        </template>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Что происходит с ценой литра</p>
+            <p class="muted">
+              Своя инфляция — по собственным чекам, а не по объявленной. Рядом переплата: во что обошлось то,
+              что заправлялись не у самой дешёвой из сетей, куда машина и так заезжает
+            </p>
+          </div>
+        </div>
+        <p v-if="!inflation" class="muted empty-note">Чеков с ценой пока нет — считать нечего.</p>
+        <template v-else>
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>{{ inflation.fuelType }} сейчас</span>
+              <strong>{{ money(inflation.last.price) }}/л в {{ formatMonthTitle(inflation.last.month) }}</strong>
+            </p>
+            <p class="pace-row">
+              <span>Первый чек в истории</span>
+              <strong>{{ money(inflation.first.price) }}/л в {{ formatMonthTitle(inflation.first.month) }}</strong>
+            </p>
+            <p v-if="inflation.monthlyRate != null" class="pace-row">
+              <span>Темп подорожания</span>
+              <strong>
+                {{ percent(inflation.monthlyRate, 1) }} в месяц
+                <template v-if="inflation.yearlyRate != null"> · {{ percent(inflation.yearlyRate) }} за год такими темпами</template>
+              </strong>
+            </p>
+            <p v-if="inflation.yearOverYear" class="pace-row">
+              <span>{{ formatMonthTitle(inflation.yearOverYear.previousMonth) }} год назад</span>
+              <strong>
+                {{ money(inflation.yearOverYear.previousPrice) }}/л · {{ percent(inflation.yearOverYear.share, 1) }}
+              </strong>
+            </p>
+            <p v-for="item in inflation.forecast" :key="item.month" class="pace-row">
+              <span>Если темп сохранится, в {{ formatMonthTitle(item.month) }}</span>
+              <strong>{{ money(item.price) }}/л</strong>
+            </p>
+          </div>
+          <p v-if="inflation.monthlyRate == null" class="metric-meta">
+            Направления в цене пока не видно: {{ number(inflation.fills, 0) }}
+            {{ plural(inflation.fills, 'чек', 'чека', 'чеков') }} за
+            {{ number(inflation.days, 0) }} {{ plural(Math.round(inflation.days), 'день', 'дня', 'дней') }} —
+            это разброс, а не подорожание, и называть по нему темп было бы выдумкой.
+          </p>
+        </template>
+        <template v-if="overpay && overpay.fills">
+          <p class="pace-caption">Переплата за выбор заправки</p>
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>Всего с начала наблюдений</span>
+              <strong>
+                {{ money(overpay.amount, 0) }}
+                <template v-if="overpay.share != null"> · {{ number(overpay.share * 100, 1) }}% от потраченного</template>
+              </strong>
+            </p>
+            <p v-for="item in overpayStations" :key="item.station || 'other'" class="pace-row">
+              <span>{{ stationLabel(item.station, item.stationName) }}</span>
+              <strong>{{ money(item.amount, 0) }} за {{ number(item.litres, 0) }} л</strong>
+            </p>
+          </div>
+          <p class="metric-meta">
+            Каждая заправка сравнивается с ценой самой дешёвой сети, известной на её собственный день, — сравнение
+            со средней за всё время мерило бы инфляцию, а не выбор.
+            <template v-if="overpay.skipped">
+              Ещё {{ number(overpay.skipped, 0) }}
+              {{ plural(overpay.skipped, 'заправке', 'заправкам', 'заправкам') }} сравнивать было не с чем: другой сети
+              с этим топливом на тот день не знали.
+            </template>
+          </p>
+        </template>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Во что обходится холод</p>
+            <p class="muted">
+              Расход месяца против его ночной температуры. Сравнивать месяцы напрямую нельзя — холодный месяц обычно
+              и ездит иначе, — поэтому считается наклон: сколько литров на сотню добавляет каждый градус
+            </p>
+          </div>
+        </div>
+        <p v-if="!seasonality || !seasonality.months" class="muted empty-note">
+          Нужен хотя бы месяц с расходом и ночными температурами.
+        </p>
+        <template v-else-if="seasonality.litresPerTenDegrees != null">
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>Каждые десять градусов холода</span>
+              <strong>+{{ number(seasonality.litresPerTenDegrees) }} л/100 км</strong>
+            </p>
+            <p v-for="item in seasonality.premium" :key="item.month" class="pace-row">
+              <span>{{ formatMonthTitle(item.month) }} при {{ celsius(item.celsius) }}</span>
+              <strong>
+                +{{ number(item.extraLitres) }} л
+                <template v-if="item.extraCost != null"> · {{ money(item.extraCost, 0) }}</template>
+              </strong>
+            </p>
+          </div>
+          <p class="metric-meta">
+            Всего холод добавил {{ number(seasonality.extraLitres) }} л
+            <template v-if="seasonality.extraCost != null"> и {{ money(seasonality.extraCost, 0) }}</template>
+            <template v-if="seasonality.share != null"> — это {{ number(seasonality.share * 100, 0) }}% всего израсходованного</template>.
+            Отсчёт идёт от {{ celsius(15) }}: месяц теплее этого надбавки не получает.
+          </p>
+        </template>
+        <p v-else class="metric-meta">
+          Пока месяцы отличаются друг от друга чем угодно, кроме холода: {{ number(seasonality.months, 0) }}
+          {{ plural(seasonality.months, 'месяц', 'месяца', 'месяцев') }} наблюдений от {{ celsius(seasonality.coldest) }}
+          до {{ celsius(seasonality.warmest) }} — этого мало, чтобы отделить погоду от того, как ездили.
+        </p>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Сколько греется двигатель</p>
+            <p class="muted">
+              Термометра на улицу в машине нет — есть двигатель, простоявший ночь: к утру он принимает температуру
+              воздуха. По таким пускам и видно, на сколько холод удлиняет прогрев
+            </p>
+          </div>
+        </div>
+        <p v-if="!warmup || !warmup.samples" class="muted empty-note">
+          Пусков после долгой стоянки, по которым можно судить о прогреве, пока нет.
+        </p>
+        <template v-else>
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>Обычный прогрев</span>
+              <strong>{{ duration(warmup.medianMinutes) }} по {{ number(warmup.samples, 0) }} пускам</strong>
+            </p>
+            <p v-if="warmup.minutesPerTenDegrees != null" class="pace-row">
+              <span>Каждые десять градусов холода</span>
+              <strong>+{{ number(warmup.minutesPerTenDegrees) }} мин</strong>
+            </p>
+            <p v-for="item in warmup.forecast" :key="item.celsius" class="pace-row">
+              <span>При {{ celsius(item.celsius) }}</span>
+              <strong>
+                {{ duration(item.minutes) }}
+                <template v-if="item.litres != null"> · {{ number(item.litres) }} л</template>
+                <template v-if="item.cost != null"> · {{ money(item.cost, 0) }}</template>
+              </strong>
+            </p>
+          </div>
+          <p class="metric-meta">
+            <template v-if="warmup.minutesPerTenDegrees == null">
+              Зависимости от погоды пока не видно: наблюдений от {{ celsius(warmup.coldest) }} до
+              {{ celsius(warmup.warmest) }} слишком мало и слишком в узком диапазоне.
+            </template>
+            <template v-else>
+              Прогноз даётся только для той погоды, которую машина уже видела: от {{ celsius(warmup.coldest) }} до
+              {{ celsius(warmup.warmest) }}. Мороз живёт по своим законам, и продлевать в него осеннюю прямую нечестно.
+            </template>
+            Минуты считаются по одометру, а он рапортует кусками, поэтому само число слегка завышено — но одинаково для
+            всех пусков, и на наклон это не влияет.
+          </p>
+        </template>
+      </section>
+
+      <section class="card card--wide">
+        <div class="card__top">
+          <div>
+            <p class="metric-label">Чем заводится машина</p>
+            <p class="muted">
+              Времени прокрутки стартера в данных нет: журнал присылает «зажигание» и «двигатель запущен» с разницей
+              в секунду. Зато видно напряжение перед пуском — именно оно предсказывает утро, когда машина не заведётся
+            </p>
+          </div>
+        </div>
+        <p v-if="!starts || !starts.starts" class="muted empty-note">Пусков в журнале сигнализации пока нет.</p>
+        <template v-else>
+          <div class="pace-list">
+            <p class="pace-row">
+              <span>Пусков всего</span>
+              <strong>
+                {{ number(starts.starts, 0) }} · из них {{ number(starts.remote, 0) }}
+                {{ plural(starts.remote, 'автозапуск', 'автозапуска', 'автозапусков') }}
+              </strong>
+            </p>
+            <p v-if="starts.voltage.average != null" class="pace-row">
+              <span>Напряжение перед пуском</span>
+              <strong>
+                {{ number(starts.voltage.average, 2) }} В в среднем · ниже всего {{ number(starts.voltage.lowest, 2) }} В
+              </strong>
+            </p>
+            <p v-if="starts.voltage.perMonth != null" class="pace-row">
+              <span>Куда оно едет</span>
+              <strong>{{ number(starts.voltage.perMonth, 2) }} В в месяц</strong>
+            </p>
+            <p v-if="starts.voltage.low" class="pace-row">
+              <span>Пусков с просевшей батареей</span>
+              <strong>
+                {{ number(starts.voltage.low, 0) }} ниже 12,4 В
+                <template v-if="starts.voltage.critical"> · {{ number(starts.voltage.critical, 0) }} ниже 12,0 В</template>
+              </strong>
+            </p>
+          </div>
+          <p class="metric-meta">
+            <template v-if="starts.voltage.samples">
+              Считается по {{ number(starts.voltage.samples, 0) }}
+              {{ plural(starts.voltage.samples, 'пуску', 'пускам', 'пускам') }} после стоянки дольше шести часов: сразу
+              после поездки на клеммах висит заряд от генератора, и те же 12,9 В не значат ничего.
+            </template>
+            <template v-else>
+              Замеров перед пуском пока нет: опрос не заставал машину заглушенной незадолго до старта.
+            </template>
+            <template v-if="starts.voltage.perMonth == null && starts.voltage.samples > 2">
+              Направления в напряжении не видно — на такой выборке это разброс, а не умирающая батарея.
+            </template>
+            <template v-if="starts.crank.samples">
+              При автозапуске от «начал заводиться» до «запущен» проходит {{ number(starts.crank.seconds, 0) }} с,
+              но это выдержка сигнализации, а не время прокрутки стартера.
+            </template>
+          </p>
+        </template>
       </section>
 
       <section class="card card--wide">

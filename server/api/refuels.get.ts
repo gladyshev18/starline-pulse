@@ -3,7 +3,7 @@ import { refuelEvents, refuelReceipts } from '../../db/schema'
 import { standstillFuel } from '../../metrics/standstill-fuel'
 import { isReceiptConfirming } from '../../receipts/store'
 import { summariseFuelPrices } from '../../shared/fuel-prices'
-import { measureSensorDrift } from '../../shared/sensor-drift'
+import { measureDriftTrend, measureSensorDrift } from '../../shared/sensor-drift'
 import { measureStandstillFuel } from '../../shared/standstill-fuel'
 
 export default defineEventHandler(async () => {
@@ -12,6 +12,7 @@ export default defineEventHandler(async () => {
   if (!vehicle) return {
     items: [],
     drift: measureSensorDrift([]),
+    driftTrend: measureDriftTrend([]),
     prices: summariseFuelPrices([]),
     standstill: measureStandstillFuel([])
   }
@@ -32,13 +33,15 @@ export default defineEventHandler(async () => {
 
   // Every refuel a receipt has priced is one measurement of how far the gauge
   // sits from the truth. Alone each is mostly rounding; together they calibrate.
-  const drift = measureSensorDrift(events
+  const confirmed = events
     .filter(refuel => (receiptsByRefuel.get(refuel.id) || []).some(isReceiptConfirming))
     .map(refuel => ({
+      at: refuel.detectedAt,
       sensorLitres: refuel.sensorLitresAdded,
       receiptLitres: refuel.litresAdded,
       percentAfter: refuel.percentAfter
-    })))
+    }))
+  const drift = measureSensorDrift(confirmed)
 
   // Цена берётся по всем чекам, а не только по привязанным к этим ста
   // заправкам: чек, которому не нашлось события, всё равно знает, почём был
@@ -55,6 +58,10 @@ export default defineEventHandler(async () => {
 
   return {
     drift,
+    // Смещение вдобавок раскладывается по времени: датчик, который врал
+    // одинаково с самого начала, и датчик, расходящийся с чеками всё сильнее, —
+    // это два разных диагноза.
+    driftTrend: measureDriftTrend(confirmed),
     prices: summariseFuelPrices(priced),
     // Убыль на стоянке меряется по всей истории: за один месяц ночей набирается
     // полтора десятка, и знака на такой выборке ещё не видно.

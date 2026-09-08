@@ -37,6 +37,17 @@ const driftNote = computed(() => {
   if (!drift.systematic && drift.samples) parts.push('для поправки этого мало: расхождение пока в пределах округления')
   return parts.join(' · ')
 })
+// Куда смещение едет со временем. Наклон объявляется только значимым: на
+// четырёх заправках «литр в месяц» вырастает из трёх округлений в одну сторону.
+const driftTrendNote = computed(() => {
+  const trend = data.value?.driftTrend
+  if (!trend || trend.points.length < 2) return ''
+  if (trend.perMonth == null) {
+    return `За ${number(trend.days, 0)} дней наблюдений смещение никуда не едет: расхождения скачут в обе стороны`
+  }
+  const direction = trend.perMonth > 0 ? 'растёт' : 'уменьшается'
+  return `Смещение ${direction} на ${number(Math.abs(trend.perMonth), 2)} л в месяц — за ${number(trend.days, 0)} дней это уже видно сквозь округление`
+})
 const details = reactive({ station: '', stationName: '', fuelType: '', pricePerLitre: '', totalAmount: '' })
 
 // Цена литра. Ряды с одним чеком показываются тоже — цена в них известна, — но
@@ -244,6 +255,7 @@ async function uploadReceipt(refuelId: number, file: File) {
         </div>
         <p class="metric metric--compact">{{ driftHeadline }}</p>
         <p class="muted">{{ driftNote }}</p>
+        <p v-if="driftTrendNote" class="metric-meta">{{ driftTrendNote }}</p>
       </section>
 
       <section v-if="priceRows.length" class="card card--wide">

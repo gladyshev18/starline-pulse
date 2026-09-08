@@ -7,12 +7,16 @@ import { fuelBalance } from '../shared/fuel'
 import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-month'
 import { operatingRates } from '../shared/operating'
 import { ownershipCost, serviceCostPerKilometre } from '../shared/ownership'
+import { summariseCoverage } from '../shared/receipt-coverage'
 import { summariseStandstill, summariseUsage } from '../shared/usage-profile'
+import { summariseColdStarts } from '../shared/warmup'
 import { ambientTemperature, consumptionQuality, speedBreakdown } from './consumption'
-import { resolveFuelPrice } from './idle'
+import { emptyFuelSpend, fuelSpend } from './fuel-spend'
+import { emptyIdleSummary, idleSummary, resolveFuelPrice } from './idle'
 import { operatingSummary } from './operating'
 import { ownershipSummary } from './ownership'
 import { usageProfile } from './usage'
+import { coldStarts } from './warmup'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
 
@@ -57,6 +61,10 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
       costPerKm: null,
       pricePerLitre: null
     },
+    fuelSpend: emptyFuelSpend(),
+    coverage: summariseCoverage([]),
+    idle: emptyIdleSummary(),
+    coldStarts: summariseColdStarts([]),
     bySpeed: priced(summariseBySpeed([]), null),
     byDriver: priced(summariseByDriver([]), null),
     ambient: { average: null, min: null, max: null, days: 0, daily: [] },
@@ -168,6 +176,18 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     database.query.vehicleSnapshots.findFirst({ columns: { fuel: true }, where: fuelRange, orderBy: desc(vehicleSnapshots.ts) })
   ])
 
+  // Те же заправки строками: полноте учёта нужны литры каждой по отдельности —
+  // залитое без чека и залитое с чеком считаются порознь.
+  const refuelRows = await database.select({
+    litresAdded: refuelEvents.litresAdded,
+    sensorLitresAdded: refuelEvents.sensorLitresAdded,
+    totalAmount: refuelEvents.totalAmount
+  }).from(refuelEvents).where(and(
+    eq(refuelEvents.vehicleId, vehicle.id),
+    gte(refuelEvents.detectedAt, range.start),
+    lt(refuelEvents.detectedAt, range.end)
+  ))
+
   const [refuelled] = await database.select({
     events: count(),
     litres: sql<number>`coalesce(sum(coalesce(${refuelEvents.litresAdded}, ${refuelEvents.sensorLitresAdded})), 0)`,
@@ -224,6 +244,20 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
       costPerKm: costPerKilometre(balance.fuelUsed, totals.distance, pricePerLitre),
       pricePerLitre
     },
+    // Рубли по чекам месяца: сколько на самом деле заплачено за бензин. Это не
+    // то же, что израсходовано, — залитое в конце месяца доедет до следующего.
+    fuelSpend: await fuelSpend(database, vehicle.id, range.start, range.end),
+    // Сколько из залитого вообще подтверждено чеком. Без этой доли сумма выше
+    // читается как весь бензин месяца, хотя за половиной бака чека может не
+    // быть вовсе.
+    coverage: summariseCoverage(refuelRows, pricePerLitre),
+    // Стояние с заведённым двигателем — отдельная строка топливного бюджета, а
+    // не мелочь: прогревы жгут литры, которые не увезли машину никуда, и в
+    // расходе на сотню они растворяются без следа.
+    idle: await idleSummary(database, vehicle.id, range.start, range.end),
+    // Холодных пусков за месяц и сколько их пришлось на тысячу километров.
+    // Именно они изнашивают двигатель, а не километры сами по себе.
+    coldStarts: await coldStarts(database, vehicle.id, range.start, range.end),
     // Литры здесь — по завершённым поездкам, а не по баку: прогревы и то, что
     // не досталось ни одной поездке, за руль никто не сажал.
     byDriver: priced(byDriver, pricePerLitre),
