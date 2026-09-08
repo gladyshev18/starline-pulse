@@ -23,6 +23,15 @@ export { WARM_ENGINE_CELSIUS }
 // приподнимет «погоду» на десяток градусов.
 export const COOLED_HOURS = 8
 
+// Ниже этой температуры пуск холодный: смесь ещё обогащается, масло густое, и
+// износ идёт тот самый, ради которого холодные пуски и считают.
+//
+// Рабочие 70 °C, которыми отделяется прогрев от езды, здесь не годятся — они
+// завышают счёт вдвое. На боевых данных пусков ниже 70 °C набралось 120 из 210,
+// но между 40 и 70 их 64: это возвращение к машине через пару часов, где
+// двигатель уже тёплый и греться ему нечего.
+export const COLD_START_CELSIUS = 40
+
 // Прогрев дольше этого — не прогрев, а забытая заведённой машина: такие точки
 // уводят прямую вверх сильнее, чем весь холод вместе взятый.
 export const MAX_WARMUP_MINUTES = 40
@@ -59,9 +68,9 @@ export interface ColdStarts {
 export function summariseColdStarts(sessions: EngineStartSession[]): ColdStarts {
   const distance = sessions.reduce((sum, session) => sum + (session.distance ?? 0), 0)
   const cold = sessions.filter(session =>
-    session.celsiusBefore != null && session.celsiusBefore < WARM_ENGINE_CELSIUS)
+    session.celsiusBefore != null && session.celsiusBefore < COLD_START_CELSIUS)
   const warm = sessions.filter(session =>
-    session.celsiusBefore != null && session.celsiusBefore >= WARM_ENGINE_CELSIUS)
+    session.celsiusBefore != null && session.celsiusBefore >= COLD_START_CELSIUS)
   // «Не прогрелся» спрашивается только с холодных пусков: сессия, начатая на
   // горячем двигателе, прогреваться и не должна.
   const neverWarm = cold.filter(session =>

@@ -1,8 +1,7 @@
 import { and, asc, eq, gte, isNotNull, lt, lte } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, vehicleSnapshots } from '../db/schema'
-import { WARM_ENGINE_CELSIUS } from '../shared/idle-cost'
-import { COOLED_HOURS, summariseColdStarts, warmupModel, type WarmupSample } from '../shared/warmup'
+import { COLD_START_CELSIUS, COOLED_HOURS, summariseColdStarts, warmupModel, type WarmupSample } from '../shared/warmup'
 import { measureVehicleIdleRate, resolveFuelPrice } from './idle'
 
 // Насколько старым может быть замер, чтобы считаться снятым перед этим пуском.
@@ -110,7 +109,9 @@ export async function warmupProfile(database: Database, vehicleId: number, now =
 
     if (restedHours == null || restedHours < COOLED_HOURS) continue
     const celsius = before[index]
-    if (celsius == null || celsius >= WARM_ENGINE_CELSIUS) continue
+    // Тёплый двигатель погоды не показывает: если после долгой стоянки он всё
+    // ещё выше сорока, значит стоянка была не такой долгой, как считает журнал.
+    if (celsius == null || celsius >= COLD_START_CELSIUS) continue
     const minutes = session.isStationary ? session.durationMinutes : session.warmupMinutes
     if (minutes == null) continue
 
