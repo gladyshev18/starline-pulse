@@ -31,7 +31,7 @@ const driftNote = computed(() => {
   const drift = data.value?.drift
   if (!drift) return ''
   const parts: string[] = []
-  if (drift.samples) parts.push(`${drift.samples} заправок с чеком`)
+  if (drift.samples) parts.push(`${drift.samples} ${plural(drift.samples, 'заправка', 'заправки', 'заправок')} с чеком`)
   if (drift.uncertainty != null) parts.push(`± ${number(drift.uncertainty, 2)} л`)
   if (drift.saturated) parts.push(`${drift.saturated} до полного бака не в счёт — датчик упирается в 100 %`)
   if (!drift.systematic && drift.samples) parts.push('для поправки этого мало: расхождение пока в пределах округления')
