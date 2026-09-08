@@ -7,8 +7,14 @@ import { linearFit, median, predict, type Fit } from './regression'
 //
 // Уличную температуру в этой машине никто не мерит, но полностью остывший
 // двигатель её и показывает: постояв ночь, блок принимает температуру воздуха.
-// Поэтому температура в начале холодной сессии — это и есть погода в момент
-// пуска, причём с точностью до градуса и без всякой метеостанции.
+//
+// Брать её надо из последнего опроса до пуска, а не из `engine_temp_start`
+// сессии. Последняя пишется по первому снимку с зажиганием, а на стоянке машину
+// опрашивают раз в шесть минут — к этому моменту двигатель уже поработал и
+// нагрелся до 40-60 °C. На боевых данных разница решающая: по `engine_temp_start`
+// холодными выглядели 10 пусков из 46, по замеру до пуска — 40, а зависимость
+// прогрева от погоды и вовсе меняла знак, потому что «стартовая» температура
+// мерила не улицу, а то, сколько двигатель успел проработать до опроса.
 
 export { WARM_ENGINE_CELSIUS }
 
@@ -23,7 +29,9 @@ export const MAX_WARMUP_MINUTES = 40
 
 export interface EngineStartSession {
   startedAt: Date
-  engineTempStart: number | null
+  // Температура двигателя по последнему опросу до пуска: у постоявшей машины
+  // это и есть погода на улице.
+  celsiusBefore: number | null
   engineTempEnd: number | null
   distance: number | null
   durationMinutes: number | null
@@ -51,9 +59,9 @@ export interface ColdStarts {
 export function summariseColdStarts(sessions: EngineStartSession[]): ColdStarts {
   const distance = sessions.reduce((sum, session) => sum + (session.distance ?? 0), 0)
   const cold = sessions.filter(session =>
-    session.engineTempStart != null && session.engineTempStart < WARM_ENGINE_CELSIUS)
+    session.celsiusBefore != null && session.celsiusBefore < WARM_ENGINE_CELSIUS)
   const warm = sessions.filter(session =>
-    session.engineTempStart != null && session.engineTempStart >= WARM_ENGINE_CELSIUS)
+    session.celsiusBefore != null && session.celsiusBefore >= WARM_ENGINE_CELSIUS)
   // «Не прогрелся» спрашивается только с холодных пусков: сессия, начатая на
   // горячем двигателе, прогреваться и не должна.
   const neverWarm = cold.filter(session =>
@@ -63,7 +71,7 @@ export function summariseColdStarts(sessions: EngineStartSession[]): ColdStarts 
     sessions: sessions.length,
     cold: cold.length,
     warm: warm.length,
-    unknown: sessions.filter(session => session.engineTempStart == null).length,
+    unknown: sessions.filter(session => session.celsiusBefore == null).length,
     distance,
     per1000Km: distance > 0 ? cold.length / distance * 1000 : null,
     neverWarm: neverWarm.length,

@@ -169,6 +169,13 @@ function percent(value: number | null | undefined, digits = 0) {
   return `${value > 0 ? '+' : '−'}${number(Math.abs(value) * 100, digits)}%`
 }
 
+// Знак ставится по самому числу, а не жёстким плюсом в шаблоне: наклон может
+// оказаться и обратным, и тогда «+-0,9» — это не подпись, а опечатка.
+function signed(value: number | null | undefined, unit: string, digits = 1) {
+  if (value == null) return '—'
+  return `${value >= 0 ? '+' : '−'}${number(Math.abs(value), digits)} ${unit}`
+}
+
 const driverRows = computed(() => data.value?.byDriver || [])
 // Пока на вопрос бота ни разу не ответили, разбивка состоит из одной строки
 // «Не указан» — это не сравнение водителей, а сообщение, что данных нет.
@@ -507,11 +514,11 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
           <div class="pace-list">
             <p class="pace-row">
               <span>{{ inflation.fuelType }} сейчас</span>
-              <strong>{{ money(inflation.last.price) }}/л в {{ formatMonthTitle(inflation.last.month) }}</strong>
+              <strong>{{ money(inflation.last.price) }}/л · {{ formatMonthTitle(inflation.last.month) }}</strong>
             </p>
             <p class="pace-row">
               <span>Первый чек в истории</span>
-              <strong>{{ money(inflation.first.price) }}/л в {{ formatMonthTitle(inflation.first.month) }}</strong>
+              <strong>{{ money(inflation.first.price) }}/л · {{ formatMonthTitle(inflation.first.month) }}</strong>
             </p>
             <p v-if="inflation.monthlyRate != null" class="pace-row">
               <span>Темп подорожания</span>
@@ -521,13 +528,13 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
               </strong>
             </p>
             <p v-if="inflation.yearOverYear" class="pace-row">
-              <span>{{ formatMonthTitle(inflation.yearOverYear.previousMonth) }} год назад</span>
+              <span>Год назад, {{ formatMonthTitle(inflation.yearOverYear.previousMonth).toLowerCase() }}</span>
               <strong>
                 {{ money(inflation.yearOverYear.previousPrice) }}/л · {{ percent(inflation.yearOverYear.share, 1) }}
               </strong>
             </p>
             <p v-for="item in inflation.forecast" :key="item.month" class="pace-row">
-              <span>Если темп сохранится, в {{ formatMonthTitle(item.month) }}</span>
+              <span>{{ formatMonthTitle(item.month) }}, если темп сохранится</span>
               <strong>{{ money(item.price) }}/л</strong>
             </p>
           </div>
@@ -582,10 +589,10 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
           <div class="pace-list">
             <p class="pace-row">
               <span>Каждые десять градусов холода</span>
-              <strong>+{{ number(seasonality.litresPerTenDegrees) }} л/100 км</strong>
+              <strong>{{ signed(seasonality.litresPerTenDegrees, 'л/100 км') }}</strong>
             </p>
             <p v-for="item in seasonality.premium" :key="item.month" class="pace-row">
-              <span>{{ formatMonthTitle(item.month) }} при {{ celsius(item.celsius) }}</span>
+              <span>{{ formatMonthTitle(item.month) }} — {{ celsius(item.celsius) }}</span>
               <strong>
                 +{{ number(item.extraLitres) }} л
                 <template v-if="item.extraCost != null"> · {{ money(item.extraCost, 0) }}</template>
@@ -627,7 +634,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
             </p>
             <p v-if="warmup.minutesPerTenDegrees != null" class="pace-row">
               <span>Каждые десять градусов холода</span>
-              <strong>+{{ number(warmup.minutesPerTenDegrees) }} мин</strong>
+              <strong>{{ signed(warmup.minutesPerTenDegrees, 'мин') }}</strong>
             </p>
             <p v-for="item in warmup.forecast" :key="item.celsius" class="pace-row">
               <span>При {{ celsius(item.celsius) }}</span>

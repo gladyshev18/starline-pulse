@@ -87,7 +87,11 @@ describe('monthStatistics', () => {
     const { database, vehicleId } = await setup()
     await database.insert(vehicleSnapshots).values([
       { vehicleId, ts: new Date('2026-02-01T06:00:00.000Z'), fuel: 40, mileage: 1000, rawJson: '{}' },
-      { vehicleId, ts: new Date('2026-02-27T18:00:00.000Z'), fuel: 30, mileage: 1500, rawJson: '{}' }
+      { vehicleId, ts: new Date('2026-02-27T18:00:00.000Z'), fuel: 30, mileage: 1500, rawJson: '{}' },
+      // Замеры на заглушенной машине перед пусками: по ним и решается, холодным
+      // был пуск или на ещё горячем двигателе.
+      { vehicleId, ts: new Date('2026-02-12T06:55:00.000Z'), ignition: false, engineTemp: 5, rawJson: '{}' },
+      { vehicleId, ts: new Date('2026-02-13T06:55:00.000Z'), ignition: false, engineTemp: 3, rawJson: '{}' }
     ])
     await database.insert(trips).values([
       { vehicleId, startedAt: new Date('2026-02-12T07:00:00.000Z'), endedAt: new Date('2026-02-12T08:00:00.000Z'), distance: 500, fuelUsed: 45, isOpen: false }

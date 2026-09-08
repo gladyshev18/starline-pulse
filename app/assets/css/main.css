@@ -329,6 +329,9 @@ textarea.control { min-height: 120px; padding: 13px 15px; resize: vertical; line
 }
 .pace-list { display: grid; gap: 6px; margin-top: 20px; }
 .pace-caption { margin: 0 0 2px; color: var(--muted); font-size: .7rem; font-weight: 620; }
+/* Подзаголовок внутри карточки, идущий следом за списком или пояснением, должен
+   отделяться от них: без отступа он читается как продолжение предыдущего абзаца. */
+:is(.pace-list, .metric-meta, .muted) + .pace-caption { margin-top: 20px; }
 .pace-row {
   display: flex;
   flex-wrap: wrap;
