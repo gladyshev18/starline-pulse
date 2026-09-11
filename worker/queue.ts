@@ -16,10 +16,25 @@ import { pollVehicle } from './starline/poll'
 import { closeTrip, handleMileageProgress, reconcileTripsWithEngineSessions } from './starline/trips'
 
 const MAX_ATTEMPTS = 5
-// Журнал сигнализации меняется только когда машину заводят, поэтому чаще часа
-// спрашивать нечего: страница на сотню событий покрывает сутки с запасом, а
-// дневной лимит обращений к StarLine — тысяча на всё вместе с опросом.
-const EVENTS_INTERVAL_MS = 60 * 60_000
+// Журнал сигнализации ведёт сам блок, поэтому он видит запуск двигателя с
+// точностью до секунды, сколько бы опрос ни проспал. А проспать он может
+// многое: стоящую на охране машину опрос навещает раз в пять минут днём и раз
+// в полчаса ночью, и короткий автозапуск укладывается между двумя визитами
+// целиком — 10 сентября восьмидесятисекундный прогрев не оставил в снапшотах
+// ни следа. Раньше журнал забирали раз в час, и до разбора такой запуск
+// доезжал с опозданием на весь этот час.
+//
+// Чаще десяти минут смысла нет: заход стоит один запрос, а дневной лимит
+// обращений к StarLine — тысяча на всё вместе с опросом, который важнее.
+const EVENTS_INTERVAL_MS = 10 * 60_000
+// Сколько запросов оставить опросу машины, отступив от его же резерва в сотню.
+// Заход в журнал ничего не стоит, пока не дошёл до StarLine, поэтому в тесные
+// сутки он просто уступает дорогу и приходит в следующий раз.
+const EVENTS_BUDGET_FLOOR = 150
+// Окно, за которое перепроверяются границы сессий. К частоте заходов оно
+// отношения не имеет: событие может доехать до журнала много позже, чем
+// случилось, и сутки — запас на то, чтобы разбор его всё-таки застал.
+const EVENTS_BOUNDARY_WINDOW_MS = 24 * 60 * 60_000
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
 
 type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean, nextEvents?: boolean }
@@ -131,9 +146,14 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     if (config.starlineMode !== 'live') return { nextEvents: true }
     const vehicle = await database.query.vehicles.findFirst({ where: eq(vehicles.deviceId, config.starlineDeviceId) })
     if (!vehicle) return { nextEvents: true }
+    // Резерв принадлежит опросу машины: без журнала разбор подождёт до
+    // следующего захода, без опроса встанет всё. Пропуск до StarLine не идёт и
+    // ничего не стоит, поэтому проще уступить, чем потратить пять попыток на
+    // запрос, который всё равно упрётся в лимит.
+    if ((await getDailyUsage(database)).remaining <= EVENTS_BUDGET_FLOOR) return { nextEvents: true }
     const stored = await syncEvents(database, vehicle.id)
     if (stored) {
-      const report = await applyEventBoundaries(database, vehicle.id, new Date(Date.now() - EVENTS_INTERVAL_MS * 24))
+      const report = await applyEventBoundaries(database, vehicle.id, new Date(Date.now() - EVENTS_BOUNDARY_WINDOW_MS))
       if (report.corrected.length || report.created.length || report.removed.length || report.merged.length) {
         console.info(`[starline.events] уточнено сессий: ${report.corrected.length}, заведено пропущенных: ${report.created.length}, снято прогревов: ${report.removed.length}, разобрано склеек: ${report.merged.length}`)
       }
