@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { createDatabase } from '../db/client'
 import { deviceEvents, engineSessions, trips, vehicles, vehicleSnapshots } from '../db/schema'
 import { recomputeTrips } from '../worker/starline/recompute'
-import { HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON } from '../shared/starline-events'
+import { GUARD_OFF, GUARD_ON, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON } from '../shared/starline-events'
 
 // Разовый проход не имеет своей логики: он повторяет то, что воркер делает на
 // живом опросе. Проверяется поэтому не устройство разбора, а его обещание —
@@ -81,6 +81,67 @@ describe('recomputeTrips', () => {
       expect(await database.select().from(trips)).toHaveLength(0)
       // Прогрев остаётся сессией: по ней его считает счёт холостого хода.
       expect(await database.select().from(engineSessions)).toHaveLength(1)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  // Стоящую на охране машину опрос навещает раз в пять минут, и короткий
+  // автозапуск укладывается между двумя визитами целиком: снапшота с
+  // работающим двигателем внутри прогрева нет, а значит нет и признака «на
+  // охране», по которому его узнавали раньше. Так 10 сентября
+  // восьмидесятисекундный прогрев стал четвёртой поездкой дня — ему досталась
+  // доля досылки одометра за предыдущую дорогу.
+  it('узнаёт прогрев по журналу, даже когда опрос его проспал', async () => {
+    const { database, snapshot, session, events } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      // Дорога, за которую одометр отчитается только потом.
+      await snapshot(5, 100, 0, true)
+      await session(2, 8)
+      // Прогрев на автозапуске: ни одного снапшота внутри, машина на охране.
+      await session(20, 22)
+      // OBD просыпается вместе с двигателем и перечитывает счётчик: досылка за
+      // ту, первую дорогу приходит посреди прогрева.
+      await snapshot(25, 110, 21)
+      // Хозяин снял охрану, завёл ключом и поехал.
+      await session(23, 40)
+      await snapshot(30, 110, 21, true)
+      await snapshot(45, 110, 21)
+      await events([
+        [0, GUARD_OFF], [2, IGNITION_ON], [3, HANDBRAKE_RELEASED], [8, IGNITION_OFF], [9, GUARD_ON],
+        [20, IGNITION_ON], [22, IGNITION_OFF],
+        [23, GUARD_OFF], [23, IGNITION_ON], [24, HANDBRAKE_RELEASED], [40, IGNITION_OFF]
+      ])
+
+      await recomputeTrips(database, { apply: true })
+
+      const all = await database.select().from(trips).orderBy(asc(trips.startedAt))
+      expect(all.map(item => item.startedAt.getTime())).toEqual([at(2).getTime()])
+      // Все десять километров у той дороги, что их и проехала.
+      expect(all[0]!.distance).toBeCloseTo(10, 6)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  // Обратная сторона той же монеты: молчание опроса само по себе ничего не
+  // значит. Если журнал видел опущенный ручник, машина ехала, и снимать такую
+  // запись нельзя — другого следа у неё нет.
+  it('не принимает за прогрев дорогу, которую опрос не увидел', async () => {
+    const { database, snapshot, session, events } = await build()
+    try {
+      await snapshot(0, 100, 0)
+      await session(10, 30)
+      await snapshot(40, 110, 35)
+      // Охрана снята задолго до запуска — но решает здесь не она, а ручник.
+      await events([[5, GUARD_OFF], [10, IGNITION_ON], [12, HANDBRAKE_RELEASED], [30, IGNITION_OFF]])
+
+      await recomputeTrips(database, { apply: true })
+
+      const all = await database.select().from(trips)
+      expect(all).toHaveLength(1)
+      expect(all[0]!.distance).toBeCloseTo(10, 6)
     } finally {
       await database.$client.close()
     }

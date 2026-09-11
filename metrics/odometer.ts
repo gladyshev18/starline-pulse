@@ -1,7 +1,7 @@
-import { and, asc, eq, gte, isNotNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { deviceEvents, engineSessions, vehicleSnapshots } from '../db/schema'
-import { HANDBRAKE_RELEASED } from '../shared/starline-events'
+import { GUARD_OFF, GUARD_ON, HANDBRAKE_RELEASED } from '../shared/starline-events'
 
 // Показание одометра говорит ровно одно: к моменту `at` счётчик дошёл до
 // `value`. Когда именно между этим показанием и предыдущим машина накрутила
@@ -90,6 +90,26 @@ async function odometerReadings(database: Database, vehicleId: number): Promise<
   return readings
 }
 
+// На охране ли стояла машина, когда завёлся двигатель, — по журналу
+// сигнализации. Последнее событие охраны перед запуском и отвечает на этот
+// вопрос: хозяин снимает охрану и только потом заводит, автозапуск крутит
+// стартёр, не снимая.
+//
+// Журнал ведёт сам блок, поэтому он знает это и о запусках, которых опрос не
+// видел вовсе.
+async function guardedWhenStarted(database: Database, vehicleId: number, startedAt: Date) {
+  const event = await database.query.deviceEvents.findFirst({
+    columns: { type: true },
+    where: and(
+      eq(deviceEvents.vehicleId, vehicleId),
+      inArray(deviceEvents.type, [GUARD_ON, GUARD_OFF]),
+      lte(deviceEvents.ts, startedAt)
+    ),
+    orderBy: desc(deviceEvents.ts)
+  })
+  return event ? event.type === GUARD_ON : null
+}
+
 // Сессия целиком прошла на охране: двигатель работал, а сигнализация ни разу не
 // была снята. Ехать на охраняемой машине нельзя, значит это автозапуск, и окно
 // движения у него пустое — ни одного километра ему не достанется.
@@ -101,10 +121,21 @@ async function isRemoteStartWarmup(database: Database, session: { vehicleId: num
     gte(vehicleSnapshots.ts, session.startedAt),
     lte(vehicleSnapshots.ts, session.endedAt)
   )
-  // Сессия без единого снапшота с заведённым двигателем — это провал опроса, а
-  // не автозапуск, и молчание не должно читаться как «машина стояла».
   const guarded = await database.query.vehicleSnapshots.findFirst({ columns: { id: true }, where: inside(true) })
-  if (!guarded) return false
+  // Сессия без единого снапшота с заведённым двигателем — это провал опроса, а
+  // не автозапуск. Молчание опроса само по себе не значит «машина стояла», но и
+  // читать его как «ехала» нельзя: стоящую на охране машину опрос навещает раз
+  // в пять минут, и короткий прогрев укладывается между двумя визитами целиком.
+  // Так 10 сентября восьмидесятисекундный автозапуск стал четвёртой поездкой
+  // дня, забрав себе полкилометра из досылки одометра за предыдущую дорогу.
+  //
+  // Ответ есть у журнала сигнализации: он видел и состояние охраны в момент
+  // запуска, и опущенный ручник, если машина всё-таки тронулась. Прогрев — это
+  // запуск на охране, за который машина никуда не поехала.
+  if (!guarded) {
+    if (await departureWithin(database, session.vehicleId, session.startedAt, session.endedAt)) return false
+    return await guardedWhenStarted(database, session.vehicleId, session.startedAt) === true
+  }
   const free = await database.query.vehicleSnapshots.findFirst({ columns: { id: true }, where: inside(false) })
   return free == null
 }
