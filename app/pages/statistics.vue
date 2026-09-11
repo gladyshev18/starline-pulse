@@ -193,6 +193,18 @@ const tyreCrossing = computed(() => {
 })
 const tyreTarget = computed(() => tyres.value?.season === 'summer' ? 'летнюю' : 'зимнюю')
 const yearAhead = computed(() => insights.value?.year)
+const pace = computed(() => insights.value?.pace)
+// Тот же прогноз, но месяц назад. Сам по себе он ничего не значит — значит
+// разница: если за месяц обещанный декабрь подрос на тысячу километров, ездить
+// стали больше, чем собирались, и видно это только в сравнении с прошлым
+// обещанием.
+const paceDrift = computed(() => {
+  const made = (pace.value?.points || []).filter(point => point.forecast != null)
+  const now = made.at(-1)?.forecast
+  const before = made.at(-2)
+  if (now == null || before?.forecast == null) return null
+  return { month: before.month, forecast: before.forecast, share: before.forecast > 0 ? now / before.forecast - 1 : null }
+})
 const yearComparison = computed(() => insights.value?.comparison)
 const records = computed(() => insights.value?.records)
 const recordRows = computed(() => {
@@ -559,7 +571,7 @@ onMounted(() => {
             </p>
           </section>
 
-          <section class="card card--wide">
+          <section class="card card--wide history-chart-card">
             <div class="card__top">
               <div>
                 <p class="metric-label">Год целиком</p>
@@ -571,6 +583,12 @@ onMounted(() => {
             </div>
             <p v-if="!yearAhead" class="muted empty-note">Год ещё не начался — данных за него нет.</p>
             <template v-else>
+              <YearPaceChart v-if="pace" :pace="pace" />
+              <p v-if="pace" class="metric-meta">
+                Сплошная линия — накопленный пробег, пунктир того же цвета — куда он придёт к декабрю средним днём.
+                Оранжевая линия — этот же прогноз, посчитанный в конце каждого прожитого месяца: к декабрю она
+                упрётся в факт, и станет видно, насколько прогноз врал.
+              </p>
               <div class="pace-list">
                 <p class="pace-row">
                   <span>Проехано с начала года</span>
@@ -585,6 +603,13 @@ onMounted(() => {
                   <strong>
                     {{ number(yearAhead.projectedDistance, 0) }} км
                     <template v-if="yearAhead.projectedSpend != null"> · {{ money(yearAhead.projectedSpend, 0) }} на бензин</template>
+                  </strong>
+                </p>
+                <p v-if="paceDrift" class="pace-row">
+                  <span>Месяц назад тот же расчёт обещал</span>
+                  <strong>
+                    {{ number(paceDrift.forecast, 0) }} км к декабрю
+                    <template v-if="paceDrift.share != null"> · {{ percent(paceDrift.share) }} с тех пор</template>
                   </strong>
                 </p>
                 <p v-if="yearComparison" class="pace-row">

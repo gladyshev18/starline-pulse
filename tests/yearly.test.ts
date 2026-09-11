@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareYears, monthRecords, projectYear, type YearMonth } from '../shared/yearly'
+import { compareYears, monthRecords, projectYear, yearPace, type YearMonth } from '../shared/yearly'
 
 const now = new Date('2026-03-16T12:00:00.000Z')
 
@@ -93,5 +93,74 @@ describe('monthRecords', () => {
     const records = monthRecords([month('2026-02', 1800), month('2026-03', 200)], now)
     expect(records.busiest).toBeNull()
     expect(records.thriftiest).toBeNull()
+  })
+})
+
+describe('yearPace', () => {
+  const months = [month('2026-01', 1000), month('2026-02', 900), month('2026-03', 500)]
+
+  it('ведёт накопленный итог до текущего месяца и прогноз после него', () => {
+    const pace = yearPace(months, now)!
+
+    expect(pace.points).toHaveLength(12)
+    expect(pace.points.map(point => point.month).at(-1)).toBe('2026-12')
+    // Факт кончается на текущем месяце, дальше его нет.
+    expect(pace.points[2]).toMatchObject({ month: '2026-03', distance: 2400 })
+    expect(pace.points[1]!.distance).toBe(1900)
+    expect(pace.points[3]!.distance).toBeNull()
+
+    // Пунктир начинается от последней известной точки, чтобы линия не рвалась.
+    expect(pace.points[1]!.projectedDistance).toBeNull()
+    expect(pace.points[2]!.projectedDistance).toBe(2400)
+    expect(pace.points.at(-1)!.projectedDistance).toBeCloseTo(projectYear(months, now)!.projectedDistance, 6)
+    expect(pace.points.at(-1)!.projectedSpend).toBeCloseTo(projectYear(months, now)!.projectedSpend!, 6)
+  })
+
+  it('сохраняет прогноз, каким он выходил в конце каждого прожитого месяца', () => {
+    const pace = yearPace(months, now)!
+
+    // Январь: тысяча километров за тридцать один день, перенесённая на год.
+    expect(pace.points[0]!.forecast).toBeCloseTo(1000 / 31 * pace.daysTotal, 6)
+    // Последнее обещание — то же самое число, что стоит на карточке года.
+    expect(pace.points[2]!.forecast).toBeCloseTo(projectYear(months, now)!.projectedDistance, 6)
+    // У месяцев, которые ещё не наступили, обещания нет.
+    expect(pace.points[3]!.forecast).toBeNull()
+  })
+
+  it('бросает рубли, как только у месяца потерялись чеки', () => {
+    const pace = yearPace([
+      month('2026-01', 1000),
+      month('2026-02', 900, { spend: null, refuels: 2 }),
+      month('2026-03', 500)
+    ], now)!
+
+    expect(pace.points[0]!.spend).toBe(6000)
+    expect(pace.points[1]!.spend).toBeNull()
+    expect(pace.points[2]!.spend).toBeNull()
+    expect(pace.points.at(-1)!.projectedSpend).toBeNull()
+  })
+
+  it('месяц без единой заправки стоит ноль и счёт не рвёт', () => {
+    const pace = yearPace([
+      month('2026-01', 1000),
+      month('2026-02', 120, { spend: null, refuels: 0 }),
+      month('2026-03', 500)
+    ], now)!
+
+    expect(pace.points[1]!.spend).toBe(6000)
+    expect(pace.points[2]!.spend).toBe(6000 + 3000)
+    expect(pace.points.at(-1)!.projectedSpend).toBeGreaterThan(9000)
+  })
+
+  it('считает год от первого месяца наблюдений', () => {
+    const pace = yearPace([month('2026-02', 1000), month('2026-03', 500)], now)!
+
+    expect(pace.points[0]!.month).toBe('2026-02')
+    expect(pace.points).toHaveLength(11)
+    expect(pace.daysTotal).toBeCloseTo(334, 0)
+  })
+
+  it('без единого месяца этого года молчит', () => {
+    expect(yearPace([month('2025-11', 1000)], now)).toBeNull()
   })
 })

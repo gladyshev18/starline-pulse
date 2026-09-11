@@ -7,7 +7,7 @@ import { summariseOverpay } from '../shared/fuel-overpay'
 import { measureDriftTrend } from '../shared/sensor-drift'
 import { summariseSeasonality, type SeasonMonth } from '../shared/seasonality'
 import { warmupModel } from '../shared/warmup'
-import { compareYears, monthRecords, projectYear } from '../shared/yearly'
+import { compareYears, monthRecords, projectYear, yearPace } from '../shared/yearly'
 import { emptyTyreOutlook, tyreOutlook } from './tyres'
 import { startHealth } from './engine-starts'
 import { monthlyTrends } from './monthly'
@@ -100,6 +100,7 @@ export async function insights(database: Database, now = new Date()) {
       seasonality: summariseSeasonality([]),
       drift: measureDriftTrend([]),
       year: null,
+      pace: null,
       comparison: null,
       records: monthRecords([], now),
       months: trends.months,
@@ -126,6 +127,7 @@ export async function insights(database: Database, now = new Date()) {
     seasonality: summariseSeasonality(seasonMonths),
     drift: measureDriftTrend(await confirmedRefuels(database, vehicle.id)),
     year: projectYear(trends.months, now),
+    pace: yearPace(trends.months, now),
     comparison: compareYears(trends.months, now),
     records: monthRecords(trends.months, now),
     months: trends.months,
