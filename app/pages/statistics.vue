@@ -695,7 +695,8 @@ onMounted(() => {
                 <p class="metric-label">Среднесуточная температура</p>
                 <p class="muted">
                   Термометра на улицу в машине нет — есть двигатель, простоявший несколько часов: остыв, он показывает
-                  воздух. Средняя считается по часам, а не по замерам, и поправлена по архиву погоды
+                  воздух. Средняя считается по часам, а не по замерам, и поправлена по архиву погоды. Кружками отмечены
+                  сутки, часть которых машина провела в разъездах: их средняя восстановлена по суточному ходу соседних
                 </p>
               </div>
             </div>
@@ -748,6 +749,10 @@ onMounted(() => {
               </div>
               <p class="metric-meta metric-meta--verdict" :class="{ 'metric-meta--urgent': tyres.status === 'now' || tyres.status === 'late' }">{{ tyreVerdict(tyres) }}</p>
               <p v-if="tyreNote" class="metric-meta">⚠️ {{ tyreNote }}</p>
+              <p v-if="tyres.estimatedDays" class="metric-meta">
+                Суток в разъездах среди решающих: {{ tyres.estimatedDays }} из {{ SUSTAINED_DAYS }} — их средняя
+                восстановлена по суточному ходу соседних суток, а не измерена целиком.
+              </p>
               <p v-if="tyres.frostNights" class="metric-meta">
                 Ночей ниже нуля за последнюю неделю: {{ tyres.frostNights }}.
                 <template v-if="tyres.season === 'summer'">Пока они возвращаются, зимняя резина остаётся на месте.</template>

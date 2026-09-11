@@ -4,7 +4,8 @@ import { AriaComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkL
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
-import type { AmbientDay, TyreWatch } from '~~/shared/tyres'
+import type { AmbientDay } from '~~/shared/ambient'
+import type { TyreWatch } from '~~/shared/tyres'
 import { SWITCH_CELSIUS } from '~~/shared/tyres'
 
 use([LineChart, AriaComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, CanvasRenderer])
@@ -77,8 +78,15 @@ const option = computed(() => {
         type: 'line',
         data: props.items.map(item => Number(item.mean.toFixed(1))),
         smooth: 0.2,
-        showSymbol: false,
-        lineStyle: { width: 3 },
+        // Точками отмечены сутки, у которых часть часов машина провела в
+        // разъездах: их средняя восстановлена по суточному ходу соседних суток,
+        // а не измерена целиком. Линия от этого не прерывается, но и не выдаёт
+        // оценку за замер.
+        symbolSize: (_value: unknown, params: { dataIndex: number }) => props.items[params.dataIndex]?.estimated ? 7 : 0,
+        itemStyle: { color: dark ? '#17241e' : '#ffffff', borderColor: mean, borderWidth: 2 },
+        // Цвет линии задан явно: по умолчанию она берёт его у `itemStyle`, а он
+        // здесь залит фоном ради полых кружков — и линия пропадает целиком.
+        lineStyle: { width: 3, color: mean },
         markArea: {
           silent: true,
           itemStyle: { color: threshold, opacity: 0.07 },
@@ -105,7 +113,8 @@ const option = computed(() => {
         data: props.items.map(item => Number(item.night.toFixed(1))),
         smooth: 0.2,
         showSymbol: false,
-        lineStyle: { width: 1.5, opacity: 0.7, type: 'dotted' }
+        itemStyle: { color: night },
+        lineStyle: { width: 1.5, opacity: 0.7, type: 'dotted', color: night }
       }
     ]
   }

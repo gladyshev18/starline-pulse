@@ -4,17 +4,15 @@ import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../db/client'
 import { vehicles, vehicleSnapshots } from '../db/schema'
 import { dailyAmbient } from '../metrics/tyres'
+import { ambientFromEngine, assembleAmbientDays, nightAmbientFromEngine, type AmbientDay } from '../shared/ambient'
 import {
-  ambientFromEngine,
   MARGIN_CELSIUS,
-  nightAmbientFromEngine,
   SUSTAINED_DAYS,
   SWITCH_CELSIUS,
   tyreEdgeNote,
   tyreSeason,
   tyreVerdict,
-  tyreWatch,
-  type AmbientDay
+  tyreWatch
 } from '../shared/tyres'
 import { buildTyreNotice, nextTyreWatchRun, tyreNotice } from '../worker/bot/tyre-watch'
 
@@ -29,7 +27,8 @@ function series(lastDay: string, means: number[], options: { swing?: number, nig
     day: new Date(end - (means.length - 1 - index) * DAY_MS).toISOString().slice(0, 10),
     mean,
     night: options.night?.[index] ?? mean - swing,
-    hours: 20
+    hours: 20,
+    estimated: false
   }))
 }
 

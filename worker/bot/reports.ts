@@ -110,6 +110,7 @@ function tyreLines(watch: TyreWatch) {
     '',
     '🌡 <b>Погода и шины</b>',
     `• Среднесуточная за ${SUSTAINED_DAYS} суток: ${degrees(watch.sustained)}${watch.coldestNight == null ? '' : ` · холоднее всего ночью ${degrees(watch.coldestNight)}`}`,
+    ...(watch.estimatedDays ? [`• Суток в разъездах среди них: ${watch.estimatedDays} из ${SUSTAINED_DAYS} — средняя восстановлена по суточному ходу`] : []),
     ...(forecast ? [`• ${forecast}`] : []),
     `• ${tyreVerdict(watch)}`,
     ...(edge ? [`⚠️ ${edge}`] : [])

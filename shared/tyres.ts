@@ -1,3 +1,4 @@
+import type { AmbientDay } from './ambient'
 import { plural } from './plural'
 import { linearFit, predict, type Fit } from './regression'
 
@@ -51,56 +52,6 @@ const FRESH_DAYS = 3
 
 const DAY_MS = 24 * 60 * 60_000
 
-// Термометра, смотрящего на улицу, в машине нет. Есть датчик на двигателе, и
-// через несколько часов после остановки он показывает воздух — но показывает с
-// надбавкой: остаточное тепло и солнце на капоте греют железо сильнее, чем
-// воздух вокруг. Надбавка не постоянная, она растёт с температурой: по августу
-// и сентябрю против архива погоды вышло около нуля на +10 и около пяти градусов
-// на +25.
-//
-// Отсюда и поправка — прямая, подогнанная по 34 суткам наблюдений (СКО 1,3 °C,
-// максимальная ошибка 3,5 °C). Минимум в конце нужен для холодов, которых в
-// подгонке не было: продлевать прямую вниз нельзя — она начнёт утверждать, что
-// железо холоднее воздуха, чего не бывает. Ниже +10 поправка просто выключается,
-// и оценкой становится сам датчик.
-const SENSOR_SLOPE = 0.75
-const SENSOR_OFFSET = 2.6
-
-export function ambientFromEngine(engineCelsius: number) {
-  return Math.min(engineCelsius, SENSOR_OFFSET + SENSOR_SLOPE * engineCelsius)
-}
-
-// Ночь считается своей прямой: подгонка по среднесуточным на ночной минимум не
-// ложится — ночью надбавки от солнца нет вовсе, зато есть остывающее с вечера
-// железо. Против архивных ночных минимумов вышло СКО 1,8 °C против 2,3 °C у
-// сырого датчика. Смысл у минимума тот же, что и у среднесуточной прямой: около
-// нуля, где и решается вопрос про заморозки, поправка выключается.
-const NIGHT_SLOPE = 0.7
-const NIGHT_OFFSET = 3.5
-
-export function nightAmbientFromEngine(engineCelsius: number) {
-  return Math.min(engineCelsius, NIGHT_OFFSET + NIGHT_SLOPE * engineCelsius)
-}
-
-// Дневного максимума среди этих величин нет, и не по недосмотру. Днём датчик
-// меряет не воздух, а солнце на капоте: против архива погоды часовой максимум
-// разошёлся с настоящим на 12 градусов (7 сентября — 56 °C на железе против
-// 16,6 °C в воздухе), и никакая прямая этого не чинит — сигнала там просто нет.
-// Поэтому весенний разговор про дневную жару под зимней резиной ведётся от
-// среднесуточной, а вечерний и утренний холод под летней — от ночного минимума,
-// который машина мерить умеет.
-
-export interface AmbientDay {
-  day: string
-  // Среднесуточная температура воздуха: средняя по часам, а не по замерам, —
-  // иначе ночь, когда машина стоит и опрашивается чаще, перетянет сутки на себя.
-  mean: number
-  // Ночной минимум тех же суток: он один отвечает на вопрос про заморозки.
-  night: number
-  // Сколько разных часов суток попало в среднюю.
-  hours: number
-}
-
 export type TyreSeason = 'winter' | 'summer'
 // `far` — до смены далеко; `edge` — средняя ещё держится, но края суток уже
 // перешли порог; `soon` — вошли в запас, пора записываться; `now` — порог
@@ -128,6 +79,9 @@ export interface TyreWatch {
   // Последние сутки ряда, чтобы было видно, насколько свежо решение.
   latest: AmbientDay | null
   days: number
+  // Сколько суток из тех, что дали решающую среднюю, восстановлены по
+  // суточному ходу, а не измерены целиком.
+  estimatedDays: number
   // Ночей ниже нуля за последнюю неделю и самая холодная из них.
   frostNights: number
   coldestNight: number | null
@@ -150,6 +104,7 @@ function emptyWatch(season: TyreSeason): TyreWatch {
     sustained: null,
     latest: null,
     days: 0,
+    estimatedDays: 0,
     frostNights: 0,
     coldestNight: null,
     edge: null,
@@ -195,6 +150,7 @@ export function tyreWatch(days: AmbientDay[], now = new Date()): TyreWatch {
   if (recent.length < SUSTAINED_DAYS) return watch
   const sustained = recent.reduce((sum, item) => sum + item.mean, 0) / recent.length
   watch.sustained = sustained
+  watch.estimatedDays = recent.filter(item => item.estimated).length
 
   const frostFrom = parseDay(latest.day) - (FROST_WINDOW_DAYS - 1) * DAY_MS
   const week = sorted.filter(item => parseDay(item.day) >= frostFrom)
