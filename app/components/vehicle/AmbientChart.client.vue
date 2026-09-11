@@ -6,7 +6,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import type { AmbientDay } from '~~/shared/ambient'
 import type { TyreWatch } from '~~/shared/tyres'
-import { SWITCH_CELSIUS } from '~~/shared/tyres'
+import { degrees, SWITCH_CELSIUS } from '~~/shared/tyres'
 
 use([LineChart, AriaComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, CanvasRenderer])
 
@@ -50,7 +50,16 @@ const option = computed(() => {
       backgroundColor: dark ? '#17241e' : '#ffffff',
       borderColor: line,
       textStyle: { color: ink, fontFamily: 'ManropeLocal, sans-serif', fontSize: 12 },
-      valueFormatter: (value: unknown) => `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(Number(value))} °C`
+      formatter: (params: unknown) => {
+        const rows = (Array.isArray(params) ? params : [params]) as Array<{ marker: string, seriesName: string, value: number, dataIndex: number, axisValue: string }>
+        if (!rows.length) return ''
+        const day = props.items[rows[0]!.dataIndex]
+        const lines = rows.map(row => `${row.marker}${row.seriesName}<span style="float:right;margin-left:24px;font-weight:650">${degrees(row.value)}</span>`)
+        const note = day?.estimated
+          ? `<div style="margin-top:8px;max-width:230px;white-space:normal;opacity:.7">Часть суток машина была в разъездах — средняя восстановлена по суточному ходу</div>`
+          : ''
+        return `${rows[0]!.axisValue}<br>${lines.join('<br>')}${note}`
+      }
     },
     xAxis: {
       type: 'category',
@@ -78,14 +87,15 @@ const option = computed(() => {
         type: 'line',
         data: props.items.map(item => Number(item.mean.toFixed(1))),
         smooth: 0.2,
-        // Точками отмечены сутки, у которых часть часов машина провела в
-        // разъездах: их средняя восстановлена по суточному ходу соседних суток,
-        // а не измерена целиком. Линия от этого не прерывается, но и не выдаёт
-        // оценку за замер.
-        symbolSize: (_value: unknown, params: { dataIndex: number }) => props.items[params.dataIndex]?.estimated ? 7 : 0,
-        itemStyle: { color: dark ? '#17241e' : '#ffffff', borderColor: mean, borderWidth: 2 },
-        // Цвет линии задан явно: по умолчанию она берёт его у `itemStyle`, а он
-        // здесь залит фоном ради полых кружков — и линия пропадает целиком.
+        // Точек на линии нет вовсе. Отметить ими восстановленные сутки —
+        // соблазн, но любой маркер рисуется поверх линии и в её же месте: на
+        // тёмной теме он вышел белым кружком и читался как разрыв ряда, чего
+        // на графике погоды быть не должно. Про восстановленные сутки говорят
+        // подсказка под курсором и подпись под карточкой — там это не мешает
+        // видеть главное.
+        showSymbol: false,
+        itemStyle: { color: mean },
+        // Цвет линии задан явно: по умолчанию она берёт его у `itemStyle`.
         lineStyle: { width: 3, color: mean },
         markArea: {
           silent: true,
