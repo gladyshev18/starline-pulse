@@ -380,6 +380,13 @@ input[type='date'].control::-webkit-calendar-picker-indicator:hover { opacity: 1
 .deviation-track::before { content: ''; position: absolute; inset-block: 0; left: 50%; width: 1px; background: var(--line-strong); }
 .deviation-track__bar { position: absolute; inset-block: 0; min-width: 2px; border-radius: 999px; background: var(--accent); }
 .deviation-track__bar--over { background: var(--danger); }
+/* Цвет и сторона говорят одно и то же, но без подписи не говорит ни то, ни
+   другое: сама по себе полоса не объясняет, от чего она отложена. */
+.deviation-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 20px 0 0; color: var(--muted); font-size: .72rem; }
+.deviation-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+.deviation-legend__swatch { width: 18px; height: 8px; border-radius: 999px; background: var(--accent); }
+.deviation-legend__swatch--over { background: var(--danger); }
+.deviation-legend + .speed-rows { margin-top: 14px; }
 /* Итог всей истории в шапке карточки. Крупная цифра здесь живёт рядом с
    заголовком, поэтому без верхнего отступа `.metric`. */
 .card__total { margin: 0; font-size: clamp(1.5rem, 2.4vw, 2rem); font-weight: 330; line-height: 1; letter-spacing: -.045em; white-space: nowrap; }

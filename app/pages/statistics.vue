@@ -1032,6 +1032,15 @@ onMounted(() => {
             </div>
             <p v-if="!tankRows.length" class="muted empty-note">Двух заправок с известным объёмом ещё не набралось.</p>
             <template v-else>
+              <p class="deviation-legend">
+                <span class="deviation-legend__item">
+                  <i class="deviation-legend__swatch" />экономичнее среднего
+                </span>
+                <span class="deviation-legend__item">
+                  <i class="deviation-legend__swatch deviation-legend__swatch--over" />прожорливее
+                </span>
+                <span>середина шкалы — среднее по всем бакам</span>
+              </p>
               <div class="speed-rows">
                 <div v-for="row in tankRows" :key="row.leg.toId" class="speed-row">
                   <div class="speed-row__head">
