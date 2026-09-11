@@ -9,10 +9,12 @@ import { idleSummary, resolveFuelPrice } from '../metrics/idle'
 import { operatingSummary } from '../metrics/operating'
 import { ownershipSummary } from '../metrics/ownership'
 import { standstillFuel } from '../metrics/standstill-fuel'
+import { tankConsumption } from '../metrics/tank-to-tank'
 import { usageProfile } from '../metrics/usage'
 import { costPerKilometre } from '../shared/consumption'
 import { summariseByDriver } from '../shared/drivers'
 import { fuelBalance } from '../shared/fuel'
+import { isTankSummaryUsable } from '../shared/tank-to-tank'
 
 // Материал для еженедельной подборки в Telegram: неделя, с чем её сравнить и
 // что в ней выделяется. Скрипт ничего не пишет и никуда не отправляет — только
@@ -104,6 +106,10 @@ async function period(from: Date, to: Date) {
     refuelsWithoutVolume: Number(refuelled[0]?.withoutVolume || 0),
     tripsFuelUsed: Number(totals?.tripsFuelUsed || 0)
   })
+  // Расход — от бака до бака, как и на странице статистики. Неделя, в которую
+  // не уложилась ни одна пара заправок, откатывается к балансу бака: он грубее,
+  // но говорит хотя бы про всю неделю.
+  const tank = await tankConsumption(database, vehicle!.id, from, to)
   const { pricePerLitre } = await resolveFuelPrice(database, vehicle!.id, from, to)
   const idle = await idleSummary(database, vehicle!.id, from, to)
   const days = Math.max(1, (to.getTime() - from.getTime()) / DAY_MS)
@@ -118,7 +124,10 @@ async function period(from: Date, to: Date) {
     hoursOnRoad: round(Number(totals?.minutes || 0) / 60),
     fuelUsed: round(balance.fuelUsed),
     fuelSource: balance.source,
-    consumption: distance > 0 && balance.fuelUsed > 0 ? round(balance.fuelUsed / distance * 100) : null,
+    consumption: isTankSummaryUsable(tank)
+      ? round(tank.consumption)
+      : distance > 0 && balance.fuelUsed > 0 ? round(balance.fuelUsed / distance * 100) : null,
+    consumptionSource: isTankSummaryUsable(tank) ? 'tank' : balance.source,
     pricePerLitre: round(pricePerLitre, 2),
     costPerKm: round(costPerKilometre(balance.fuelUsed, distance, pricePerLitre), 2),
     fuelCost: round(pricePerLitre == null ? null : balance.fuelUsed * pricePerLitre),

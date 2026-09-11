@@ -8,6 +8,7 @@ import { currentMoscowMonth, type MoscowMonthRange } from '../shared/moscow-mont
 import { operatingRates } from '../shared/operating'
 import { ownershipCost, serviceCostPerKilometre } from '../shared/ownership'
 import { summariseCoverage } from '../shared/receipt-coverage'
+import { isTankSummaryUsable, summariseTankLegs, type TankLeg } from '../shared/tank-to-tank'
 import { summariseStandstill, summariseUsage } from '../shared/usage-profile'
 import { summariseColdStarts } from '../shared/warmup'
 import { ambientTemperature, consumptionQuality, speedBreakdown } from './consumption'
@@ -15,10 +16,16 @@ import { emptyFuelSpend, fuelSpend } from './fuel-spend'
 import { emptyIdleSummary, idleSummary, resolveFuelPrice } from './idle'
 import { operatingSummary } from './operating'
 import { ownershipSummary } from './ownership'
+import { loadTankLegs } from './tank-to-tank'
 import { usageProfile } from './usage'
 import { coldStarts } from './warmup'
 
 type DailyRow = { day: string, distance: unknown, fuelUsed: unknown, trips: unknown }
+
+// Откуда взят расход месяца. `tank` — от бака до бака, по чекам и одометру;
+// остальные два — прежний баланс бака и сумма поездок, к которым приходится
+// откатываться, пока заправок в месяце не набралось.
+export type ConsumptionSource = 'tank' | 'balance' | 'trips' | 'none'
 
 // Рубли приклеиваются к строке разбивки по её же литрам — см. `fuelCost`. Обе
 // разбивки проходят через это, включая пустую статистику, иначе у страницы
@@ -52,6 +59,8 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
       fuelUsed: 0,
       trips: 0,
       consumption: null,
+      consumptionError: null,
+      consumptionSource: 'none' as ConsumptionSource,
       fuelSource: 'trips' as const,
       tankStart: null,
       tankEnd: null,
@@ -63,6 +72,7 @@ function emptyStatistics(range: MoscowMonthRange, now: Date) {
     },
     fuelSpend: emptyFuelSpend(),
     coverage: summariseCoverage([]),
+    tank: { month: summariseTankLegs([]), overall: summariseTankLegs([]), legs: [] as TankLeg[] },
     idle: emptyIdleSummary(),
     coldStarts: summariseColdStarts([]),
     bySpeed: priced(summariseBySpeed([]), null),
@@ -213,6 +223,17 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     tripsFuelUsed: totals.tripsFuelUsed
   })
 
+  // Расход от бака до бака. Края окна — те же показания одометра, что нарисованы
+  // на графике выше: перегон, перевалившийся через первое число, делится между
+  // месяцами по ним.
+  const legs = await loadTankLegs(database, vehicle.id)
+  const tankMonth = summariseTankLegs(legs, {
+    startMileage: firstMileage == null ? null : Number(firstMileage),
+    endMileage: mileageRows.at(-1) ? Number(mileageRows.at(-1)!.last) : null
+  })
+  const tankUsable = isTankSummaryUsable(tankMonth)
+  const balanceConsumption = totals.distance > 0 ? balance.fuelUsed / totals.distance * 100 : null
+
   const { pricePerLitre } = await resolveFuelPrice(database, vehicle.id, range.start, range.end)
   const byDriver = summariseByDriver(driverRows.map(row => ({
     driver: row.driver,
@@ -232,7 +253,16 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
       distance: totals.distance,
       trips: totals.trips,
       fuelUsed: balance.fuelUsed,
-      consumption: totals.distance > 0 ? balance.fuelUsed / totals.distance * 100 : null,
+      // Расход и израсходованное больше не одно делить на другое. Литры месяца —
+      // это баланс бака, со всеми прогревами и с тем, что не досталось ни одной
+      // поездке; расход — то, что машина пьёт на сотню, и мерить его уровнем
+      // датчика в случайной точке шкалы незачем, когда есть два полных бака и
+      // чек между ними.
+      consumption: tankUsable ? tankMonth.consumption : balanceConsumption,
+      consumptionError: tankUsable ? tankMonth.errorBound : null,
+      consumptionSource: (tankUsable
+        ? 'tank'
+        : balanceConsumption == null ? 'none' : balance.source) as ConsumptionSource,
       fuelSource: balance.source,
       tankStart: balance.tankStart,
       tankEnd: balance.tankEnd,
@@ -251,6 +281,10 @@ export async function monthStatistics(database: Database, range: MoscowMonthRang
     // читается как весь бензин месяца, хотя за половиной бака чека может не
     // быть вовсе.
     coverage: summariseCoverage(refuelRows, pricePerLitre),
+    // Перегоны от заправки до заправки: и месячный итог, из которого взят расход
+    // выше, и вся история разом — одного месяца на такую таблицу мало, там от
+    // силы пять строк, а разброс между ними виден только на фоне остальных.
+    tank: { month: tankMonth, overall: summariseTankLegs(legs), legs },
     // Стояние с заведённым двигателем — отдельная строка топливного бюджета, а
     // не мелочь: прогревы жгут литры, которые не увезли машину никуда, и в
     // расходе на сотню они растворяются без следа.

@@ -5,6 +5,7 @@ import { operatingDeviation } from '~~/shared/operating'
 import { plural } from '~~/shared/plural'
 import { degrees, FROST_WINDOW_DAYS, SUSTAINED_DAYS, SWITCH_CELSIUS, tyreEdgeNote, tyreVerdict } from '~~/shared/tyres'
 import { STATIONS } from '~~/shared/stations'
+import { TANK_LEG_DOUBT_LABELS } from '~~/shared/tank-to-tank'
 import { WEEKDAYS } from '~~/shared/usage-profile'
 
 const route = useRoute()
@@ -53,6 +54,50 @@ const fuelExplanation = computed(() => {
   const totals = data.value?.totals
   if (!totals || totals.fuelSource !== 'balance') return 'По данным завершённых поездок'
   return `В баке ${number(totals.tankStart)} → ${number(totals.tankEnd)} л, заправлено ${number(totals.refuelled)} л`
+})
+
+// Расход и израсходованное посчитаны по-разному, и подпись обязана это сказать:
+// иначе одно число выглядит неудавшейся попыткой поделить два соседних.
+const consumptionExplanation = computed(() => {
+  const totals = data.value?.totals
+  const month = data.value?.tank.month
+  if (!totals) return null
+  if (totals.consumptionSource !== 'tank' || !month) {
+    return totals.consumptionSource === 'balance'
+      ? 'По балансу бака: заправок на точный счёт в этом месяце не хватило'
+      : 'По сумме завершённых поездок: заправок на точный счёт не хватило'
+  }
+  const parts = [
+    `±${number(totals.consumptionError, 1)} · по ${number(month.legs, 0)} ${plural(month.legs, 'баку', 'бакам', 'бакам')}`,
+    `${number(month.distance, 0)} км`,
+    `${number(month.litres)} л по чекам`
+  ]
+  return parts.join(' · ')
+})
+const consumptionCoverage = computed(() => {
+  const totals = data.value?.totals
+  const month = data.value?.tank.month
+  if (totals?.consumptionSource !== 'tank' || month?.coverage == null || month.coverage >= 0.98) return null
+  return `Заправки накрыли ${number(month.coverage * 100, 0)}% пробега месяца — остальное осталось в соседних баках`
+})
+
+// Перегоны от заправки до заправки, новые сверху: месяц показан на фоне всей
+// истории, потому что пять строк сами по себе не говорят, разброс это или норма.
+const tank = computed(() => data.value?.tank)
+const tankDoubtLabels = TANK_LEG_DOUBT_LABELS
+// Шкала здесь меряет отклонение от среднего, а не сам расход: все баки лежат
+// между восемью и двенадцатью литрами, и столбики от нуля вышли бы одинаковой
+// длины — как раз там, где интересна разница между ними.
+const tankRows = computed(() => {
+  const centre = tank.value?.overall.consumption
+  const legs = [...(tank.value?.legs || [])].reverse()
+  if (centre == null) return legs.map(leg => ({ leg, deviation: 0, offset: 50, width: 0 }))
+  const widest = Math.max(0.5, ...legs.map(leg => Math.abs(leg.consumption - centre)))
+  return legs.map((leg) => {
+    const deviation = leg.consumption - centre
+    const width = Math.abs(deviation) / widest * 50
+    return { leg, deviation, offset: deviation >= 0 ? 50 : 50 - width, width }
+  })
 })
 
 function money(value: number | null | undefined, digits = 2) {
@@ -285,6 +330,9 @@ function hours(value: number | null | undefined) {
 function date(value: string | Date) {
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
+function day(value: string | Date) {
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Europe/Moscow' }).format(new Date(value))
+}
 // Ссылка ведёт в журнал за тот день, которому поездка принадлежит по Москве, —
 // журнал фильтрует ровно так же.
 function moscowDay(value: string | Date) {
@@ -382,6 +430,8 @@ onMounted(() => {
           <section class="card metric-card history-metric">
             <div class="card__top"><p class="metric-label">Средний расход</p></div>
             <p class="metric">{{ number(data?.totals.consumption) }} <small>л/100 км</small></p>
+            <p class="metric-meta">{{ consumptionExplanation }}</p>
+            <p v-if="consumptionCoverage" class="metric-meta">{{ consumptionCoverage }}</p>
             <p class="metric-meta">
               <span v-if="data?.ambient.average != null">Ночью за месяц {{ celsius(data.ambient.average) }} · от {{ celsius(data.ambient.min) }} до {{ celsius(data.ambient.max) }}</span>
               <span v-else>За выбранный месяц</span>
@@ -958,6 +1008,56 @@ onMounted(() => {
                 Между поездками машина стоит в среднем {{ hours(usage.standstill.averageHours) }}, самый долгий простой —
                 {{ hours(usage.standstill.longestHours) }}. Без единой поездки прошло
                 {{ number(usage.standstill.idleDays, 0) }} из {{ number(usage.standstill.daysCovered, 0) }} дней.
+              </p>
+            </template>
+          </section>
+
+          <section class="card card--wide">
+            <div class="card__top">
+              <div>
+                <p class="metric-label">От бака до бака</p>
+                <p class="muted">
+                  Между двумя полными баками через двигатель прошло ровно столько, сколько долили во второй раз, — это
+                  написано в чеке. Датчик сюда не входит вовсе, и это самый точный расход, какой в этих данных есть
+                </p>
+              </div>
+              <p v-if="tank?.overall.consumption != null" class="card__total">
+                {{ number(tank.overall.consumption) }} <small>л/100 км</small>
+              </p>
+            </div>
+            <p v-if="!tankRows.length" class="muted empty-note">Двух заправок с известным объёмом ещё не набралось.</p>
+            <template v-else>
+              <div class="speed-rows">
+                <div v-for="row in tankRows" :key="row.leg.toId" class="speed-row">
+                  <div class="speed-row__head">
+                    <strong>{{ day(row.leg.from) }} → {{ day(row.leg.to) }}</strong>
+                    <span class="muted">{{ number(row.leg.distance, 0) }} км · {{ number(row.leg.litres) }} л</span>
+                  </div>
+                  <span class="deviation-track">
+                    <span
+                      class="deviation-track__bar"
+                      :class="{ 'deviation-track__bar--over': row.deviation > 0 }"
+                      :style="{ left: `${row.offset}%`, width: `${row.width}%` }"
+                    />
+                  </span>
+                  <p class="speed-row__value">
+                    <strong>{{ number(row.leg.consumption) }} ± {{ number(row.leg.errorBound) }} л/100 км</strong>
+                    <span class="muted speed-row__note">
+                      {{ signed(row.deviation, 'к среднему') }}
+                      <template v-if="row.leg.doubts.length">
+                        · {{ row.leg.doubts.map(doubt => tankDoubtLabels[doubt]).join(' · ') }}
+                      </template>
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <p class="metric-meta">
+                Всего {{ number(tank!.overall.distance, 0) }} км на {{ number(tank!.overall.litres) }} л —
+                {{ number(tank!.overall.consumption) }} ± {{ number(tank!.overall.errorBound) }} л/100 км
+                по {{ number(tank!.overall.legs, 0) }} {{ plural(tank!.overall.legs, 'перегону', 'перегонам', 'перегонам') }},
+                из них {{ number(tank!.overall.fullLegs, 0) }} между двумя полными баками.
+                Шкала отложена от этого среднего: разброс баков шире их погрешности, то есть это разная дорога,
+                а не разное измерение.
               </p>
             </template>
           </section>

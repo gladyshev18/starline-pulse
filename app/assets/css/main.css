@@ -370,7 +370,22 @@ input[type='date'].control::-webkit-calendar-picker-indicator:hover { opacity: 1
 .speed-row__bar { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .speed-row__value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin: 0; font-size: .82rem; white-space: nowrap; }
 .speed-row__value .muted { font-size: .72rem; }
+/* Оговорка к строке — текст, а не число, и переносить его надо: «Один из баков
+   залит не до полного» в одну строку выталкивает шкалу за край карточки. */
+.speed-row__note { max-width: 260px; text-align: right; white-space: normal; }
+/* Шкала отклонения: столбик растёт от середины в ту сторону, в какую перегон
+   отклонился от среднего. Ноль по левому краю здесь не годится — все баки лежат
+   между восемью и двенадцатью литрами, и от нуля они неотличимы. */
+.deviation-track { position: relative; height: 10px; border-radius: 999px; background: var(--surface-subtle); overflow: hidden; }
+.deviation-track::before { content: ''; position: absolute; inset-block: 0; left: 50%; width: 1px; background: var(--line-strong); }
+.deviation-track__bar { position: absolute; inset-block: 0; min-width: 2px; border-radius: 999px; background: var(--accent); }
+.deviation-track__bar--over { background: var(--danger); }
+/* Итог всей истории в шапке карточки. Крупная цифра здесь живёт рядом с
+   заголовком, поэтому без верхнего отступа `.metric`. */
+.card__total { margin: 0; font-size: clamp(1.5rem, 2.4vw, 2rem); font-weight: 330; line-height: 1; letter-spacing: -.045em; white-space: nowrap; }
+.card__total small { color: var(--muted); font-size: .32em; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
 @media (max-width: 700px) {
+  .speed-row__note { max-width: none; text-align: left; }
   .speed-row { grid-template-columns: minmax(0, 1fr); gap: 7px; }
   .speed-row__value { align-items: flex-start; white-space: normal; }
 }

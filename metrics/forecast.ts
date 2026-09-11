@@ -3,6 +3,8 @@ import type { Database } from '../db/client'
 import { refuelEvents, trips, vehicleSnapshots } from '../db/schema'
 import { forecastRange } from '../shared/fuel-forecast'
 import { fuelBalance } from '../shared/fuel'
+import { isTankSummaryUsable } from '../shared/tank-to-tank'
+import { tankConsumption } from './tank-to-tank'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -15,11 +17,15 @@ const WINDOW_DAYS = 30
 // тридцатидневный отрезок такая поездка не попала.
 const TRIPS_WINDOW_DAYS = 90
 
-// Расход за окно считается по баку, а не по сумме поездок: датчик округляет, и
-// у половины поездок расход тонет в шаге, а через бак не проходит ничего лишнего.
-// Заправка неизвестного объёма отправляет расчёт обратно к поездкам — иначе её
-// литры записались бы в сожжённые.
-async function windowConsumption(database: Database, vehicleId: number, start: Date, end: Date) {
+// Расход за окно — от бака до бака, тот же, что на карточке месяца: прогноз,
+// считающий бензин иначе, чем статистика, назвал бы другое число километров до
+// пустого бака на той же странице.
+//
+// Запасной путь — прежний баланс бака: тридцать дней могут не накрыть ни одной
+// пары заправок, и тогда уровень датчика по краям окна остаётся единственным,
+// что вообще есть. Заправка неизвестного объёма отправляет расчёт ещё дальше
+// назад, к сумме поездок, — иначе её литры записались бы в сожжённые.
+async function balanceConsumption(database: Database, vehicleId: number, start: Date, end: Date) {
   const inRange = and(
     eq(vehicleSnapshots.vehicleId, vehicleId),
     isNotNull(vehicleSnapshots.fuel),
@@ -58,6 +64,12 @@ async function windowConsumption(database: Database, vehicleId: number, start: D
     tripsFuelUsed: Number(distance[0]?.fuelUsed || 0)
   })
   return balance.fuelUsed > 0 ? balance.fuelUsed / km * 100 : null
+}
+
+async function windowConsumption(database: Database, vehicleId: number, start: Date, end: Date) {
+  const tank = await tankConsumption(database, vehicleId, start, end)
+  if (isTankSummaryUsable(tank)) return tank.consumption
+  return balanceConsumption(database, vehicleId, start, end)
 }
 
 // На сколько хватит бака — в километрах, в днях и в поездках.

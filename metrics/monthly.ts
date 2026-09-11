@@ -5,6 +5,8 @@ import { costPerKilometre } from '../shared/consumption'
 import { fuelBalance } from '../shared/fuel'
 import { summariseFuelSpend } from '../shared/fuel-spend'
 import { currentMoscowMonth, moscowMonthRange, shiftMonth } from '../shared/moscow-month'
+import { isTankSummaryUsable, summariseTankLegs } from '../shared/tank-to-tank'
+import { loadTankLegs, monthlyOdometerEdges, odometerBefore } from './tank-to-tank'
 
 // Дальше двух лет назад график не нужен: столько данных у этой машины и нет, а
 // ось из тридцати подписей всё равно нечитаема.
@@ -16,7 +18,11 @@ export interface MonthlyPoint {
   trips: number
   fuelUsed: number
   fuelSource: 'balance' | 'trips'
+  // Расход от бака до бака, если заправки накрыли месяц; иначе — прежний баланс.
+  // Одна и та же величина на карточке месяца и в этой линии обязана считаться
+  // одинаково, иначе график спорит с числом, на которое смотрит.
   consumption: number | null
+  consumptionSource: 'tank' | 'balance' | 'trips' | 'none'
   // Рубли по чекам месяца — и число заправок, которые в них не попали: без него
   // сумма месяца выглядит полной, хотя половина бака в неё не вошла.
   spend: number | null
@@ -143,6 +149,8 @@ export async function monthlyTrends(database: Database, now = new Date()) {
   }
 
   const fuelByMonth = await monthlyFuelReadings(database, vehicle.id, start, end)
+  const odometerByMonth = await monthlyOdometerEdges(database, vehicle.id, start, end)
+  const legs = await loadTankLegs(database, vehicle.id)
 
   // Уровень, с которого месяц начинается, — последнее показание до него, как и
   // в месячной статистике. Для всех месяцев окна, кроме первого, им окажется
@@ -168,6 +176,9 @@ export async function monthlyTrends(database: Database, now = new Date()) {
 
   let carriedFuel = previousFuel?.fuel ?? null
   let carriedPrice = previousPrice?.pricePerLitre ?? null
+  // Одометр на начало месяца — последнее показание до него, дальше по циклу им
+  // становится конец предыдущего месяца. Тем же способом, что и уровень бака.
+  let carriedMileage = await odometerBefore(database, vehicle.id, start)
 
   const points = months.map((month): MonthlyPoint => {
     const monthTrips = tripsByMonth.get(month) ?? { distance: 0, fuelUsed: 0, trips: 0 }
@@ -184,6 +195,15 @@ export async function monthlyTrends(database: Database, now = new Date()) {
     })
     if (readings?.last != null) carriedFuel = readings.last
 
+    const odometer = odometerByMonth.get(month)
+    const tank = summariseTankLegs(legs, {
+      startMileage: carriedMileage ?? odometer?.first ?? null,
+      endMileage: odometer?.last ?? null
+    })
+    if (odometer?.last != null) carriedMileage = odometer.last
+    const tankUsable = isTankSummaryUsable(tank)
+    const balanceConsumption = monthTrips.distance > 0 ? balance.fuelUsed / monthTrips.distance * 100 : null
+
     // Цена «последней известной» ищется до конца месяца, а не до его начала, —
     // ровно как её ищет карточка месяца.
     const lastPriced = refuels.filter(row => row.pricePerLitre != null).at(-1)
@@ -195,7 +215,8 @@ export async function monthlyTrends(database: Database, now = new Date()) {
       trips: monthTrips.trips,
       fuelUsed: balance.fuelUsed,
       fuelSource: balance.source,
-      consumption: monthTrips.distance > 0 ? balance.fuelUsed / monthTrips.distance * 100 : null,
+      consumption: tankUsable ? tank.consumption : balanceConsumption,
+      consumptionSource: tankUsable ? 'tank' : balanceConsumption == null ? 'none' : balance.source,
       spend: spend.amount,
       refuels: spend.total,
       unpaidRefuels: spend.unknown,
