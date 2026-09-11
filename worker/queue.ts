@@ -9,6 +9,7 @@ import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { config, receiptsMailConfig } from './config'
 import { buildReceiptImportNotice } from './bot/receipt-notices'
 import { buildDriverKeyboard } from './bot/trip-driver'
+import { buildTyreNotice, nextTyreWatchRun, parseTyreNoticeState, type TyreNoticeState } from './bot/tyre-watch'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { applyEventBoundaries, syncEvents } from './starline/events'
@@ -37,7 +38,7 @@ const EVENTS_BUDGET_FLOOR = 150
 const EVENTS_BOUNDARY_WINDOW_MS = 24 * 60 * 60_000
 const REPORT_PERIODS: ReportPeriod[] = ['daily', 'weekly', 'monthly']
 
-type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean, nextEvents?: boolean }
+type ExecuteResult = { nextPollAt?: Date, nextReport?: ReportPeriod, nextFuelReminder?: boolean, nextMailPoll?: boolean, nextEvents?: boolean, nextTyreWatch?: TyreNoticeState }
 
 function parseJobPayload(value: string) {
   try {
@@ -89,6 +90,28 @@ async function scheduleFuelReminder(database: Database, now = new Date()) {
   })
   else if (existing.status === 'pending' && existing.attempts === 0 && existing.runAt > now && existing.runAt.getTime() !== runAt.getTime()) {
     await database.update(jobs).set({ runAt, updatedAt: now }).where(eq(jobs.id, existing.id))
+  }
+}
+
+// Наблюдение за шинами помнит, о чём уже сказало, и хранит это в полезной
+// нагрузке собственной задачи. Отдельной таблицы состояние не заслуживает: оно
+// живёт ровно столько же, сколько задача в очереди, и восстанавливается вместе
+// с ней. Потерять его можно только вместе со строкой задачи, и цена потери —
+// одно повторное уведомление.
+async function scheduleTyreWatch(database: Database, state: TyreNoticeState | null = null, now = new Date()) {
+  const runAt = nextTyreWatchRun(now)
+  const existing = await database.query.jobs.findFirst({
+    where: and(eq(jobs.type, 'telegram:tyre_watch'), or(eq(jobs.status, 'pending'), eq(jobs.status, 'running')))
+  })
+  if (!existing) {
+    await database.insert(jobs).values({ type: 'telegram:tyre_watch', payload: JSON.stringify(state ?? { season: null, status: null }), runAt })
+    return
+  }
+  // `state` пуст, когда планирование идёт при старте: тогда двигают только
+  // время, а память задачи остаётся её собственной.
+  const payload = state ? JSON.stringify(state) : existing.payload
+  if (existing.status === 'pending' && existing.attempts === 0 && (payload !== existing.payload || (existing.runAt > now && existing.runAt.getTime() !== runAt.getTime()))) {
+    await database.update(jobs).set({ payload, runAt, updatedAt: now }).where(eq(jobs.id, existing.id))
   }
 }
 
@@ -183,6 +206,13 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     if (reminder) await notifyAllowedChats(reminder, { html: true, sound: true })
     return { nextFuelReminder: true }
   }
+  if (job.type === 'telegram:tyre_watch') {
+    const announced = parseTyreNoticeState(payload)
+    const notice = await buildTyreNotice(database, announced)
+    if (!notice) return { nextTyreWatch: announced }
+    await notifyAllowedChats(notice.text, { html: true, sound: true })
+    return { nextTyreWatch: { season: notice.season, status: notice.status } }
+  }
   if (job.type === 'service:parse_act') {
     const documentId = Number(payload.documentId)
     if (!Number.isInteger(documentId)) throw new Error('INVALID_PARSE_ACT_PAYLOAD')
@@ -205,6 +235,7 @@ export async function processNextJob(database: Database) {
     await database.update(jobs).set({ status: 'done', updatedAt: new Date(), lastError: null }).where(eq(jobs.id, job.id))
     if (result.nextPollAt) await schedulePoll(database, result.nextPollAt.getTime() - Date.now())
     if (result.nextFuelReminder) await scheduleFuelReminder(database)
+    if (result.nextTyreWatch) await scheduleTyreWatch(database, result.nextTyreWatch)
     if (result.nextMailPoll) await scheduleMailPoll(database)
     if (result.nextEvents) await scheduleEvents(database)
     if (result.nextReport) {
@@ -231,6 +262,9 @@ export async function processNextJob(database: Database) {
       await scheduleReport(database, failedReportPeriod)
     }
     if (failed && job.type === 'telegram:fuel_reminder') await scheduleFuelReminder(database)
+    // Память о сказанном лежит в полезной нагрузке упавшей задачи, и новую надо
+    // завести с ней же — иначе следующее утро повторит уже отправленное.
+    if (failed && job.type === 'telegram:tyre_watch') await scheduleTyreWatch(database, parseTyreNoticeState(parseJobPayload(job.payload)))
     if (failed && job.type === 'receipts:imap_poll') await scheduleMailPoll(database)
     if (failed && job.type === 'starline:events') await scheduleEvents(database)
     console.error(`Job ${job.id} (${job.type}) failed`, error)
@@ -245,6 +279,7 @@ export async function initializeQueue(database: Database) {
   if (!poll) await database.insert(jobs).values({ type: 'starline:poll', payload: '{}' })
   for (const period of REPORT_PERIODS) await scheduleReport(database, period)
   await scheduleFuelReminder(database)
+  await scheduleTyreWatch(database)
   await scheduleMailPoll(database, 0)
   await scheduleEvents(database, 0)
 }

@@ -2,8 +2,10 @@ import { and, count, desc, eq, gte, inArray, isNotNull, lt, notExists, sql } fro
 import type { Database } from '../../db/client'
 import { engineSessions, refuelEvents, refuelReceipts, trips, vehicleSnapshots } from '../../db/schema'
 import { idleSummary } from '../../metrics/idle'
+import { tyreOutlook } from '../../metrics/tyres'
 import { summariseByDriver, type DriverTotals } from '../../shared/drivers'
 import { plural } from '../../shared/plural'
+import { degrees, SUSTAINED_DAYS, SWITCH_CELSIUS, tyreEdgeNote, tyreVerdict, type TyreWatch } from '../../shared/tyres'
 
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly'
 
@@ -88,6 +90,30 @@ function duration(minutes: number) {
   const rest = rounded % 60
   if (!hours) return `${rest} мин`
   return rest ? `${hours} ч ${rest} мин` : `${hours} ч`
+}
+
+// Погода в ежедневном отчёте — не украшение: среднесуточная температура и есть
+// то число, по которому решают про шины, и увидеть, как оно ползёт вниз, можно
+// только изо дня в день. В недельный и месячный отчёты её не кладут — там она
+// описывала бы уже прошедшее, а решение принимают про завтра.
+function tyreLines(watch: TyreWatch) {
+  if (watch.sustained == null) return []
+  const trend = watch.perDay == null
+    ? null
+    : `${watch.perDay < 0 ? 'холодает' : 'теплеет'} на ${decimal.format(Math.abs(watch.perDay))} °C в сутки`
+  const crossing = watch.crossingAt && watch.daysToCrossing
+    ? `порог ${degrees(SWITCH_CELSIUS)} ожидается ${dateOnly.format(watch.crossingAt)}`
+    : null
+  const forecast = [trend, crossing].filter(Boolean).join(' · ')
+  const edge = tyreEdgeNote(watch)
+  return [
+    '',
+    '🌡 <b>Погода и шины</b>',
+    `• Среднесуточная за ${SUSTAINED_DAYS} суток: ${degrees(watch.sustained)}${watch.coldestNight == null ? '' : ` · холоднее всего ночью ${degrees(watch.coldestNight)}`}`,
+    ...(forecast ? [`• ${forecast}`] : []),
+    `• ${tyreVerdict(watch)}`,
+    ...(edge ? [`⚠️ ${edge}`] : [])
+  ]
 }
 
 function rangeLabel(start: Date, end: Date, period: ReportPeriod) {
@@ -216,6 +242,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
   const batteryLine = batterySummary?.average == null
     ? '• Нет измерений за период'
     : `• Среднее: ${battery(Number(batterySummary.average), batteryType)} · мин. ${battery(Number(batterySummary.min), batteryType)} · макс. ${battery(Number(batterySummary.max), batteryType)}`
+  const tyres = period === 'daily' ? tyreLines((await tyreOutlook(database, vehicle.id, now)).watch) : []
   const stateLines = snapshot
     ? [`• ${engineState(snapshot.online, snapshot.ignition)} · пробег ${snapshot.mileage == null ? '—' : `${decimal.format(snapshot.mileage)} км`}`,
         `• Топливо: ${snapshot.fuel == null ? '—' : `${decimal.format(snapshot.fuel)} л`} · АКБ: ${battery(snapshot.battery, snapshot.batteryType)}`,
@@ -242,6 +269,7 @@ export async function buildReport(database: Database, period: ReportPeriod, now 
     '',
     '🔋 <b>АКБ за период</b>',
     batteryLine,
+    ...tyres,
     '',
     `📍 <b>${period === 'daily' ? 'Состояние сейчас' : 'Состояние к концу периода'}</b>`,
     ...stateLines

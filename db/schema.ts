@@ -27,7 +27,7 @@ export const telegramRecipients = sqliteTable('telegram_recipients', {
 
 export const jobs = sqliteTable('jobs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'starline:events', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'receipts:imap_poll', 'service:parse_act'] }).notNull(),
+  type: text('type', { enum: ['starline:poll', 'starline:close_trip', 'starline:events', 'telegram:notify', 'telegram:report', 'telegram:fuel_reminder', 'telegram:tyre_watch', 'receipts:imap_poll', 'service:parse_act'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0),

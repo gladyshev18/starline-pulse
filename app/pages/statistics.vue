@@ -3,6 +3,7 @@ import { MONTHLY_METRICS, monthlyMetric, type MonthlyMetricValue } from '~~/shar
 import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
 import { operatingDeviation } from '~~/shared/operating'
 import { plural } from '~~/shared/plural'
+import { degrees, FROST_WINDOW_DAYS, SUSTAINED_DAYS, SWITCH_CELSIUS, tyreEdgeNote, tyreVerdict } from '~~/shared/tyres'
 import { STATIONS } from '~~/shared/stations'
 import { WEEKDAYS } from '~~/shared/usage-profile'
 
@@ -137,6 +138,15 @@ const warmup = computed(() => insights.value?.warmup)
 const inflation = computed(() => insights.value?.inflation.main)
 const overpay = computed(() => insights.value?.overpay)
 const seasonality = computed(() => insights.value?.seasonality)
+const ambient = computed(() => insights.value?.tyres.daily || [])
+const tyres = computed(() => insights.value?.tyres.watch)
+const tyreNote = computed(() => tyres.value ? tyreEdgeNote(tyres.value) : null)
+// Прогноз приходит с сервера строкой JSON, а дату надо показать датой.
+const tyreCrossing = computed(() => {
+  const at = tyres.value?.crossingAt
+  return at ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' }).format(new Date(at)) : null
+})
+const tyreTarget = computed(() => tyres.value?.season === 'summer' ? 'летнюю' : 'зимнюю')
 const yearAhead = computed(() => insights.value?.year)
 const yearComparison = computed(() => insights.value?.comparison)
 const records = computed(() => insights.value?.records)
@@ -289,6 +299,7 @@ useHead({ title: computed(() => `Статистика — ${monthTitle.value} �
 const sections = [
   { id: 'month', title: 'Итоги месяца' },
   { id: 'trends', title: 'Динамика и деньги' },
+  { id: 'tyres', title: 'Погода и шины' },
   { id: 'engine', title: 'Двигатель и холод' },
   { id: 'driving', title: 'Как ездим' },
   { id: 'quality', title: 'Качество данных' }
@@ -619,6 +630,77 @@ onMounted(() => {
                   {{ plural(overpay.skipped, 'заправке', 'заправкам', 'заправкам') }} сравнивать было не с чем: другой сети
                   с этим топливом на тот день не знали.
                 </template>
+              </p>
+            </template>
+          </section>
+        </div>
+      </section>
+
+      <section id="tyres" class="stats-section" aria-labelledby="tyres-title">
+        <h2 id="tyres-title" class="stats-section__title">Погода и шины</h2>
+        <div class="grid">
+          <section class="card card--wide history-chart-card">
+            <div class="card__top">
+              <div>
+                <p class="metric-label">Среднесуточная температура</p>
+                <p class="muted">
+                  Термометра на улицу в машине нет — есть двигатель, простоявший несколько часов: остыв, он показывает
+                  воздух. Средняя считается по часам, а не по замерам, и поправлена по архиву погоды
+                </p>
+              </div>
+            </div>
+            <AmbientChart v-if="ambient.length > 1 && tyres" :items="ambient" :watch="tyres" />
+            <p v-else class="muted history-empty">
+              Погода появится, когда наберётся вторые сутки, которые машина провела в основном на приколе.
+            </p>
+            <p v-if="tyres && tyres.sustained != null" class="metric-meta">
+              За последние {{ SUSTAINED_DAYS }} суток — {{ degrees(tyres.sustained) }}.
+              <template v-if="tyres.perDay != null">
+                {{ tyres.perDay < 0 ? 'Холодает' : 'Теплеет' }} на {{ number(Math.abs(tyres.perDay)) }} °C в сутки<template v-if="tyreCrossing">, порог {{ degrees(SWITCH_CELSIUS) }} ожидается {{ tyreCrossing }}</template>.
+              </template>
+              <template v-else>
+                Прямая по последним двум неделям пока не пробилась сквозь погоду, поэтому даты смены нет.
+              </template>
+            </p>
+          </section>
+
+          <section class="card card--wide">
+            <div class="card__top">
+              <div>
+                <p class="metric-label">Когда переобуваться</p>
+                <p class="muted">
+                  Около {{ degrees(SWITCH_CELSIUS) }} сцепление летней и зимней резины сравнивается: ниже этой черты летняя
+                  дубеет, выше — зимняя плывёт. Считают по среднесуточной, устойчиво за {{ SUSTAINED_DAYS }} суток
+                </p>
+              </div>
+            </div>
+            <p v-if="!tyres || tyres.status === 'unknown'" class="muted empty-note">
+              Пока не набралось {{ SUSTAINED_DAYS }} суток погоды подряд — судить о смене не по чему.
+            </p>
+            <template v-else>
+              <div class="pace-list">
+                <p class="pace-row">
+                  <span>Средняя за {{ SUSTAINED_DAYS }} суток</span>
+                  <strong>{{ degrees(tyres.sustained!) }}</strong>
+                </p>
+                <p class="pace-row">
+                  <span>Порог смены на {{ tyreTarget }}</span>
+                  <strong>{{ degrees(SWITCH_CELSIUS) }}</strong>
+                </p>
+                <p v-if="tyres.coldestNight != null" class="pace-row">
+                  <span>Самая холодная ночь за {{ FROST_WINDOW_DAYS }} суток</span>
+                  <strong>{{ degrees(tyres.coldestNight) }}</strong>
+                </p>
+                <p v-if="tyreCrossing" class="pace-row">
+                  <span>Порог ожидается</span>
+                  <strong>{{ tyreCrossing }}</strong>
+                </p>
+              </div>
+              <p class="metric-meta metric-meta--verdict" :class="{ 'metric-meta--urgent': tyres.status === 'now' || tyres.status === 'late' }">{{ tyreVerdict(tyres) }}</p>
+              <p v-if="tyreNote" class="metric-meta">⚠️ {{ tyreNote }}</p>
+              <p v-if="tyres.frostNights" class="metric-meta">
+                Ночей ниже нуля за последнюю неделю: {{ tyres.frostNights }}.
+                <template v-if="tyres.season === 'summer'">Пока они возвращаются, зимняя резина остаётся на месте.</template>
               </p>
             </template>
           </section>

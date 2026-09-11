@@ -440,6 +440,10 @@ input[type='date'].control::-webkit-calendar-picker-indicator:hover { opacity: 1
 .metric-card__footer .metric-meta { margin-top: 0; }
 .metric-card__footer .metric-meta--primary { margin-bottom: 4px; color: var(--ink); font-weight: 650; }
 .metric-meta--stale { color: var(--danger); }
+/* Вердикт по шинам. Пока до смены далеко, он такая же подпись, как остальные;
+   когда порог перейден — единственное красное на странице, и это нарочно. */
+.metric-meta--verdict { color: var(--ink); font-weight: 650; }
+.metric-meta--verdict.metric-meta--urgent { color: var(--danger); }
 .card > .muted { margin-bottom: 0; font-size: .82rem; }
 
 .status-overview {

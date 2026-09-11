@@ -8,6 +8,7 @@ import { measureDriftTrend } from '../shared/sensor-drift'
 import { summariseSeasonality, type SeasonMonth } from '../shared/seasonality'
 import { warmupModel } from '../shared/warmup'
 import { compareYears, monthRecords, projectYear } from '../shared/yearly'
+import { emptyTyreOutlook, tyreOutlook } from './tyres'
 import { startHealth } from './engine-starts'
 import { monthlyTrends } from './monthly'
 import { warmupProfile } from './warmup'
@@ -101,7 +102,8 @@ export async function insights(database: Database, now = new Date()) {
       year: null,
       comparison: null,
       records: monthRecords([], now),
-      months: trends.months
+      months: trends.months,
+      tyres: emptyTyreOutlook(now)
     }
   }
 
@@ -126,6 +128,9 @@ export async function insights(database: Database, now = new Date()) {
     year: projectYear(trends.months, now),
     comparison: compareYears(trends.months, now),
     records: monthRecords(trends.months, now),
-    months: trends.months
+    months: trends.months,
+    // Погода последних месяцев и вывод по шинам. Окно у неё своё, короче
+    // остальных: решение про смену принимают по последним неделям, а не по году.
+    tyres: await tyreOutlook(database, vehicle.id, now)
   }
 }
