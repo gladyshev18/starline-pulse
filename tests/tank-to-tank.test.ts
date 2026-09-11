@@ -17,6 +17,9 @@ function refuel(overrides: Partial<TankRefuel> & { id: number, day: number }): T
     percentAfter: 100,
     litresAdded: null,
     confirmed: true,
+    fuelType: null,
+    station: null,
+    stationName: null,
     ...rest
   }
 }
@@ -92,6 +95,18 @@ describe('tankLegs', () => {
       refuel({ id: 1, day: 1, mileage: 19000, fuelAfter: 30, percentAfter: 59, litresAdded: 24 }),
       refuel({ id: 2, day: 8, mileage: 19250, litresAdded: 20 })
     ])).toHaveLength(0)
+  })
+
+  it('называет бензин по открывающей заправке — им и ехали', () => {
+    // Литры перегона взяты из второго чека, но это мерка: в двигатель за эти
+    // километры уходило то, чем бак наполнили 1-го, а 95-й Лукойла поедет
+    // дальше.
+    const [leg] = tankLegs([
+      refuel({ id: 1, day: 1, mileage: 19000, litresAdded: 24, fuelType: 'АИ-92', station: 'rosneft' }),
+      refuel({ id: 2, day: 8, mileage: 19250, litresAdded: 24, fuelType: 'АИ-95', station: 'lukoil' })
+    ])
+    expect(leg!.fuelType).toBe('АИ-92')
+    expect(leg!.station).toBe('rosneft')
   })
 
   it('строит цепочку в хронологическом порядке, как бы ни пришли заправки', () => {

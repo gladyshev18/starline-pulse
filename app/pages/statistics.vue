@@ -1023,7 +1023,9 @@ onMounted(() => {
                 <p class="metric-label">От бака до бака</p>
                 <p class="muted">
                   Между двумя полными баками через двигатель прошло ровно столько, сколько долили во второй раз, — это
-                  написано в чеке. Датчик сюда не входит вовсе, и это самый точный расход, какой в этих данных есть
+                  написано в чеке. Датчик сюда не входит вовсе, и это самый точный расход, какой в этих данных есть.
+                  Литры второй заправки — мерка, а не топливо: ехали на том, чем бак наполнили в начале перегона, его
+                  марка и сеть и указаны
                 </p>
               </div>
               <p v-if="tank?.overall.consumption != null" class="card__total">
@@ -1045,7 +1047,11 @@ onMounted(() => {
                 <div v-for="row in tankRows" :key="row.leg.toId" class="speed-row">
                   <div class="speed-row__head">
                     <strong>{{ day(row.leg.from) }} → {{ day(row.leg.to) }}</strong>
-                    <span class="muted">{{ number(row.leg.distance, 0) }} км · {{ number(row.leg.litres) }} л</span>
+                    <span class="muted">{{ number(row.leg.distance, 0) }} км · сожгли {{ number(row.leg.litres) }} л</span>
+                    <span v-if="row.leg.station || row.leg.fuelType" class="muted">
+                      <template v-if="row.leg.fuelType">{{ row.leg.fuelType }} · </template>
+                      {{ stationLabel(row.leg.station, row.leg.stationName) }}
+                    </span>
                   </div>
                   <span class="deviation-track">
                     <span

@@ -19,7 +19,10 @@ export async function loadTankLegs(database: Database, vehicleId: number): Promi
     mileage: refuelEvents.mileage,
     fuelAfter: refuelEvents.fuelAfter,
     percentAfter: refuelEvents.percentAfter,
-    litresAdded: refuelEvents.litresAdded
+    litresAdded: refuelEvents.litresAdded,
+    fuelType: refuelEvents.fuelType,
+    station: refuelEvents.station,
+    stationName: refuelEvents.stationName
   }).from(refuelEvents)
     .where(eq(refuelEvents.vehicleId, vehicleId))
     .orderBy(asc(refuelEvents.detectedAt))

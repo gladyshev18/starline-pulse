@@ -47,6 +47,10 @@ export interface TankRefuel {
   litresAdded: number | null
   // Подтверждён ли объём чеком.
   confirmed: boolean
+  // Что именно залили. Известно из чека, поэтому у заправки без чека пусто.
+  fuelType: string | null
+  station: string | null
+  stationName: string | null
 }
 
 export interface TankLeg {
@@ -69,6 +73,14 @@ export interface TankLeg {
   full: boolean
   confirmed: boolean
   doubts: TankLegDoubt[]
+  // Чем ехали — с открывающей заправки, а не с закрывающей. Литры перегона
+  // берутся из второго чека, но это мерка, а не топливо: столько ушло из бака,
+  // столько потом и влезло обратно. В двигатель за эти километры уходило то,
+  // чем бак наполнили в начале, а бензин закрывающей заправки поедет в
+  // следующий перегон.
+  fuelType: string | null
+  station: string | null
+  stationName: string | null
 }
 
 // Упор шкалы, а не полный бак: последние литры датчик уже не видит, поэтому сто
@@ -147,7 +159,10 @@ export function tankLegs(refuels: TankRefuel[]): TankLeg[] {
       errorBound,
       full,
       confirmed: to.confirmed,
-      doubts
+      doubts,
+      fuelType: from.fuelType,
+      station: from.station,
+      stationName: from.stationName
     })
   }
 
