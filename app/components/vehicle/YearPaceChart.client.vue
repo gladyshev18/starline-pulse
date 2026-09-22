@@ -14,6 +14,9 @@ const { theme } = useTheme()
 
 const distance = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 })
+// Промах бывает и в полпроцента: округление до целых превратило бы его в ноль
+// и сделало бы вид, что прогноз идеален.
+const share = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
 
 // Год на оси помещается целиком, поэтому месяц подписан тремя буквами, а год
 // назван один раз — в самом начале.
@@ -42,7 +45,7 @@ const option = computed(() => {
     animationDuration: 450,
     aria: {
       enabled: true,
-      description: 'Две линии от начала года к декабрю: накопленный пробег и прогноз ровным средним днём. Расстояние между ними — насколько живая езда расходится с прогнозом.'
+      description: 'Две линии от начала года к декабрю: накопленный пробег и прогноз, посчитанный по данным до каждого месяца. Расстояние между ними — на сколько прогноз промахнулся.'
     },
     grid: { top: 52, right: 26, bottom: 34, left: 62, containLabel: false },
     legend: {
@@ -74,13 +77,15 @@ const option = computed(() => {
           rows.push(`${label}: <b>${value}</b>${spent == null ? '' : ` · ${money.format(spent)}`}`)
         }
         withMoney('Проехано', point.distance, point.spend)
-        withMoney('Прогноз', point.projectedDistance, point.projectedSpend)
-        // Ради этой строки график и нарисован двумя линиями: разница читается
-        // числом, а не на глаз по расстоянию между ними.
-        if (point.distance != null && point.projectedDistance != null) {
-          const gap = point.distance - point.projectedDistance
+        withMoney(point.distance == null ? 'Прогноз' : 'Прогноз обещал', point.projectedDistance, point.projectedSpend)
+        // Ради этой строки график и нарисован двумя линиями: промах читается
+        // числом, а не на глаз по расстоянию между ними. Знак — со стороны
+        // прогноза: плюс значит, что он обещал больше, чем вышло.
+        if (point.distance && point.projectedDistance != null) {
+          const gap = point.projectedDistance - point.distance
           const sign = gap >= 0 ? '+' : '−'
-          rows.push(`<span style="opacity:.7">разница: ${sign}${kilometres(Math.abs(gap))}</span>`)
+          const missed = Math.abs(gap) / point.distance * 100
+          rows.push(`<span style="opacity:.7">промах: ${sign}${kilometres(Math.abs(gap))} · ${sign}${share.format(missed)}%</span>`)
         }
         return `${monthTitle(point.month)}<br>${rows.join('<br>')}`
       }

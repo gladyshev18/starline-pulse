@@ -109,12 +109,14 @@ describe('yearPace', () => {
     expect(pace.points[1]!.distance).toBe(1900)
     expect(pace.points[3]!.distance).toBeNull()
 
-    // Прогноз идёт через весь год, включая прожитые месяцы: иначе сравнивать
-    // живую езду со средним днём было бы не с чем. К концу февраля прожито
-    // пятьдесят девять дней года.
-    expect(pace.points[1]!.projectedDistance).toBeCloseTo(pace.perDay * 59, 6)
-    // В текущем месяце линии сходятся: прогноз этим же фактом и посчитан.
-    expect(pace.points[2]!.projectedDistance).toBeCloseTo(2400, 6)
+    // Первому месяцу предсказывать нечем: данных до него нет.
+    expect(pace.points[0]!.projectedDistance).toBeNull()
+    // Февраль предсказан январём: тысяча километров за тридцать один день,
+    // перенесённая на пятьдесят девять дней года к концу февраля.
+    expect(pace.points[1]!.projectedDistance).toBeCloseTo(1000 / 31 * 59, 6)
+    // Март — февралём, и с фактом он не совпадает: в этом и смысл.
+    expect(pace.points[2]!.projectedDistance).toBeCloseTo(1900 / 59 * pace.daysGone, 6)
+    expect(pace.points[2]!.projectedDistance).not.toBeCloseTo(2400, 0)
     expect(pace.points.at(-1)!.projectedDistance).toBeCloseTo(projectYear(months, now)!.projectedDistance, 6)
     expect(pace.points.at(-1)!.projectedSpend).toBeCloseTo(projectYear(months, now)!.projectedSpend!, 6)
   })
@@ -128,6 +130,17 @@ describe('yearPace', () => {
     expect(pace.points[2]!.forecast).toBeCloseTo(projectYear(months, now)!.projectedDistance, 6)
     // У месяцев, которые ещё не наступили, обещания нет.
     expect(pace.points[3]!.forecast).toBeNull()
+  })
+
+  it('меряет промах прогноза по тем месяцам, которые он предсказывал', () => {
+    const pace = yearPace(months, now)!
+
+    // Январь в счёт не идёт — его никто не предсказывал.
+    expect(pace.miss!.months).toBe(2)
+    const february = Math.abs(1000 / 31 * 59 - 1900) / 1900
+    const march = Math.abs(1900 / 59 * pace.daysGone - 2400) / 2400
+    expect(pace.miss!.share).toBeCloseTo((february + march) / 2, 6)
+    expect(pace.miss!.last).toBeCloseTo(march, 6)
   })
 
   it('бросает рубли, как только у месяца потерялись чеки', () => {

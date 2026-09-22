@@ -182,17 +182,28 @@ export interface YearPacePoint {
   // не наступили, факта нет и быть не может.
   distance: number | null
   spend: number | null
-  // Та же величина, но по прогнозу: сколько было бы к этому месяцу, если бы
-  // все дни года были одинаковыми. Линия идёт через весь год — от первого
-  // месяца до декабря, — поэтому рядом с фактом видно, где ехали больше
-  // среднего, а где меньше. В точке «сегодня» линии сходятся: прогноз тем же
-  // фактом и посчитан.
+  // Та же величина по прогнозу — но по прогнозу, который об этом месяце ещё не
+  // знал: средний день считается по данным до месяца, а не вместе с ним. Иначе
+  // прогноз подгонялся бы под тот самый факт, с которым его сравнивают, и
+  // расхождение всегда выходило бы нулевым. У первого месяца прогноза нет:
+  // предсказывать его нечем.
   projectedDistance: number | null
   projectedSpend: number | null
   // Куда год обещал прийти к декабрю по данным на конец этого месяца. Тот же
   // перенос среднего дня, что и в projectYear, но сделанный тогда: без
   // сохранённого обещания сравнивать прогноз с действительностью нечем.
   forecast: number | null
+}
+
+export interface YearPaceMiss {
+  // По скольким месяцам посчитан промах.
+  months: number
+  // На сколько прогноз ошибался в среднем — по модулю: промахи вверх и вниз
+  // гасили бы друг друга и складывались в обманчивую точность.
+  share: number
+  // Промах последнего месяца отдельно: среднее по году полезно, но вопрос
+  // «а сейчас-то как» задают чаще.
+  last: number
 }
 
 export interface YearPace {
@@ -202,13 +213,13 @@ export interface YearPace {
   perDay: number
   daysGone: number
   daysTotal: number
+  miss: YearPaceMiss | null
 }
 
 // Год одной картинкой: две линии от одного начала к декабрю — накопленный
-// пробег и ровный средний день, растянутый на весь год. Идут они в одну
-// сторону и по одной шкале, поэтому расстояние между ними в любом месяце
-// читается прямо с графика: это и есть «насколько живая езда расходится с
-// прогнозом».
+// пробег и прогноз. Прогноз на каждый месяц посчитан по данным, которые были до
+// этого месяца, поэтому линии и расходятся: расстояние между ними — это то, на
+// сколько прогноз промахнулся, а не ноль по построению.
 export function yearPace(months: YearMonth[], now = new Date()): YearPace | null {
   const currentMonth = currentMoscowMonth(now)
   const year = currentMonth.slice(0, 4)
@@ -232,7 +243,7 @@ export function yearPace(months: YearMonth[], now = new Date()): YearPace | null
     return month <= currentMonth ? daysTo(end) : Math.max(1, (end.getTime() - from.getTime()) / DAY_MS)
   }
 
-  const facts: Array<{ month: string, distance: number, spend: number | null, forecast: number }> = []
+  const facts: Array<{ month: string, days: number, distance: number, spend: number | null, forecast: number }> = []
   let distance = 0
   // Рубли складываются, пока каждый месяц знает свою сумму. Месяц, в который
   // ни разу не заправлялись, стоил ноль и счёт не рвёт; месяц с заправками без
@@ -243,23 +254,50 @@ export function yearPace(months: YearMonth[], now = new Date()): YearPace | null
     distance += month.distance
     const cost = month.spend ?? (month.refuels === 0 ? 0 : null)
     spend = spend == null || cost == null ? null : spend + cost
-    facts.push({ month: month.month, distance, spend, forecast: distance / daysAt(month.month) * daysTotal })
+    const days = daysAt(month.month)
+    facts.push({ month: month.month, days, distance, spend, forecast: distance / days * daysTotal })
   }
 
   const daysGone = daysTo(now)
   const perDay = distance / daysGone
   const spendPerDay = spend == null ? null : spend / daysGone
 
-  const projected = (month: string) => ({
-    projectedDistance: perDay * daysAt(month),
-    projectedSpend: spendPerDay == null ? null : spendPerDay * daysAt(month)
+  const points: YearPacePoint[] = facts.map((fact, index) => {
+    // Прогноз пересчитывается каждый раз заново и по всем данным сразу — но по
+    // тем, что были до этого месяца.
+    const prior = facts[index - 1]
+    return {
+      month: fact.month,
+      distance: fact.distance,
+      spend: fact.spend,
+      forecast: fact.forecast,
+      projectedDistance: prior ? prior.distance / prior.days * fact.days : null,
+      projectedSpend: prior?.spend == null ? null : prior.spend / prior.days * fact.days
+    }
   })
 
-  const points: YearPacePoint[] = facts.map(fact => ({ ...fact, ...projected(fact.month) }))
-
+  // Месяцам, которые ещё не наступили, «данные до месяца» — это всё, что есть
+  // на сегодня. Поэтому дальше линия идёт сегодняшним средним днём и приходит
+  // ровно в то число, что стоит на карточке года.
   for (let month = shiftMonth(currentMonth, 1); month <= december; month = shiftMonth(month, 1)) {
-    points.push({ month, distance: null, spend: null, ...projected(month), forecast: null })
+    const days = daysAt(month)
+    points.push({
+      month,
+      distance: null,
+      spend: null,
+      projectedDistance: perDay * days,
+      projectedSpend: spendPerDay == null ? null : spendPerDay * days,
+      forecast: null
+    })
   }
 
-  return { year, currentMonth, points, perDay, daysGone, daysTotal }
+  // Промах считается только там, где есть обе величины: и предсказание, и то,
+  // что вышло на самом деле.
+  const missed = points.filter(point => point.distance && point.projectedDistance != null)
+  const shares = missed.map(point => Math.abs(point.projectedDistance! - point.distance!) / point.distance!)
+  const miss = shares.length
+    ? { months: shares.length, share: shares.reduce((sum, value) => sum + value, 0) / shares.length, last: shares.at(-1)! }
+    : null
+
+  return { year, currentMonth, points, perDay, daysGone, daysTotal, miss }
 }

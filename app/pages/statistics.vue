@@ -585,9 +585,10 @@ onMounted(() => {
             <template v-else>
               <YearPaceChart v-if="pace" :pace="pace" />
               <p v-if="pace" class="metric-meta">
-                Зелёная линия — сколько проехано на самом деле, оранжевый пунктир — сколько было бы при ровном
-                среднем дне. На сегодня они сходятся: прогноз этим же средним и посчитан. Слева видно, в каких
-                месяцах ездили больше обычного, а в каких меньше, справа — куда ровный темп приводит к декабрю.
+                Зелёная линия — сколько проехано на самом деле, оранжевый пунктир — что на этот месяц обещал
+                прогноз, посчитанный по данным до него. Поэтому линии и расходятся: расстояние между ними —
+                это промах, а не ноль по построению. Правее сегодняшнего дня прогноз уже знает всё, что есть,
+                и уходит к декабрю.
               </p>
               <div class="pace-list">
                 <p class="pace-row">
@@ -610,6 +611,13 @@ onMounted(() => {
                   <strong>
                     {{ number(paceDrift.forecast, 0) }} км к декабрю
                     <template v-if="paceDrift.share != null"> · {{ percent(paceDrift.share) }} с тех пор</template>
+                  </strong>
+                </p>
+                <p v-if="pace?.miss" class="pace-row">
+                  <span>Прогноз в среднем промахивается</span>
+                  <strong>
+                    на {{ number(pace.miss.share * 100, 1) }}% за месяц
+                    <template v-if="pace.miss.months > 1"> · в последнем на {{ number(pace.miss.last * 100, 1) }}%</template>
                   </strong>
                 </p>
                 <p v-if="yearComparison" class="pace-row">
