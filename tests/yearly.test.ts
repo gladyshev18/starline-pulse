@@ -109,9 +109,12 @@ describe('yearPace', () => {
     expect(pace.points[1]!.distance).toBe(1900)
     expect(pace.points[3]!.distance).toBeNull()
 
-    // Пунктир начинается от последней известной точки, чтобы линия не рвалась.
-    expect(pace.points[1]!.projectedDistance).toBeNull()
-    expect(pace.points[2]!.projectedDistance).toBe(2400)
+    // Прогноз идёт через весь год, включая прожитые месяцы: иначе сравнивать
+    // живую езду со средним днём было бы не с чем. К концу февраля прожито
+    // пятьдесят девять дней года.
+    expect(pace.points[1]!.projectedDistance).toBeCloseTo(pace.perDay * 59, 6)
+    // В текущем месяце линии сходятся: прогноз этим же фактом и посчитан.
+    expect(pace.points[2]!.projectedDistance).toBeCloseTo(2400, 6)
     expect(pace.points.at(-1)!.projectedDistance).toBeCloseTo(projectYear(months, now)!.projectedDistance, 6)
     expect(pace.points.at(-1)!.projectedSpend).toBeCloseTo(projectYear(months, now)!.projectedSpend!, 6)
   })

@@ -35,17 +35,20 @@ const option = computed(() => {
   const muted = dark ? '#91a39a' : '#6d7c74'
   const line = dark ? '#24352d' : '#dfe9e4'
   const accent = dark ? '#38d39c' : '#10a976'
-  const trace = dark ? '#f5bd68' : '#d58718'
+  const plan = dark ? '#f5bd68' : '#d58718'
   const points = props.pace.points
 
   return {
     animationDuration: 450,
     aria: {
       enabled: true,
-      description: 'Накопленный пробег года, его продолжение до декабря средним днём и прогноз на декабрь, каким он выходил в конце каждого месяца.'
+      description: 'Две линии от начала года к декабрю: накопленный пробег и прогноз ровным средним днём. Расстояние между ними — насколько живая езда расходится с прогнозом.'
     },
     grid: { top: 52, right: 26, bottom: 34, left: 62, containLabel: false },
     legend: {
+      // Порядок в легенде свой: прогноз рисуется первым, чтобы лечь под факт,
+      // а читается первым факт — он главный.
+      data: ['Проехано', 'Прогноз'],
       top: 0,
       left: 0,
       itemWidth: 18,
@@ -71,8 +74,14 @@ const option = computed(() => {
           rows.push(`${label}: <b>${value}</b>${spent == null ? '' : ` · ${money.format(spent)}`}`)
         }
         withMoney('Проехано', point.distance, point.spend)
-        if (point.month !== props.pace.currentMonth) withMoney('Если так и дальше', point.projectedDistance, point.projectedSpend)
-        if (point.forecast != null) rows.push(`<span style="opacity:.7">прогноз на декабрь отсюда: ${kilometres(point.forecast)}</span>`)
+        withMoney('Прогноз', point.projectedDistance, point.projectedSpend)
+        // Ради этой строки график и нарисован двумя линиями: разница читается
+        // числом, а не на глаз по расстоянию между ними.
+        if (point.distance != null && point.projectedDistance != null) {
+          const gap = point.distance - point.projectedDistance
+          const sign = gap >= 0 ? '+' : '−'
+          rows.push(`<span style="opacity:.7">разница: ${sign}${kilometres(Math.abs(gap))}</span>`)
+        }
         return `${monthTitle(point.month)}<br>${rows.join('<br>')}`
       }
     },
@@ -103,6 +112,19 @@ const option = computed(() => {
     },
     series: [
       {
+        // Прогноз идёт через весь год и лежит под фактом: сравнивают с ним, а
+        // не наоборот, поэтому он тоньше и не перекрывает живую линию.
+        name: 'Прогноз',
+        type: 'line',
+        color: plan,
+        data: points.map(point => point.projectedDistance),
+        connectNulls: false,
+        symbol: 'circle',
+        symbolSize: 4,
+        lineStyle: { width: 2, type: 'dashed' },
+        z: 2
+      },
+      {
         name: 'Проехано',
         type: 'line',
         color: accent,
@@ -113,32 +135,6 @@ const option = computed(() => {
         lineStyle: { width: 2.5 },
         areaStyle: { opacity: 0.08 },
         z: 3
-      },
-      {
-        // Пунктир — то же самое, но ещё не случившееся. Тот же цвет: это
-        // продолжение той же линии, а не другая величина.
-        name: 'Если так и дальше',
-        type: 'line',
-        color: accent,
-        data: points.map(point => point.projectedDistance),
-        connectNulls: false,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2, type: 'dashed' },
-        z: 2
-      },
-      {
-        // След прогноза: чем он был в конце каждого прожитого месяца. К декабрю
-        // эта линия упрётся в факт, и станет видно, на сколько он врал.
-        name: 'Прогноз на декабрь',
-        type: 'line',
-        color: trace,
-        data: points.map(point => point.forecast),
-        connectNulls: false,
-        symbol: 'circle',
-        symbolSize: 4,
-        lineStyle: { width: 1.5, type: 'dashed', opacity: 0.8 },
-        z: 1
       }
     ]
   }

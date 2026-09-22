@@ -182,9 +182,11 @@ export interface YearPacePoint {
   // не наступили, факта нет и быть не может.
   distance: number | null
   spend: number | null
-  // Та же линия, продолженная средним днём. У текущего месяца она начинается
-  // от факта — чтобы прогноз рос из последней известной точки, а не висел
-  // рядом с ней.
+  // Та же величина, но по прогнозу: сколько было бы к этому месяцу, если бы
+  // все дни года были одинаковыми. Линия идёт через весь год — от первого
+  // месяца до декабря, — поэтому рядом с фактом видно, где ехали больше
+  // среднего, а где меньше. В точке «сегодня» линии сходятся: прогноз тем же
+  // фактом и посчитан.
   projectedDistance: number | null
   projectedSpend: number | null
   // Куда год обещал прийти к декабрю по данным на конец этого месяца. Тот же
@@ -202,12 +204,11 @@ export interface YearPace {
   daysTotal: number
 }
 
-// Год одной картинкой: накопленный пробег, его продолжение до декабря и след
-// прогноза — чем он был месяц назад и два месяца назад.
-//
-// След важнее самого прогноза. Прогноз на декабрь пересчитывается каждый день и
-// каждый день выглядит единственно возможным; увидеть, что в августе он обещал
-// на тысячу километров больше, можно только если август остался на графике.
+// Год одной картинкой: две линии от одного начала к декабрю — накопленный
+// пробег и ровный средний день, растянутый на весь год. Идут они в одну
+// сторону и по одной шкале, поэтому расстояние между ними в любом месяце
+// читается прямо с графика: это и есть «насколько живая езда расходится с
+// прогнозом».
 export function yearPace(months: YearMonth[], now = new Date()): YearPace | null {
   const currentMonth = currentMoscowMonth(now)
   const year = currentMonth.slice(0, 4)
@@ -223,8 +224,15 @@ export function yearPace(months: YearMonth[], now = new Date()): YearPace | null
   const yearEnd = moscowMonthRange(december)!.end
   const daysTotal = Math.max(1, (yearEnd.getTime() - from.getTime()) / DAY_MS)
   const daysTo = (at: Date) => Math.max(1, (Math.min(at.getTime(), now.getTime()) - from.getTime()) / DAY_MS)
+  // Сколько дней года прожито к концу месяца. Текущий месяц обрезан сегодняшним
+  // днём: сравнивать половину месяца факта с целым месяцем прогноза нечестно —
+  // прогноз всегда выигрывал бы этот разрыв.
+  const daysAt = (month: string) => {
+    const end = moscowMonthRange(month)!.end
+    return month <= currentMonth ? daysTo(end) : Math.max(1, (end.getTime() - from.getTime()) / DAY_MS)
+  }
 
-  const points: YearPacePoint[] = []
+  const facts: Array<{ month: string, distance: number, spend: number | null, forecast: number }> = []
   let distance = 0
   // Рубли складываются, пока каждый месяц знает свою сумму. Месяц, в который
   // ни разу не заправлялись, стоил ноль и счёт не рвёт; месяц с заправками без
@@ -235,32 +243,22 @@ export function yearPace(months: YearMonth[], now = new Date()): YearPace | null
     distance += month.distance
     const cost = month.spend ?? (month.refuels === 0 ? 0 : null)
     spend = spend == null || cost == null ? null : spend + cost
-    const current = month.month === currentMonth
-    const days = daysTo(moscowMonthRange(month.month)!.end)
-    points.push({
-      month: month.month,
-      distance,
-      spend,
-      projectedDistance: current ? distance : null,
-      projectedSpend: current ? spend : null,
-      forecast: distance / days * daysTotal
-    })
+    facts.push({ month: month.month, distance, spend, forecast: distance / daysAt(month.month) * daysTotal })
   }
 
   const daysGone = daysTo(now)
   const perDay = distance / daysGone
   const spendPerDay = spend == null ? null : spend / daysGone
 
+  const projected = (month: string) => ({
+    projectedDistance: perDay * daysAt(month),
+    projectedSpend: spendPerDay == null ? null : spendPerDay * daysAt(month)
+  })
+
+  const points: YearPacePoint[] = facts.map(fact => ({ ...fact, ...projected(fact.month) }))
+
   for (let month = shiftMonth(currentMonth, 1); month <= december; month = shiftMonth(month, 1)) {
-    const ahead = (moscowMonthRange(month)!.end.getTime() - now.getTime()) / DAY_MS
-    points.push({
-      month,
-      distance: null,
-      spend: null,
-      projectedDistance: distance + perDay * ahead,
-      projectedSpend: spend == null || spendPerDay == null ? null : spend + spendPerDay * ahead,
-      forecast: null
-    })
+    points.push({ month, distance: null, spend: null, ...projected(month), forecast: null })
   }
 
   return { year, currentMonth, points, perDay, daysGone, daysTotal }
