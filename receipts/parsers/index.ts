@@ -1,4 +1,5 @@
 import { FUEL_TANK_CAPACITY_LITRES } from '../../shared/fuel'
+import { normaliseFuelType } from '../../shared/fuel-grades'
 import { completeReceiptAmounts, type ReceiptFields, type ReceiptOperation, type ReceiptStation } from '../fields'
 import { parseFiscalQr } from '../qr'
 import type { ReceiptMailMessage } from '../mail/types'
@@ -139,7 +140,9 @@ export function parseFuelLineItem(text: string) {
       ? { pricePerLitre: first, litres: second }
       : plausible(second, first) ? { pricePerLitre: second, litres: first } : null
     if (!assignment) continue
-    return { ...assignment, totalAmount: Math.round(total * 100) / 100 }
+    // The grade comes from the very line the arithmetic vouched for, so a promo
+    // banner further up cannot pass its fuel off as the one that was bought.
+    return { ...assignment, totalAmount: Math.round(total * 100) / 100, grade: gradeFromItemLine(lines[start]!) }
   }
   return null
 }
@@ -153,6 +156,31 @@ export function parseTotalAmount(text: string) {
   const matches = [...text.matchAll(/(итого?|к оплате|сумма)(?!\s*ндс)[^\d\n]{0,15}(\d[\d\s]*(?:[.,]\d{2})?)/gi)]
   const labelled = matches.find(match => !/^сумма$/i.test(match[1]!))
   return amount((labelled || matches[0])?.[2])
+}
+
+// The grade is printed as the name of the item bought: "1. АИ-95-К5 Pulsar-95
+// N 3:00000". The chain's word for premium petrol sits in the middle of that
+// line — between the class and the pump number — so the whole name is read and
+// then trimmed, rather than matched for «АИ-95» alone: on a short match premium
+// is indistinguishable from ordinary petrol, and the two differ by three
+// roubles a litre, which is more than the price itself moves in a month.
+function gradeFromItemLine(line: string) {
+  // Everything from the pump number or the first printed figure onwards belongs
+  // to the table, not to the name; the row number opens the line the same way.
+  return normaliseFuelType(line
+    .replace(/\s*(?:N\s*\d+\s*:|\d+[.,]\d{1,3}(?!\d)).*$/i, '')
+    .replace(/^\s*\d+[.)]\s*/, ''))
+}
+
+// The fallback for receipts whose figures do not multiply out — a photographed
+// one where the price was read off a label instead of the table. A letter names
+// the same fuel in its banners, advertising the very petrol that was not
+// bought, so a line with figures on it outranks one without: an item row prints
+// its price, an advertisement usually does not.
+export function parseFuelGrade(text: string) {
+  const named = text.split(/\r?\n/).filter(line => /АИ[\s-]?\d{2,3}/i.test(line))
+  if (!named.length) return null
+  return gradeFromItemLine(named.find(line => /\d+[.,]\d{2}(?!\d)/.test(line)) ?? named[0]!)
 }
 
 // An OFD mails out every receipt the buyer's address was ever printed on, so a
@@ -222,6 +250,7 @@ export function parseReceiptText(text: string): ParsedReceipt {
     result.litres = item.litres
     result.pricePerLitre = item.pricePerLitre
     result.totalAmount ??= item.totalAmount
+    result.fuelType = item.grade
   }
 
   result.purchasedAt ||= parseReceiptDate(text)
@@ -235,8 +264,7 @@ export function parseReceiptText(text: string): ParsedReceipt {
     || /(\d+[.,]\d{2})\s*(?:руб\.?|₽|р\.)\s*\/\s*л/i.exec(text)?.[1]
   )
   result.totalAmount ??= parseTotalAmount(text)
-  result.fuelType ??= /(АИ[\s-]?\d{2,3}(?:\s+(?:премиум|евро|pulsar|ultimate))?)/i.exec(text)?.[1]
-    ?.replace(/^АИ\s?-?\s?/i, 'АИ-') || null
+  result.fuelType ??= parseFuelGrade(text)
   result.sellerInn ??= /ИНН\D{0,5}(\d{10,12})/i.exec(text)?.[1] || null
   // "Дата выдачи ФД 01.12.2024" sits above the number itself, and "Версия ФФД"
   // ends in the same two letters, so a date and a preceding letter both disqualify.

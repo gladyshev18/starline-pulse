@@ -1,3 +1,5 @@
+import { normaliseFuelType } from '../shared/fuel-grades'
+
 export const RECEIPT_STATIONS = ['rosneft', 'lukoil', 'other'] as const
 export const RECEIPT_PAYMENT_METHODS = ['card', 'cash', 'unknown'] as const
 export const RECEIPT_OPERATIONS = ['purchase', 'refund'] as const
@@ -101,7 +103,10 @@ export function normalizeReceiptFields(input: Record<string, unknown>): ReceiptF
     station: station(input.station),
     stationName: optionalText(input.stationName, 'Название АЗС', 100),
     address: optionalText(input.address, 'Адрес', 250),
-    fuelType: optionalText(input.fuelType, 'Вид топлива', 50),
+    // A grade typed by hand joins the same rows as the parsed one, so it is
+    // folded to the canonical spelling: «95 премиум» and «АИ-95 Премиум» are
+    // one fuel, and two spellings would be two lines on the price chart.
+    fuelType: normaliseFuelType(optionalText(input.fuelType, 'Вид топлива', 50)),
     litres: optionalAmount(input.litres, 'Объём', LIMITS.litres),
     pricePerLitre: optionalAmount(input.pricePerLitre, 'Цена за литр', LIMITS.pricePerLitre),
     totalAmount: optionalAmount(input.totalAmount, 'Сумма', LIMITS.totalAmount),

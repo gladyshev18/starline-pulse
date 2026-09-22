@@ -18,5 +18,3 @@ export const PAYMENT_METHODS = [
   { value: 'card', label: 'Карта' },
   { value: 'unknown', label: 'Не указан' }
 ] as const
-
-export const FUEL_TYPES = ['АИ-92', 'АИ-95', 'АИ-95 Премиум', 'АИ-98', 'АИ-100'] as const

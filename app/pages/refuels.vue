@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FUEL_TYPES, STATIONS } from '~~/shared/stations'
+import { FUEL_TYPES } from '~~/shared/fuel-grades'
+import { STATIONS } from '~~/shared/stations'
 import { plural } from '~~/shared/plural'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024

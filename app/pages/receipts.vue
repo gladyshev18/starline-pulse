@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FUEL_TYPES, PAYMENT_METHODS, RECEIPT_OPERATIONS, STATIONS } from '~~/shared/stations'
+import { FUEL_TYPES } from '~~/shared/fuel-grades'
+import { PAYMENT_METHODS, RECEIPT_OPERATIONS, STATIONS } from '~~/shared/stations'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024
 

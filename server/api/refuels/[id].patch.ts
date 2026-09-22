@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { refuelEvents } from '../../../db/schema'
 import { completeReceiptAmounts } from '../../../receipts/fields'
+import { normaliseFuelType } from '../../../shared/fuel-grades'
 
 const stations = ['rosneft', 'lukoil', 'other'] as const
 
@@ -43,7 +44,8 @@ export default defineEventHandler(async (event) => {
 
   const station = body.station as typeof stations[number]
   const stationName = station === 'other' ? requiredText(body.stationName, 'Название АЗС', 100) : null
-  const fuelType = requiredText(body.fuelType, 'Вид топлива', 50)
+  // Та же марка, что и в чеке: «АИ-95 Премиум» и «95 премиум» — один ряд.
+  const fuelType = normaliseFuelType(requiredText(body.fuelType, 'Вид топлива', 50))
 
   const database = useAppDatabase()
   const vehicle = await database.query.vehicles.findFirst()

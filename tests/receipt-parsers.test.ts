@@ -89,6 +89,32 @@ describe('parseReceiptText', () => {
     expect(parsed.purchasedAt?.toISOString()).toBe('2026-08-14T07:30:00.000Z')
   })
 
+  it('tells premium petrol apart from ordinary petrol of the same octane', () => {
+    // Pulsar стоит на три рубля дороже обычного АИ-95, и под одной подписью
+    // эти три рубля выглядели бы подорожанием.
+    const premium = parseReceiptText([
+      '27.08.2026 09:22',
+      '1. АИ-95-К5 Pulsar-95 N 3:00000  72.75  15  1091.25'
+    ].join('\n'))
+    expect(premium).toMatchObject({ fuelType: 'АИ-95 Премиум', pricePerLitre: 72.75 })
+
+    const ordinary = parseReceiptText([
+      '27.08.2026 09:22',
+      '1. АИ-95-К5 N 3:00000  69.75  25  1743.75'
+    ].join('\n'))
+    expect(ordinary).toMatchObject({ fuelType: 'АИ-95', pricePerLitre: 69.75 })
+  })
+
+  it('reads the grade off the item line and not off the banner above it', () => {
+    const parsed = parseReceiptText([
+      'Новый Pulsar АИ-95 — теперь на каждой АЗС',
+      'Кассовый чек.',
+      '27.08.2026 09:22',
+      '1. АИ-92-К5 N 2:00000  64.25  20  1285.00'
+    ].join('\n'))
+    expect(parsed.fuelType).toBe('АИ-92')
+  })
+
   it('prefers the fiscal link over the printed numbers', () => {
     const parsed = parseReceiptText('Итого: 100,00\nhttps://check.ofd.ru/rec?t=20260814T1030&s=2530.00&fp=99&i=17')
     expect(parsed).toMatchObject({ totalAmount: 2530, fiscalDocNumber: '17', fiscalSign: '99' })
@@ -250,7 +276,7 @@ describe('a Lukoil receipt from ОФД-Я', () => {
   it('reads the figures printed on their own line as "41.38 x 61.26 = 2534.94"', () => {
     expect(parseReceiptText(lukoilReceipt)).toMatchObject({
       station: 'lukoil',
-      fuelType: 'АИ-95',
+      fuelType: 'АИ-95 Премиум',
       litres: 41.38,
       pricePerLitre: 61.26,
       totalAmount: 2534.94,
@@ -365,12 +391,12 @@ describe('an unfamiliar chain', () => {
 describe('parseFuelLineItem', () => {
   it('recognises the price, volume and total with no units printed', () => {
     expect(parseFuelLineItem('1. АИ-92-К5 N 2:00000 64.25 20 1285.00'))
-      .toEqual({ pricePerLitre: 64.25, litres: 20, totalAmount: 1285 })
+      .toEqual({ pricePerLitre: 64.25, litres: 20, totalAmount: 1285, grade: 'АИ-92' })
   })
 
   it('reads a line that puts the volume before the price', () => {
     expect(parseFuelLineItem('АИ-95 38.42 65.50 2516.51'))
-      .toEqual({ pricePerLitre: 65.5, litres: 38.42, totalAmount: 2516.51 })
+      .toEqual({ pricePerLitre: 65.5, litres: 38.42, totalAmount: 2516.51, grade: 'АИ-95' })
   })
 
   it('refuses numbers that do not multiply out', () => {
