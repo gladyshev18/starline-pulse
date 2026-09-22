@@ -1,6 +1,6 @@
 import { and, eq, gt, lte } from 'drizzle-orm'
 import type { Database } from '../../db/client'
-import { engineSessions, trips } from '../../db/schema'
+import { engineSessions, removedTrips, trips } from '../../db/schema'
 import { type SessionDistance, sessionDistances } from '../../metrics/odometer'
 import { armedMinutesBetween } from '../../metrics/engine'
 import { tripFuelUsed } from '../../shared/fuel'
@@ -20,6 +20,44 @@ export interface DistanceReport {
   removed: Array<{ tripId: number, startedAt: Date }>
   total: number
   unattributed: number
+}
+
+type Trip = typeof trips.$inferSelect
+
+// Удаление поездки оставляет след. В чате может висеть сообщение с кнопками,
+// которые ссылаются на её номер, а имя водителя человек подтверждал руками —
+// и то и другое должно доехать до записи, занявшей её место, даже если та
+// появится только следующим проходом.
+async function removeTrip(database: Database, trip: Trip, successor?: Trip) {
+  if (successor) {
+    const driver = successor.driver ?? trip.driver
+    // Отметка о вопросе переезжает вместе с именем: про одну дорогу
+    // спрашивают один раз, кто бы из двух записей её ни представлял.
+    const driverAskedAt = successor.driverAskedAt ?? trip.driverAskedAt
+    if (driver !== successor.driver || driverAskedAt !== successor.driverAskedAt) {
+      await database.update(trips).set({ driver, driverAskedAt }).where(eq(trips.id, successor.id))
+    }
+  }
+  await database.insert(removedTrips).values({
+    tripId: trip.id,
+    vehicleId: trip.vehicleId,
+    startedAt: trip.startedAt,
+    endedAt: trip.endedAt,
+    driver: trip.driver,
+    driverAskedAt: trip.driverAskedAt
+  }).onConflictDoNothing()
+  await database.delete(trips).where(eq(trips.id, trip.id))
+}
+
+// Что осталось от записи, стоявшей на этом же месте до пересчёта.
+async function removedAt(database: Database, vehicleId: number, from: Date, to: Date) {
+  return await database.query.removedTrips.findFirst({
+    where: and(
+      eq(removedTrips.vehicleId, vehicleId),
+      lte(removedTrips.startedAt, to),
+      gt(removedTrips.endedAt, from)
+    )
+  })
 }
 
 // Сессия, с которой запись делит больше всего времени.
@@ -85,7 +123,7 @@ export async function recalculateDistances(database: Database, vehicleId: number
     }
     // Поездка у сессии уже есть, а эта запись — её дубль с чужими границами.
     if (trip.comment) continue
-    await database.delete(trips).where(eq(trips.id, trip.id))
+    await removeTrip(database, trip, owner)
     report.removed.push({ tripId: trip.id, startedAt: trip.startedAt })
   }
 
@@ -117,7 +155,7 @@ export async function recalculateDistances(database: Database, vehicleId: number
     // Комментарий писали руками, и запись с ним остаётся.
     if (trip && !trip.isOpen && item.distance < MIN_TRIP_DISTANCE) {
       if (!trip.comment) {
-        await database.delete(trips).where(eq(trips.id, trip.id))
+        await removeTrip(database, trip)
         report.removed.push({ tripId: trip.id, startedAt: trip.startedAt })
       }
       continue
@@ -154,6 +192,11 @@ export async function recalculateDistances(database: Database, vehicleId: number
     })
     if (covered) continue
 
+    // Та же дорога могла уже стоять здесь с прежними границами: разбор снёс
+    // её и заводит заново. Имя водителя и отметка о заданном вопросе
+    // переезжают вместе с ней — иначе имя пропадёт, а бот спросит второй раз
+    // про ту же поездку.
+    const previous = await removedAt(database, vehicleId, item.startedAt, item.endedAt)
     await database.insert(trips).values({
       vehicleId,
       startedAt: item.startedAt,
@@ -166,6 +209,8 @@ export async function recalculateDistances(database: Database, vehicleId: number
       fuelEnd: session.fuelEnd,
       fuelUsed: tripFuelUsed(session.fuelStart, session.fuelEnd),
       armedMinutes: await armedMinutesBetween(database, vehicleId, item.startedAt, item.endedAt),
+      driver: previous?.driver ?? null,
+      driverAskedAt: previous?.driverAskedAt ?? null,
       isOpen: false
     })
     report.created.push({ sessionId: item.sessionId, startedAt: item.startedAt, distance: item.distance })

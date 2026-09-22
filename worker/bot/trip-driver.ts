@@ -1,11 +1,13 @@
-import { eq, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, isNotNull, isNull, lte } from 'drizzle-orm'
 import { GrammyError, InlineKeyboard, type Bot } from 'grammy'
 import type { Database } from '../../db/client'
-import { trips } from '../../db/schema'
+import { jobs, removedTrips, trips } from '../../db/schema'
 import { guessDriver } from '../../shared/driver-guess'
 import { allowedRecipients, recipientName, type Recipient } from './recipients'
 
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
+
+type Trip = typeof trips.$inferSelect
 
 export type TripSummary = {
   distance: number | null
@@ -90,6 +92,58 @@ export async function likelyDriver(database: Database, startedAt: Date) {
   return guessDriver(history, { weekday: at.getUTCDay(), hour: at.getUTCHours() })?.driver ?? null
 }
 
+// Поездка, о которой спрашивало сообщение. Номер в кнопке — тот, что был на
+// момент отправки, а разбор журнала правит границы задним числом и может
+// заменить запись целиком. Сообщение в чате при этом остаётся, и ответ на него
+// должен доехать до той поездки, которая заняла место прежней.
+export async function resolveTrip(database: Database, tripId: number) {
+  const trip = await database.query.trips.findFirst({ where: eq(trips.id, tripId) })
+  if (trip) return trip
+  const removed = await database.query.removedTrips.findFirst({ where: eq(removedTrips.tripId, tripId) })
+  if (!removed?.endedAt) return null
+  // Преемник — тот, кто накрывает то же время. Границы двигаются на минуты, в
+  // чужие сутки поездка от этого не переезжает.
+  return await database.query.trips.findFirst({
+    where: and(
+      eq(trips.vehicleId, removed.vehicleId),
+      eq(trips.isOpen, false),
+      lte(trips.startedAt, removed.endedAt),
+      gt(trips.endedAt, removed.startedAt)
+    )
+  }) ?? null
+}
+
+// Вопрос уходит ровно один раз на поездку, и отметка об этом живёт в самой
+// поездке. Иначе спрашивать пришлось бы по факту закрытия — а закрытая опросом
+// запись до отправки может не дожить: пересчёт километров сносит прогревы и
+// дубли с прежними границами, и вопрос уезжал в чат уже без кнопок.
+export async function askDriver(database: Database, trip: Trip) {
+  if (trip.isOpen || trip.driverAskedAt || trip.driver) return false
+  await database.insert(jobs).values({ type: 'telegram:notify', payload: JSON.stringify({
+    html: true,
+    text: tripCompletedText(trip),
+    tripId: trip.id
+  }) })
+  await database.update(trips).set({ driverAskedAt: new Date() }).where(eq(trips.id, trip.id))
+  return true
+}
+
+// Проход по всем закрытым поездкам, о которых ещё не спрашивали. Поводов
+// пройтись два: закрытие поездки опросом и разбор журнала сигнализации,
+// который заводит дороги, проспанные опросом целиком, — раньше о них не
+// спрашивали вовсе.
+export async function askAboutClosedTrips(database: Database, vehicleId: number, since: Date) {
+  const pending = await database.select().from(trips).where(and(
+    eq(trips.vehicleId, vehicleId),
+    eq(trips.isOpen, false),
+    isNull(trips.driverAskedAt),
+    gte(trips.endedAt, since)
+  )).orderBy(asc(trips.startedAt))
+  let asked = 0
+  for (const trip of pending) if (await askDriver(database, trip)) asked++
+  return asked
+}
+
 function isNotModified(error: unknown) {
   return error instanceof GrammyError && error.description.includes('message is not modified')
 }
@@ -97,8 +151,7 @@ function isNotModified(error: unknown) {
 export function registerTripDriverHandlers(bot: Bot, database: Database) {
   bot.callbackQuery(new RegExp(`^trip:driver:(\\d+):(\\d+|${SKIP_ANSWER})$`), async (context) => {
     const [, rawTripId, answer] = context.match as RegExpMatchArray
-    const tripId = Number(rawTripId)
-    const trip = await database.query.trips.findFirst({ where: eq(trips.id, tripId) })
+    const trip = await resolveTrip(database, Number(rawTripId))
     if (!trip) return context.answerCallbackQuery('Поездка не найдена')
 
     let driver: string | null = null
@@ -108,15 +161,17 @@ export function registerTripDriverHandlers(bot: Bot, database: Database) {
       driver = recipientName(recipient)
     }
 
-    const [updated] = await database.update(trips).set({ driver }).where(eq(trips.id, tripId)).returning()
+    const [updated] = await database.update(trips).set({ driver }).where(eq(trips.id, trip.id)).returning()
     await context.answerCallbackQuery(driver ? `Записал: ${driver}` : 'Пропустил')
 
     // Кнопки остаются на месте: промахнуться по соседнему имени легко, и
-    // единственный способ исправить это — нажать другое.
+    // единственный способ исправить это — нажать другое. Номер в них теперь
+    // указывает на найденную поездку, чтобы следующее нажатие не искало
+    // прежнюю заново.
     try {
       await context.editMessageText(tripCompletedText(updated || { ...trip, driver }, { skipped: !driver }), {
         parse_mode: 'HTML',
-        reply_markup: driverKeyboard(tripId, await allowedRecipients(database))
+        reply_markup: driverKeyboard(trip.id, await allowedRecipients(database))
       })
     } catch (error) {
       // Повторное нажатие того же имени не меняет ни текст, ни кнопки, и

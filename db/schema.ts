@@ -135,8 +135,29 @@ export const trips = sqliteTable('trips', {
   comment: text('comment'),
   // Имя того, кто вёл: бот спрашивает об этом сразу после завершения поездки.
   driver: text('driver'),
+  // Когда вопрос «кто был за рулём» ушёл в чат. Спрашивать полагается ровно
+  // один раз, а поводов пройтись по закрытым поездкам несколько: закрытие
+  // опросом и разбор журнала, который заводит дороги, проспанные опросом.
+  driverAskedAt: integer('driver_asked_at', { mode: 'timestamp_ms' }),
   isOpen: integer('is_open', { mode: 'boolean' }).notNull().default(true)
 }, table => [index('trips_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
+
+// След удалённой поездки. Разбор журнала правит границы задним числом и может
+// заменить запись целиком — а в чате уже висит сообщение с кнопками, которые
+// ссылаются на прежний номер. Чтобы ответ на него не пропал, от удалённой
+// записи остаётся её время: по нему находится та, что заняла её место.
+export const removedTrips = sqliteTable('removed_trips', {
+  tripId: integer('trip_id').primaryKey(),
+  vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+  // Имя, если его успели назвать, и отметка о заданном вопросе. Преемник
+  // забирает обе себе: имя — чтобы не потерять подтверждённого человеком
+  // водителя, отметку — чтобы про ту же дорогу не спросили второй раз.
+  driver: text('driver'),
+  driverAskedAt: integer('driver_asked_at', { mode: 'timestamp_ms' }),
+  createdAt: timestamps.createdAt
+}, table => [index('removed_trips_vehicle_started_idx').on(table.vehicleId, table.startedAt)])
 
 // Журнал самой сигнализации: зажигание, двигатель, двери, охрана — каждое с
 // точностью до секунды. Опрос не может дать того же: он видит машину раз в

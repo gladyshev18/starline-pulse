@@ -5,7 +5,7 @@ import { departureWithin } from '../../metrics/odometer'
 import { recalculateDistances } from './distances'
 import { tripFuelUsed } from '../../shared/fuel'
 import { engineSessions, jobs, trips, vehicleSnapshots } from '../../db/schema'
-import { tripCompletedText } from '../bot/trip-driver'
+import { askAboutClosedTrips } from '../bot/trip-driver'
 
 type Snapshot = typeof vehicleSnapshots.$inferSelect
 type EngineSession = typeof engineSessions.$inferSelect
@@ -204,15 +204,12 @@ export async function closeTrip(database: Database, payload: { vehicleId: number
   // в том же промежутке. Пересчёт разложит её правильно — и по этой поездке, и
   // по соседним, которых она тоже касается.
   await recalculateDistances(database, payload.vehicleId)
-  if (closed) {
-    // tripId в задаче — это и есть вопрос «кто был за рулём»: по нему к
-    // уведомлению приклеиваются кнопки с именами.
-    await database.insert(jobs).values({ type: 'telegram:notify', payload: JSON.stringify({
-      html: true,
-      text: tripCompletedText(closed),
-      tripId: closed.id
-    }) })
-  }
+  // Спрашиваем после пересчёта и по тому, что он оставил. Раньше вопрос
+  // ставился по только что закрытой записи — а пересчёт успевал снести её как
+  // прогрев или дубль с прежними границами и завести на её месте другую. В
+  // чат при этом уходило сообщение с предварительным километражом и номером
+  // несуществующей поездки: кнопок с именами у него не было вовсе.
+  await askAboutClosedTrips(database, payload.vehicleId, trip.startedAt)
   return closed
 }
 

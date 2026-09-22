@@ -1,6 +1,6 @@
 import { and, asc, eq, lte, or } from 'drizzle-orm'
 import type { Database } from '../db/client'
-import { jobs, trips, vehicles } from '../db/schema'
+import { jobs, vehicles } from '../db/schema'
 import { ingestReceiptMail } from '../receipts/mail/ingest'
 import { parseActDocument } from '../receipts/act-job'
 import { notifyAllowedChats } from './bot'
@@ -8,7 +8,7 @@ import { buildFuelReminder, nextFuelReminderRun } from './bot/fuel-reminder'
 import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { config, receiptsMailConfig } from './config'
 import { buildReceiptImportNotice } from './bot/receipt-notices'
-import { buildDriverKeyboard } from './bot/trip-driver'
+import { askAboutClosedTrips, buildDriverKeyboard, resolveTrip } from './bot/trip-driver'
 import { buildTyreNotice, nextTyreWatchRun, parseTyreNoticeState, type TyreNoticeState } from './bot/tyre-watch'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
@@ -181,6 +181,13 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
         console.info(`[starline.events] уточнено сессий: ${report.corrected.length}, заведено пропущенных: ${report.created.length}, снято прогревов: ${report.removed.length}, разобрано склеек: ${report.merged.length}`)
       }
     }
+    // Дорога, которую опрос проспал целиком, появляется только из журнала — и
+    // раньше о ней не спрашивали вовсе: вопрос ставило одно лишь закрытие
+    // поездки опросом. Заход сюда и есть тот регулярный повод оглядеться:
+    // окно берём то же, что у разбора границ, — событие может доехать до
+    // журнала много позже, чем случилось.
+    const asked = await askAboutClosedTrips(database, vehicle.id, new Date(Date.now() - EVENTS_BOUNDARY_WINDOW_MS))
+    if (asked) console.info(`[starline.events] спрошено о водителе: ${asked}`)
     return { nextEvents: true }
   }
   if (job.type === 'telegram:notify') {
@@ -189,9 +196,10 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     const tripId = Number(payload.tripId)
     // Время начала нужно, чтобы предложить того, кто обычно ездит в этот час
     // этого дня недели, — иначе на вопрос отвечают вдвое реже, чем спрашивают.
-    const trip = Number.isInteger(tripId) && tripId > 0
-      ? await database.query.trips.findFirst({ where: eq(trips.id, tripId) })
-      : null
+    // Поездку ищем с оглядкой на удалённые: между постановкой задачи и
+    // отправкой разбор журнала мог заменить запись целиком, и кнопки должны
+    // указывать на ту, что заняла её место, а не пропасть.
+    const trip = Number.isInteger(tripId) && tripId > 0 ? await resolveTrip(database, tripId) : null
     const keyboard = trip ? await buildDriverKeyboard(database, trip.id, trip.startedAt) : null
     await notifyAllowedChats(String(payload.text || 'Уведомление'), { html: payload.html === true, keyboard: keyboard || undefined })
   }
