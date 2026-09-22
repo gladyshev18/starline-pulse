@@ -8,17 +8,17 @@ describe('normaliseFuelType', () => {
     expect(normaliseFuelType('аи 95')).toBe('АИ-95')
   })
 
-  it('keeps premium petrol apart whatever the chain calls it', () => {
+  it('keeps the dearer grade apart whatever the chain calls it', () => {
     expect(normaliseFuelType('АИ-95-К5 Pulsar-95')).toBe('АИ-95 Премиум')
     expect(normaliseFuelType('Бензин автомобильный ЭКТО Plus (АИ-95-К5)')).toBe('АИ-95 Премиум')
+    expect(normaliseFuelType('ЭКТО-95')).toBe('АИ-95 Премиум')
     expect(normaliseFuelType('АИ-95 G-Drive')).toBe('АИ-95 Премиум')
     expect(normaliseFuelType('95 премиум')).toBe('АИ-95 Премиум')
   })
 
-  it('does not take the class or the eco brand of ordinary petrol for premium', () => {
-    // «ЭКТО» без «Плюс» — обычный лукойловский бензин, а «-К5» есть у любого.
-    expect(normaliseFuelType('ЭКТО-92 (АИ-92-К5)')).toBe('АИ-92')
-    expect(normaliseFuelType('АИ-95-К5 Евро')).toBe('АИ-95')
+  it('leaves ordinary petrol ordinary: at Lukoil that is «Евро», and the class is on every grade', () => {
+    expect(normaliseFuelType('ЕВРО-95')).toBe('АИ-95')
+    expect(normaliseFuelType('АИ-92-К5 Евро')).toBe('АИ-92')
   })
 
   it('leaves the hundredth alone: ordinary АИ-100 does not exist', () => {
