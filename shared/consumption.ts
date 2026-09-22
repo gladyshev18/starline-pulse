@@ -22,9 +22,10 @@ export interface ConsumptionTrip {
   // driven, so this is a warm-up sitting inside the trip rather than time spent
   // covering ground.
   armedMinutes?: number | null
-  // Минуты от включения зажигания до того, как опустили ручник. Сел, завёл,
-  // пристегнулся, поставил навигатор — машина всё это время стоит. Отметка
-  // приходит из журнала сигнализации и есть у 97 % поездок.
+  // Минуты от включения зажигания до того, как машина тронулась. Сел, завёл,
+  // прогрел стёкла, дождался попутчика — всё это время она стоит. Отметку
+  // отъезда считает разбор одометра: первое показание задаёт темп, и остаток
+  // промежутка до него — стоянка.
   preDepartureMinutes?: number | null
 }
 
@@ -46,8 +47,9 @@ export interface SpeedBucket {
 // A trip is bracketed by the ignition, so its duration holds the warm-up before
 // the car pulled away and whatever idling happened before the key came out.
 // Dividing distance by all of it reports a car slower than it drove, and speed
-// is the only thing that sorts a trip into a bucket at all. The armed minutes
-// are the one stretch the data can prove was not movement.
+// is the only thing that sorts a trip into a bucket at all. Standing before the
+// departure is what the data can account for; stops along the way stay inside,
+// because nothing here can tell a stop from slow going.
 export function movingMinutes(trip: ConsumptionTrip) {
   if (trip.durationMinutes == null || !Number.isFinite(trip.durationMinutes)) return null
   const positive = (value: number | null | undefined) => (

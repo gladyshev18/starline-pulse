@@ -140,11 +140,12 @@ async function isRemoteStartWarmup(database: Database, session: { vehicleId: num
   return free == null
 }
 
-// Момент, когда машина тронулась. «Ручник опущен» — единственная точная отметка
-// начала движения, какая есть: на боевых данных она приходит у 97 % поездок и ни
-// у одного прогрева на автозапуске. Обратной отметки нет — приехав, глушат
-// двигатель кнопкой, и ручник встаёт уже после того, как блоку нечего
-// передавать, поэтому конец окна — выключение зажигания.
+// «Ручник опущен» из журнала сигнализации. Отъездом это событие не является —
+// см. словарь кодов: блок отчитывается им о состоянии CAN при пробуждении, в
+// среднем через двенадцать секунд после зажигания. Но как начало окна движения
+// оно годится: раньше него машина точно не ехала, и ни одному прогреву на
+// автозапуске оно не приходит. Обратной отметки нет — приехав, глушат двигатель
+// кнопкой, — поэтому конец окна — выключение зажигания.
 export async function departureWithin(database: Database, vehicleId: number, from: Date, to: Date) {
   const event = await database.query.deviceEvents.findFirst({
     columns: { ts: true },
@@ -157,6 +158,52 @@ export async function departureWithin(database: Database, vehicleId: number, fro
     orderBy: asc(deviceEvents.ts)
   })
   return event?.ts ?? null
+}
+
+// Когда машина тронулась — по одометру, потому что другого свидетеля нет.
+//
+// Ручник отвечает на этот вопрос всегда одно и то же: «через полминуты после
+// зажигания», и вычитать по нему нечего. Счётчик моточасов идёт и на стоянке.
+// Координаты вышечные: отличить стоянку от езды по городу они не дают.
+//
+// Зато одометр, отчитавшись первый раз, задаёт темп: если после первого
+// показания машина прошла столько-то километров за столько-то времени, то и
+// километры до него она накрутила примерно тем же ходом. Остаток от промежутка
+// между зажиганием и первым показанием — стоянка: сел, завёл, прогрел стёкла,
+// дождался попутчика.
+//
+// Оценка намеренно скупая. Темп берётся по всему остатку поездки вместе с её
+// собственными остановками, то есть занижен, а занижённый темп отдаёт езде
+// больше минут, чем та потребовала, и стоянку тем самым укорачивает. Ошибиться
+// в эту сторону безопасно: скорость выйдет меньше настоящей, а не больше.
+export function departureFromOdometer(
+  readings: OdometerReading[],
+  session: { startedAt: Date, endedAt: Date, mileageStart: number | null }
+) {
+  if (session.mileageStart == null) return null
+  const inside = readings.filter(item => item.at > session.startedAt && item.at <= session.endedAt)
+  // Одно показание за всю поездку не говорит ни о каком темпе: те же километры
+  // могли быть проеханы и за десять минут, и за две. Поездка остаётся как есть.
+  const first = inside[0]
+  const last = inside.at(-1)
+  if (!first || !last || first === last) return null
+
+  const pace = (last.value - first.value) / (last.at.getTime() - first.at.getTime())
+  if (!(pace > 0)) return null
+  const before = first.value - session.mileageStart
+  if (!(before >= 0)) return null
+
+  const standingMs = first.at.getTime() - session.startedAt.getTime() - before / pace
+  if (!(standingMs > 0)) return null
+  return new Date(session.startedAt.getTime() + standingMs)
+}
+
+// Из двух отметок отъезда берётся поздняя: обе говорят «раньше этого машина не
+// ехала», и та, что позже, просто знает больше.
+function laterOf(left: Date | null, right: Date | null) {
+  if (!left) return right
+  if (!right) return left
+  return right > left ? right : left
 }
 
 export interface SessionDistance {
@@ -180,14 +227,16 @@ export async function sessionDistances(database: Database, vehicleId: number) {
 
   const readings = await odometerReadings(database, vehicleId)
   const departures = new Map<number, Date | null>()
+  const remote = new Set<number>()
   const windows: MovingWindow[] = []
   for (const session of sessions) {
     const endedAt = session.endedAt!
-    const remote = await isRemoteStartWarmup(database, { vehicleId, startedAt: session.startedAt, endedAt })
-    const departedAt = remote ? null : await departureWithin(database, vehicleId, session.startedAt, endedAt)
+    const warmup = await isRemoteStartWarmup(database, { vehicleId, startedAt: session.startedAt, endedAt })
+    if (warmup) remote.add(session.id)
+    const departedAt = warmup ? null : await departureWithin(database, vehicleId, session.startedAt, endedAt)
     departures.set(session.id, departedAt)
     const from = departedAt && departedAt >= session.startedAt && departedAt <= endedAt ? departedAt : session.startedAt
-    windows.push({ id: session.id, from: remote ? session.startedAt : from, to: remote ? session.startedAt : endedAt })
+    windows.push({ id: session.id, from: warmup ? session.startedAt : from, to: warmup ? session.startedAt : endedAt })
   }
 
   const { distances, unattributed } = distributeOdometer(readings, windows)
@@ -201,11 +250,18 @@ export async function sessionDistances(database: Database, vehicleId: number) {
     const distance = distances.get(session.id) ?? 0
     const mileageStart: number | null = running
     running = running == null ? null : running + distance
+    // Отметка отъезда считается здесь, а не выше вместе с окнами: ей нужен
+    // одометр на начало сессии, а он известен только после раздачи километров.
+    // На окна она не влияет намеренно — окно решает, чьи это километры, и
+    // сдвинуть его значило бы пересчитать пробег всем соседям сразу.
+    const moved = remote.has(session.id)
+      ? null
+      : departureFromOdometer(readings, { startedAt: session.startedAt, endedAt: session.endedAt!, mileageStart })
     result.push({
       sessionId: session.id,
       startedAt: session.startedAt,
       endedAt: session.endedAt!,
-      departedAt: departures.get(session.id) ?? null,
+      departedAt: laterOf(departures.get(session.id) ?? null, moved),
       mileageStart,
       mileageEnd: running,
       distance

@@ -41,8 +41,10 @@ export function calculateTripMetrics(trip: TripMetricSource) {
   const durationMinutes = startedAt != null && endedAt != null && endedAt >= startedAt
     ? (endedAt - startedAt) / 60_000
     : null
-  // Сколько машина стояла с работающим двигателем, прежде чем тронуться:
-  // от включения зажигания до того, как опустили ручник.
+  // Сколько машина стояла с работающим двигателем, прежде чем тронуться: от
+  // включения зажигания до отметки отъезда. Саму отметку считает разбор
+  // одометра — по ручнику она приходила через полминуты после зажигания и не
+  // вычитала ничего.
   const departedAt = timestamp(trip.departedAt ?? null)
   const preDepartureMinutes = startedAt != null && departedAt != null && departedAt >= startedAt
     ? (departedAt - startedAt) / 60_000
