@@ -134,18 +134,6 @@ function signedPercent(ratio: number | null | undefined) {
   return `${sign}${number(Math.abs(excess), 0)} %`
 }
 
-// Насколько пробег обгоняет время — то же самое число, что и превышение
-// суточной нормы: обе доли меряются от одного интервала, поэтому одна фраза
-// отвечает сразу на оба вопроса.
-const paceSummary = computed(() => {
-  const km = kmPace.value
-  if (!km) return ''
-  const excess = Math.round((km.ratio - 1) * 100)
-  if (excess > 5) return `Пробег обгоняет время на ${excess} %: ${number(OIL_INTERVAL_KM)} км при таком темпе кончатся раньше года.`
-  if (excess < -5) return `Пробег отстаёт от времени на ${Math.abs(excess)} %: раньше выйдет календарный срок, а не километры.`
-  return 'Пробег и календарь идут вровень — обе шкалы кончатся примерно вместе.'
-})
-
 // Дата, а не доля: «осталось 47 %» ничего не говорит о том, когда записываться,
 // а «около 3 марта» говорит.
 const paceDue = computed(() => {
@@ -160,16 +148,6 @@ const paceDue = computed(() => {
 const paceAllowance = computed(() => {
   const km = kmPace.value
   return km?.allowancePerDay == null ? '' : `${number(km.allowancePerDay, 1)} км/сут`
-})
-
-// Positive gap means the engine has been running more than the distance implies:
-// the odometer would call for a change later than the oil deserves.
-const clockAdvice = computed(() => {
-  const gap = oil.value?.clockGap
-  if (gap == null) return ''
-  if (gap > 0.05) return 'Моточасы обгоняют пробег: по одному одометру масло меняли бы поздно.'
-  if (gap < -0.05) return 'Пробег обгоняет моточасы: машина живёт на трассе, интервал в километрах с запасом.'
-  return 'Обе шкалы идут вровень.'
 })
 
 // The counter cannot run behind the sessions in reality — it is the one thing
@@ -425,8 +403,6 @@ async function remove(id: number) {
             <strong>{{ paceDue }}</strong>
           </p>
         </div>
-        <p v-if="paceSummary" class="metric-meta">{{ paceSummary }}</p>
-        <p v-if="clockAdvice" class="metric-meta">{{ clockAdvice }}</p>
         <p v-if="oil?.service" class="metric-meta">
           Последняя замена {{ date(oil.service.performedAt) }}<span v-if="oil.service.mileage"> на {{ number(oil.service.mileage) }} км</span>
           <span v-if="oil.kmPerHour"> · с тех пор {{ number(oil.kmPerHour) }} км на моточас, шкалы сходятся на {{ OIL_EQUIVALENT_SPEED_KMH }}</span>
