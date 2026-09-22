@@ -25,7 +25,7 @@ describe('daily low-fuel reminder', () => {
     try {
       expect(LOW_FUEL_THRESHOLD_LITRES).toBe(15)
       await expect(buildFuelReminder(database)).resolves.toContain('В баке осталось 14,9 л')
-      await expect(buildFuelReminder(database)).resolves.toContain('Пожалуйста, заправьтесь')
+      await expect(buildFuelReminder(database)).resolves.toContain('Пора заправиться')
     } finally {
       await database.$client.close()
     }

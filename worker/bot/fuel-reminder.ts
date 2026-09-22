@@ -23,5 +23,5 @@ export async function buildFuelReminder(database: Database) {
   })
   if (snapshot?.fuel == null || snapshot.fuel >= LOW_FUEL_THRESHOLD_LITRES) return null
 
-  return `⛽ <b>Пора заправиться</b>\nВ баке осталось ${fuelFormatter.format(snapshot.fuel)} л. Пожалуйста, заправьтесь.`
+  return `⛽ <b>Пора заправиться</b>\nВ баке осталось ${fuelFormatter.format(snapshot.fuel)} л.`
 }

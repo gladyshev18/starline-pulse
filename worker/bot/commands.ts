@@ -89,7 +89,6 @@ export function registerCommands(bot: Bot, database: Database) {
       '✅ <b>Уведомления подключены</b>',
       '',
       `Получатель: ${escapeHtml(username)}`,
-      'Chat ID определён и сохранён автоматически.',
       '',
       'Все автоматические сообщения приходят без звука.',
       'Выберите нужное действие на клавиатуре ниже. Убрать её — <code>/hide</code>, вернуть — <code>/menu</code>.',
