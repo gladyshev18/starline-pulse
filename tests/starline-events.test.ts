@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { migrate } from 'drizzle-orm/libsql/migrator'
-import { asc } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { resolve } from 'node:path'
 import { createDatabase } from '../db/client'
 import { deviceEvents, engineSessions, trips, vehicles, vehicleSnapshots } from '../db/schema'
-import { applyEventBoundaries, ignitionSpans, storeEvents, syncEvents } from '../worker/starline/events'
+import { applyEventBoundaries, ignitionSpans, stoppedByPolling, storeEvents, syncEvents } from '../worker/starline/events'
 import {
   ENGINE_STARTED, ENGINE_STOPPED, HANDBRAKE_RELEASED, IGNITION_OFF, IGNITION_ON
 } from '../shared/starline-events'
@@ -84,6 +84,130 @@ describe('границы поездок по журналу сигнализац
     } finally {
       await database.$client.close()
     }
+  })
+
+  // Журнал теряет выключения: за полтора месяца дважды. Тогда интервал тянется
+  // до следующего выключения, какое доедет, — 21 сентября вечерняя дорога и
+  // утренний автозапуск склеились в поездку на пятнадцать часов.
+  describe('журнал потерял выключение', () => {
+    const seen = async (
+      database: ReturnType<typeof createDatabase>, vehicleId: number, minute: number, ignition: boolean
+    ) => {
+      await database.insert(vehicleSnapshots).values({
+        vehicleId, ts: at(minute), activityTs: at(minute), ignition, armed: !ignition, rawJson: '{}'
+      })
+    }
+
+    it('закрывает интервал там, где опрос застал машину заглушенной', async () => {
+      const { database, vehicle } = await build()
+      try {
+        await storeEvents(database, vehicle.id, [
+          { type: IGNITION_ON, groupId: 5, timestamp: seconds(0) },
+          // Выключения этого запуска в журнале нет вовсе, а следующее —
+          // от утреннего автозапуска через пятнадцать часов.
+          { type: ENGINE_STARTED, groupId: 5, timestamp: seconds(900) },
+          { type: ENGINE_STOPPED, groupId: 5, timestamp: seconds(905) }
+        ])
+        await seen(database, vehicle.id, 5, true)
+        await seen(database, vehicle.id, 25, true)
+        await seen(database, vehicle.id, 28, false)
+        await seen(database, vehicle.id, 60, false)
+
+        const spans = await ignitionSpans(database, vehicle.id)
+        expect(spans).toHaveLength(2)
+        expect(spans[0]!.endedAt.getTime()).toBe(at(28).getTime())
+        // Утренний запуск больше не считается вторым кодом вечернего и получает
+        // свой интервал.
+        expect(spans[1]!.startedAt.getTime()).toBe(at(900).getTime())
+        expect(spans[1]!.endedAt.getTime()).toBe(at(905).getTime())
+      } finally {
+        await database.$client.close()
+      }
+    })
+
+    it('обрезает интервал, у которого выключение доехало с опозданием', async () => {
+      const { database, vehicle } = await build()
+      try {
+        await storeEvents(database, vehicle.id, [
+          { type: ENGINE_STARTED, groupId: 5, timestamp: seconds(0) },
+          { type: ENGINE_STOPPED, groupId: 5, timestamp: seconds(42) }
+        ])
+        await seen(database, vehicle.id, 2, true)
+        await seen(database, vehicle.id, 3, false)
+        await seen(database, vehicle.id, 20, false)
+
+        const spans = await ignitionSpans(database, vehicle.id)
+        expect(spans).toHaveLength(1)
+        expect(spans[0]!.endedAt.getTime()).toBe(at(3).getTime())
+      } finally {
+        await database.$client.close()
+      }
+    })
+
+    // 21 сентября на боевых данных: вечерняя дорога на двадцать восемь минут и
+    // утренний автозапуск через пятнадцать часов оказались одной записью, и в
+    // журнале поездок висело «12 км за 15 ч 5 мин».
+    it('укорачивает растянутую сессию и её поездку', async () => {
+      const { database, vehicle, snapshot, session } = await build()
+      try {
+        await snapshot(0, 100, 0)
+        await snapshot(60, 112, 30)
+        const stretched = await session(0, 905, 100, 112)
+        const [trip] = await database.insert(trips).values({
+          vehicleId: vehicle.id, startedAt: at(0), endedAt: at(905),
+          mileageStart: 100, mileageEnd: 112, distance: 12, isOpen: false
+        }).returning()
+        await seen(database, vehicle.id, 5, true)
+        await seen(database, vehicle.id, 25, true)
+        await seen(database, vehicle.id, 28, false)
+
+        await storeEvents(database, vehicle.id, [
+          { type: IGNITION_ON, groupId: 5, timestamp: seconds(0) },
+          { type: ENGINE_STARTED, groupId: 5, timestamp: seconds(900) },
+          { type: ENGINE_STOPPED, groupId: 5, timestamp: seconds(905) }
+        ])
+        await applyEventBoundaries(database, vehicle.id)
+
+        const all = await database.select().from(engineSessions).orderBy(asc(engineSessions.startedAt))
+        expect(all).toHaveLength(2)
+        // Дорога осталась той же записью, а не завелась второй с тем же началом.
+        expect(all[0]!.id).toBe(stretched.id)
+        expect(all[0]!.endedAt!.getTime()).toBe(at(28).getTime())
+        expect(all[1]!.startedAt.getTime()).toBe(at(900).getTime())
+
+        const [updated] = await database.select().from(trips).where(eq(trips.id, trip!.id))
+        expect(updated!.endedAt!.getTime()).toBe(at(28).getTime())
+      } finally {
+        await database.$client.close()
+      }
+    })
+
+    // Состояние в опросе отстаёт от журнала на минуты: сразу после запуска он
+    // ещё отдаёт прежнее «выключено». Верить ему до первого подтверждённого
+    // «включено» нельзя, иначе каждая вторая поездка обрезалась бы на старте.
+    it('не считает выключением отставшее состояние сразу после запуска', () => {
+      expect(stoppedByPolling([
+        { at: at(1), on: false },
+        { at: at(4), on: true },
+        { at: at(19), on: true }
+      ], at(0), at(20))).toBeNull()
+    })
+
+    it('берёт выключение только после подтверждённого включения', () => {
+      expect(stoppedByPolling([
+        { at: at(1), on: false },
+        { at: at(4), on: true },
+        { at: at(12), on: false },
+        // Опрос снова видит машину заведённой: то было отставшее состояние, а
+        // не остановка.
+        { at: at(14), on: true },
+        { at: at(18), on: false }
+      ], at(0), at(20))?.getTime()).toBe(at(18).getTime())
+    })
+
+    it('молчит, когда опрос не видел работающего двигателя вовсе', () => {
+      expect(stoppedByPolling([{ at: at(3), on: false }], at(0), at(20))).toBeNull()
+    })
   })
 
   it('переносит опоздавший старт сессии и её поездку на точное время события', async () => {

@@ -162,12 +162,19 @@ export async function recalculateDistances(database: Database, vehicleId: number
     }
 
     if (trip && !trip.isOpen) {
+      // Конец поездки идёт за концом сессии. Обычно они и так совпадают, но
+      // если журнал сигнализации потерял выключение зажигания, а потом нашёлся
+      // — разбор границ укоротит сессию, и поездка должна укоротиться вместе с
+      // ней. Иначе она остаётся с прежним концом: 21 сентября дорога на двадцать
+      // восемь минут числилась пятнадцатью часами.
       const needsUpdate = trip.distance !== item.distance
         || trip.mileageStart !== item.mileageStart
         || trip.mileageEnd !== item.mileageEnd
         || trip.departedAt?.getTime() !== item.departedAt?.getTime()
+        || trip.endedAt?.getTime() !== item.endedAt.getTime()
       if (needsUpdate) {
         await database.update(trips).set({
+          endedAt: item.endedAt,
           mileageStart: item.mileageStart,
           mileageEnd: item.mileageEnd,
           distance: item.distance,

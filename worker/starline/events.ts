@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, lte } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { deviceEvents, engineSessions, trips, vehicleSnapshots } from '../../db/schema'
 import { armedMinutesBetween } from '../../metrics/engine'
@@ -95,6 +95,53 @@ export interface IgnitionSpan {
   endedAt: Date
 }
 
+export interface IgnitionObservation {
+  at: Date
+  on: boolean
+}
+
+// Когда опрос застал двигатель заглушенным, если журнал этого не сказал.
+//
+// Журнал теряет выключения — за полтора месяца дважды, — и тогда интервал
+// тянется до следующего, какое до него доедет. 21 сентября он так склеил
+// вечернюю дорогу с утренним автозапуском и выдал поездку на пятнадцать часов
+// и двенадцать километров, а 19 сентября растянул трёхминутный запуск на сорок
+// две минуты, и тому досталось три километра чужой досылки одометра. Опрос всё
+// это время исправно видел заглушенную машину.
+//
+// Одного «зажигание выключено» для такого вывода мало: состояние в опросе
+// отстаёт от журнала на минуты, и сразу после запуска он ещё отдаёт прежнее.
+// Верить опросу можно только после того, как он сам подтвердил включённое
+// зажигание: выключение после этого и есть конец дороги. На боевых данных
+// правило трогает ровно те два интервала и не задевает ни один из остальных
+// двухсот девяноста семи.
+export function stoppedByPolling(observations: IgnitionObservation[], startedAt: Date, endedAt: Date) {
+  let lastOn: Date | null = null
+  let stopped: Date | null = null
+  for (const item of observations) {
+    if (item.at < startedAt || item.at > endedAt) continue
+    if (item.on) { lastOn = item.at; stopped = null; continue }
+    if (lastOn && !stopped) stopped = item.at
+  }
+  return lastOn ? stopped : null
+}
+
+// Что об этом видел опрос: заведена машина или заглушена, по его собственной
+// метке времени.
+export async function ignitionObservations(database: Database, vehicleId: number, since?: Date) {
+  const rows = await database.select({
+    at: sql<number>`coalesce(${vehicleSnapshots.activityTs}, ${vehicleSnapshots.ts})`,
+    ignition: vehicleSnapshots.ignition
+  }).from(vehicleSnapshots).where(and(
+    eq(vehicleSnapshots.vehicleId, vehicleId),
+    isNotNull(vehicleSnapshots.ignition),
+    since ? gte(vehicleSnapshots.ts, since) : undefined
+  )).orderBy(sql`coalesce(${vehicleSnapshots.activityTs}, ${vehicleSnapshots.ts})`)
+  return rows.map((item): IgnitionObservation => ({
+    at: new Date(Number(item.at)), on: item.ignition === true
+  }))
+}
+
 // Интервал работы двигателя по журналу сигнализации. Пара «зажигание включено —
 // отключено» первична; если включения не видно, годится и «двигатель запущен»,
 // потому что в журнале встречаются циклы, где до нас доехала только половина
@@ -105,6 +152,7 @@ export async function ignitionSpans(database: Database, vehicleId: number, since
     eq(deviceEvents.vehicleId, vehicleId),
     since ? gte(deviceEvents.ts, since) : undefined
   )).orderBy(asc(deviceEvents.ts))
+  const observations = await ignitionObservations(database, vehicleId, since)
 
   const spans: Array<{ startedAt: Date, endedAt: Date | null }> = []
   for (const row of rows) {
@@ -112,15 +160,21 @@ export async function ignitionSpans(database: Database, vehicleId: number, since
     const closes = row.type === IGNITION_OFF || row.type === ENGINE_STOPPED
     if (opens) {
       const last = spans.at(-1)
-      // Два «запущен» подряд без остановки между ними — это одно и то же
-      // событие, доехавшее двумя кодами, а не два запуска.
-      if (last && last.endedAt == null) continue
+      if (last && last.endedAt == null) {
+        // Два «запущен» подряд без остановки между ними — это одно и то же
+        // событие, доехавшее двумя кодами, а не два запуска. Если только между
+        // ними опрос не застал машину заглушенной: тогда выключение потерялось,
+        // и это всё-таки второй запуск.
+        const stopped = stoppedByPolling(observations, last.startedAt, row.ts)
+        if (!stopped) continue
+        last.endedAt = stopped
+      }
       spans.push({ startedAt: row.ts, endedAt: null })
       continue
     }
     if (!closes) continue
     const open = spans.at(-1)
-    if (open && open.endedAt == null) open.endedAt = row.ts
+    if (open && open.endedAt == null) open.endedAt = stoppedByPolling(observations, open.startedAt, row.ts) ?? row.ts
   }
   return spans.filter((item): item is IgnitionSpan => item.endedAt != null && item.endedAt > item.startedAt)
 }
@@ -214,6 +268,32 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     gte(engineSessions.endedAt, earliest)
   )).orderBy(asc(engineSessions.startedAt))
 
+  // Сессия, конец которой опрос опроверг, укорачивается прежде сопоставления.
+  //
+  // Такая появляется от потерянного в журнале выключения: разбор прошлого
+  // захода растянул запись до следующего выключения, какое доехало, — и она
+  // покрывает теперь два запуска подряд. Её длина в этом виде мешает узнать
+  // собственный интервал: тот перекрывает от неё считаные проценты, до
+  // половины не дотягивает, и сессию вместо укорачивания продублировали бы
+  // второй записью с тем же началом.
+  //
+  // Склейку опроса — прогрев и дорогу за ним одним непрерывным зажиганием —
+  // это не задевает: там опрос всё время видел двигатель работающим и
+  // возразить ему нечем, и разделит её разбор ниже.
+  const observations = await ignitionObservations(database, vehicleId, since)
+  const clamped = new Map<number, Date>()
+  for (const session of sessions) {
+    if (!session.endedAt) continue
+    const stopped = stoppedByPolling(observations, session.startedAt, session.endedAt)
+    if (stopped && stopped < session.endedAt) clamped.set(session.id, stopped)
+  }
+  // Записанный конец при этом остаётся как есть: по нему разбор и узнаёт, что
+  // границы разошлись и запись пора поправить.
+  const bounds = (session: EngineSession) => ({
+    startedAt: session.startedAt,
+    endedAt: clamped.get(session.id) ?? session.endedAt
+  })
+
   // Сначала только время — все границы разом, без единого километра.
   //
   // Пробег нельзя считать здесь же: отрезок сессии кончается там, где начинается
@@ -227,7 +307,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
     let bestOverlap = 0
     for (const session of sessions) {
       if (taken.has(session.id)) continue
-      const score = matches(span, session)
+      const score = matches(span, bounds(session))
       if (score > bestOverlap) { best = session; bestOverlap = score }
     }
 
@@ -243,6 +323,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
       }).where(eq(engineSessions.id, best.id))
       best.startedAt = span.startedAt
       best.endedAt = span.endedAt
+      clamped.delete(best.id)
       report.corrected.push({ sessionId: best.id, startedAt: span.startedAt, endedAt: span.endedAt, shiftedStartSeconds: shifted })
       continue
     }
@@ -286,7 +367,7 @@ export async function applyEventBoundaries(database: Database, vehicleId: number
   // пересчёт ниже — он один видит, какой из них она принадлежит.
   for (const session of sessions) {
     if (taken.has(session.id) || !session.endedAt) continue
-    const covering = spans.filter(span => overlap(span, session) > 0)
+    const covering = spans.filter(span => overlap(span, bounds(session)) > 0)
     if (covering.length < 2) continue
     // Незакрытая поездка ещё ждёт своего закрытия по этой сессии — снимать её
     // сейчас значит оставить поездку без записи о двигателе.
