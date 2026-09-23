@@ -5,6 +5,7 @@ import { operatingDeviation } from '~~/shared/operating'
 import { plural } from '~~/shared/plural'
 import { degrees, FROST_WINDOW_DAYS, SUSTAINED_DAYS, SWITCH_CELSIUS, tyreEdgeNote, tyreVerdict } from '~~/shared/tyres'
 import { STATIONS } from '~~/shared/stations'
+import { coldStartVerdict } from '~~/shared/warmup'
 import { TANK_LEG_DOUBT_LABELS } from '~~/shared/tank-to-tank'
 import { WEEKDAYS } from '~~/shared/usage-profile'
 
@@ -177,6 +178,12 @@ const idleShare = computed(() => {
 })
 
 const cold = computed(() => data.value?.coldStarts)
+// Число пусков само по себе ничего не говорит, поэтому карточка переводит его
+// в километры на пуск и сравнивает с порогом короткой поездки из регламента ТО.
+const coldVerdict = computed(() => {
+  const summary = cold.value
+  return summary ? coldStartVerdict(summary, data.value?.ambient.average ?? null) : null
+})
 
 const starts = computed(() => insights.value?.starts)
 const warmup = computed(() => insights.value?.warmup)
@@ -472,14 +479,24 @@ onMounted(() => {
             <div class="card__top"><p class="metric-label">Холодные пуски</p></div>
             <p class="metric">{{ number(cold?.cold, 0) }} <small>раз</small></p>
             <p class="metric-meta">
-              <template v-if="cold?.per1000Km != null">
-                {{ number(cold.per1000Km, 1) }} на тысячу километров — именно они изнашивают двигатель, а не пробег
-                <template v-if="cold.neverWarm">
-                  · в {{ number(cold.neverWarm, 0) }} {{ plural(cold.neverWarm, 'поездке', 'поездках', 'поездках') }}
-                  двигатель так и не прогрелся
+              <template v-if="coldVerdict">
+                В среднем {{ number(coldVerdict.kmPerStart, 0) }} км на пуск ·
+                <template v-if="coldVerdict.severe">
+                  меньше {{ number(coldVerdict.thresholdKm, 0) }} км{{ coldVerdict.frost ? ' в мороз' : '' }}:
+                  по регламенту ТО это тяжёлые условия, масло лучше менять чаще
+                </template>
+                <template v-else>
+                  это норма: поездки длиннее {{ number(coldVerdict.thresholdKm, 0) }} км{{ coldVerdict.frost ? ' в мороз' : '' }},
+                  двигатель успевает прогреться и выпарить из масла конденсат
                 </template>
               </template>
+              <template v-else-if="cold?.sessions">Холодных пусков за месяц не было</template>
               <template v-else>За этот месяц двигатель не заводили</template>
+            </p>
+            <p v-if="cold?.neverWarm" class="metric-meta">
+              В {{ number(cold.neverWarm, 0) }} {{ plural(cold.neverWarm, 'поездке', 'поездках', 'поездках') }}
+              из {{ number(cold.cold, 0) }} двигатель так и не прогрелся —
+              {{ number(cold.neverWarmDistance, 1) }} км на холодном масле; вот они и вредны
             </p>
           </section>
           <section class="card metric-card history-metric">

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../db/client'
 import { engineSessions, vehicleSnapshots, vehicles } from '../db/schema'
 import { coldStarts, warmupProfile } from '../metrics/warmup'
-import { summariseColdStarts, warmupModel, type EngineStartSession, type WarmupSample } from '../shared/warmup'
+import { coldStartVerdict, summariseColdStarts, warmupModel, type EngineStartSession, type WarmupSample } from '../shared/warmup'
 
 function session(temp: number | null, distance: number, end: number | null = 90): EngineStartSession {
   return {
@@ -47,6 +47,28 @@ describe('summariseColdStarts', () => {
     const summary = summariseColdStarts([])
     expect(summary.per1000Km).toBeNull()
     expect(summary.sessions).toBe(0)
+  })
+})
+
+describe('coldStartVerdict', () => {
+  it('меряет пуски километрами на пуск против порога короткой поездки', () => {
+    const summary = summariseColdStarts([session(10, 14), session(10, 14)])
+    const verdict = coldStartVerdict(summary, 5)!
+    expect(verdict.kmPerStart).toBeCloseTo(14)
+    expect(verdict.thresholdKm).toBe(8)
+    expect(verdict.severe).toBe(false)
+  })
+
+  it('в мороз поднимает порог вдвое', () => {
+    const summary = summariseColdStarts([session(-10, 14), session(-10, 14, 50)])
+    const verdict = coldStartVerdict(summary, -5)!
+    expect(verdict.thresholdKm).toBe(16)
+    expect(verdict.severe).toBe(true)
+    expect(verdict.neverWarmShare).toBeCloseTo(0.5)
+  })
+
+  it('без холодных пусков судить не о чем', () => {
+    expect(coldStartVerdict(summariseColdStarts([session(80, 20)]), 5)).toBeNull()
   })
 })
 

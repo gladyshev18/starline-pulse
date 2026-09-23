@@ -88,6 +88,40 @@ export function summariseColdStarts(sessions: EngineStartSession[]): ColdStarts 
   }
 }
 
+// Что значит счёт холодных пусков. Само число ничего не говорит: 70 пусков
+// за месяц — много или мало, зависит от того, сколько после каждого проехали.
+// Мерилом служит регламент ТО: поездки короче 8 км, а в мороз короче 16 км,
+// там записаны в тяжёлые условия, при которых масло меняют вдвое чаще. Масло
+// за такую поездку не успевает выпарить воду и бензин, попавшие в него при
+// холодном пуске.
+export const SHORT_TRIP_KM = 8
+export const SHORT_TRIP_FROST_KM = 16
+
+export interface ColdStartVerdict {
+  // Сколько километров в среднем приходится на один холодный пуск.
+  kmPerStart: number
+  // Порог короткой поездки для погоды месяца.
+  thresholdKm: number
+  frost: boolean
+  severe: boolean
+  // Доля холодных пусков, после которых двигатель так и не прогрелся.
+  neverWarmShare: number
+}
+
+export function coldStartVerdict(summary: ColdStarts, nightCelsius: number | null): ColdStartVerdict | null {
+  if (!summary.cold || summary.distance <= 0) return null
+  const kmPerStart = summary.distance / summary.cold
+  const frost = nightCelsius != null && nightCelsius < 0
+  const thresholdKm = frost ? SHORT_TRIP_FROST_KM : SHORT_TRIP_KM
+  return {
+    kmPerStart,
+    thresholdKm,
+    frost,
+    severe: kmPerStart < thresholdKm,
+    neverWarmShare: summary.neverWarm / summary.cold
+  }
+}
+
 export interface WarmupSample {
   at: Date
   // Температура двигателя в момент пуска — она же уличная, раз машина остыла.
