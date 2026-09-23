@@ -259,7 +259,7 @@ async function uploadReceipt(refuelId: number, file: File) {
         <p v-if="driftTrendNote" class="metric-meta">{{ driftTrendNote }}</p>
       </section>
 
-      <section v-if="priceRows.length" class="card card--wide">
+      <section v-if="priceRows.length" class="card card--wide price-card">
         <div class="card__top">
           <div>
             <p class="metric-label">Цена литра</p>

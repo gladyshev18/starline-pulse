@@ -41,16 +41,20 @@ async function monthlyAmbient(database: Database, vehicleId: number) {
 // Чеки — единственный источник рублей: и цена литра, и сеть, и день покупки
 // известны только из них. Берутся все, а не привязанные к заправкам: чек,
 // которому не нашлось события, всё равно знает, почём был литр в тот день.
-async function pricedReceipts(database: Database) {
+//
+// Чек, заведённый руками, бывает без вида топлива: форма его не требует, а
+// вписывают его в карточку заправки. Без марки чек выпал бы из всех рядов цены,
+// поэтому марка и сеть берутся у заправки, к которой он привязан.
+export async function pricedReceipts(database: Database) {
   return database.select({
     purchasedAt: refuelReceipts.purchasedAt,
-    station: refuelReceipts.station,
-    stationName: refuelReceipts.stationName,
-    fuelType: refuelReceipts.fuelType,
+    station: sql<string | null>`coalesce(${refuelReceipts.station}, ${refuelEvents.station})`,
+    stationName: sql<string | null>`coalesce(${refuelReceipts.stationName}, ${refuelEvents.stationName})`,
+    fuelType: sql<string | null>`coalesce(${refuelReceipts.fuelType}, ${refuelEvents.fuelType})`,
     litres: refuelReceipts.litres,
     pricePerLitre: refuelReceipts.pricePerLitre,
     operation: refuelReceipts.operation
-  }).from(refuelReceipts).where(and(
+  }).from(refuelReceipts).leftJoin(refuelEvents, eq(refuelEvents.id, refuelReceipts.refuelEventId)).where(and(
     isNotNull(refuelReceipts.pricePerLitre),
     isNotNull(refuelReceipts.purchasedAt)
   )).orderBy(asc(refuelReceipts.purchasedAt))

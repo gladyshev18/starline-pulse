@@ -113,6 +113,11 @@ const option = computed(() => {
       // Ноль на этой оси не нужен: разница между сетями — рубли при цене под
       // семьдесят, от нуля она превратилась бы в одну плоскую линию.
       scale: true,
+      // Границы задаются руками: у ровной цены размах нулевой, и сама ECharts
+      // растягивает ось на восемьдесят рублей, где линия ложится ровно посередине
+      // и ничего не говорит. Поле в рубль — меньше движения цены не бывает.
+      min: (value: { min: number, max: number }) => Math.floor(value.min - Math.max(1, (value.max - value.min) * 0.2)),
+      max: (value: { min: number, max: number }) => Math.ceil(value.max + Math.max(1, (value.max - value.min) * 0.2)),
       nameTextStyle: { color: muted, fontSize: 10, padding: [0, 0, 0, -32] },
       axisLabel: {
         color: muted,

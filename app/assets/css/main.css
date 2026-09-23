@@ -976,6 +976,13 @@ tbody tr:hover { background: var(--surface-subtle); }
 /* График цены живёт в общей карточке под сводкой, поэтому отбивка сверху у него
    меньше, чем у графика на отдельной карточке статистики. */
 .price-chart { width: 100%; height: 300px; margin-top: 8px; }
+/* Переключатель видов топлива растёт с каждым новым видом, и в одной строке с
+   подписью ему рано или поздно становится тесно: тогда он уходит под подпись
+   целиком, а не сжимает её в столбик по слову. */
+.price-card .card__top { flex-wrap: wrap; row-gap: 12px; }
+.price-card .card__top > div { flex: 1 1 320px; min-width: 0; }
+.price-card .segmented { max-width: 100%; overflow-x: auto; }
+.price-card .segmented__button { white-space: nowrap; }
 
 /* Форма постоянного расхода стоит под таблицей той же карточки, поэтому ей
    нужна отбивка сверху — иначе поля липнут к последней строке. */
