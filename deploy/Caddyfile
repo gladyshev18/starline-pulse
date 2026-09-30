@@ -25,3 +25,6 @@ http://45.11.92.185 {
 		format json
 	}
 }
+
+# Дополнительные сайты (node.igpx.site и др.) живут в томе caddy-data и не перезаписываются деплоем
+import /data/sites/*.caddy
