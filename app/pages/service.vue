@@ -149,22 +149,26 @@ const paceDue = computed(() => {
 // вместе с каждым километром, и уложиться в него было бы нечем измерить.
 const dayPlan = computed(() => oil.value?.dayPlan ?? null)
 
-// Доля суток дробная, а у дробных чисел в русском всегда «дня»: «0,8 дня»,
-// «1,5 дня». «День» и «дней» бывают только при целом числе.
-function fractionalDays(days: number) {
-  const rounded = Math.round(Math.abs(days) * 10) / 10
-  const word = Number.isInteger(rounded) ? plural(rounded, 'день', 'дня', 'дней') : 'дня'
-  return `${number(rounded, 1)} ${word}`
+// Сдвиг срока говорится так, как его чувствуешь: «40 мин», «2 ч», «1 сут 5 ч».
+// «0,1 дня» заставляет умножать на 24 в уме, а запас в десятые доли суток —
+// это как раз часы.
+function spanLabel(days: number) {
+  const hours = Math.round(Math.abs(days) * 24)
+  if (hours < 1) return `${number(Math.max(1, Math.round(Math.abs(days) * 1440)))} мин`
+  if (hours < 24) return `${hours} ч`
+  const whole = Math.floor(hours / 24)
+  const rest = hours % 24
+  return rest ? `${whole} сут ${rest} ч` : `${whole} сут`
 }
 
 // Итог дня одной строкой: перерасход приближает срок, недобор отодвигает. Сдвиг
-// меньше полутора часов (0,05 суток) не называется — он тонет в округлении.
+// меньше четверти часа не называется — он тонет в округлении.
 const dayPlanVerdict = computed(() => {
   const plan = dayPlan.value
   if (!plan) return null
   if (plan.todayKm < 0.5) return { tone: 'idle', text: 'пока не ездили — весь лимит впереди' }
-  const shift = plan.closerDays != null && Math.abs(plan.closerDays) >= 0.05
-    ? ` · ТО ${plan.closerDays! > 0 ? 'ближе' : 'дальше'} на ${fractionalDays(plan.closerDays!)}`
+  const shift = plan.closerDays != null && Math.abs(plan.closerDays) >= 15 / 1440
+    ? ` · ТО ${plan.closerDays! > 0 ? 'ближе' : 'дальше'} на ${spanLabel(plan.closerDays!)}`
     : ''
   if (plan.overKm > 0) return { tone: 'over', text: `перерасход ${number(plan.overKm, 1)} км${shift}` }
   return { tone: 'ok', text: `в плане, запас ${number(plan.leftKm, 1)} км${shift}` }
