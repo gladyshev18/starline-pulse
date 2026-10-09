@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentMoscowMonth, monthTitle, moscowMonthRange, parseMonthInput, shiftMonth } from '../shared/moscow-month'
+import { currentMoscowMonth, monthTitle, moscowDayStart, moscowMonthRange, parseMonthInput, shiftMonth } from '../shared/moscow-month'
 
 describe('Moscow month range', () => {
   it('converts a calendar month to exact UTC boundaries', () => {
@@ -16,6 +16,18 @@ describe('Moscow month range', () => {
 
   it.each(['2026-00', '2026-13', '08.2026', ''])('rejects invalid month %s', (value) => {
     expect(moscowMonthRange(value)).toBeNull()
+  })
+})
+
+describe('Moscow day start', () => {
+  it('returns Moscow midnight, not UTC midnight', () => {
+    expect(moscowDayStart(new Date('2026-10-09T10:30:00.000Z')).toISOString()).toBe('2026-10-08T21:00:00.000Z')
+  })
+
+  // 21:30 UTC уже следующие сутки по Москве: полночь отсчёта — 21:00 того же дня.
+  it('rolls over at 21:00 UTC', () => {
+    expect(moscowDayStart(new Date('2026-10-09T21:30:00.000Z')).toISOString()).toBe('2026-10-09T21:00:00.000Z')
+    expect(moscowDayStart(new Date('2026-10-09T20:59:59.000Z')).toISOString()).toBe('2026-10-08T21:00:00.000Z')
   })
 })
 

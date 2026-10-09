@@ -144,10 +144,30 @@ const paceDue = computed(() => {
 })
 
 // Сколько можно проезжать в сутки, чтобы километры дотянули ровно до
-// календарного срока. Это уже не наблюдение, а норма на остаток интервала.
-const paceAllowance = computed(() => {
-  const km = kmPace.value
-  return km?.allowancePerDay == null ? '' : `${number(km.allowancePerDay, 1)} км/сут`
+// календарного срока. Это уже не наблюдение, а норма на остаток интервала, и
+// считается она от начала суток, а не от остатка «сейчас»: иначе лимит худел бы
+// вместе с каждым километром, и уложиться в него было бы нечем измерить.
+const dayPlan = computed(() => oil.value?.dayPlan ?? null)
+
+// Доля суток дробная, а у дробных чисел в русском всегда «дня»: «0,8 дня»,
+// «1,5 дня». «День» и «дней» бывают только при целом числе.
+function fractionalDays(days: number) {
+  const rounded = Math.round(Math.abs(days) * 10) / 10
+  const word = Number.isInteger(rounded) ? plural(rounded, 'день', 'дня', 'дней') : 'дня'
+  return `${number(rounded, 1)} ${word}`
+}
+
+// Итог дня одной строкой: перерасход приближает срок, недобор отодвигает. Сдвиг
+// меньше полутора часов (0,05 суток) не называется — он тонет в округлении.
+const dayPlanVerdict = computed(() => {
+  const plan = dayPlan.value
+  if (!plan) return null
+  if (plan.todayKm < 0.5) return { tone: 'idle', text: 'пока не ездили — весь лимит впереди' }
+  const shift = plan.closerDays != null && Math.abs(plan.closerDays) >= 0.05
+    ? ` · ТО ${plan.closerDays! > 0 ? 'ближе' : 'дальше'} на ${fractionalDays(plan.closerDays!)}`
+    : ''
+  if (plan.overKm > 0) return { tone: 'over', text: `перерасход ${number(plan.overKm, 1)} км${shift}` }
+  return { tone: 'ok', text: `в плане, запас ${number(plan.leftKm, 1)} км${shift}` }
 })
 
 // The counter cannot run behind the sessions in reality — it is the one thing
@@ -394,13 +414,28 @@ async function remove(id: number) {
             <span>Моточасы</span>
             <strong>{{ number(hoursPace.perDay, 2) }} ч/сут · норма {{ number(OIL_MOTOR_HOURS_PER_DAY, 2) }} · {{ signedPercent(hoursPace.ratio) }}</strong>
           </p>
-          <p v-if="paceAllowance" class="pace-row">
-            <span>Чтобы дотянуть до срока</span>
-            <strong>не больше {{ paceAllowance }}</strong>
-          </p>
           <p v-if="paceDue" class="pace-row">
             <span>При этом темпе замена</span>
             <strong>{{ paceDue }}</strong>
+          </p>
+        </div>
+        <div v-if="dayPlan && dayPlanVerdict" class="pace-list">
+          <p class="pace-caption">План на сегодня — чтобы дотянуть до срока</p>
+          <p class="pace-row">
+            <span>Можно проехать</span>
+            <strong>{{ number(dayPlan.allowanceKm, 1) }} км</strong>
+          </p>
+          <p class="pace-row">
+            <span>Проехали</span>
+            <strong>{{ number(dayPlan.todayKm, 1) }} км</strong>
+          </p>
+          <p class="pace-row" :class="`pace-row--${dayPlanVerdict.tone}`">
+            <span>Итог дня</span>
+            <strong>{{ dayPlanVerdict.text }}</strong>
+          </p>
+          <p v-if="dayPlan.tomorrowAllowanceKm != null" class="pace-row">
+            <span>Завтра можно</span>
+            <strong>{{ number(dayPlan.tomorrowAllowanceKm, 1) }} км</strong>
           </p>
         </div>
         <p v-if="oil?.service" class="metric-meta">

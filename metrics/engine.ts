@@ -1,7 +1,8 @@
 import { and, desc, eq, gt, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { engineSessions, serviceEvents, vehicleSnapshots } from '../db/schema'
-import { kmPerMotorHour, oilClockGap, oilLife, oilPace } from '../shared/service'
+import { moscowDayStart } from '../shared/moscow-month'
+import { kmPerMotorHour, oilClockGap, oilDayPlan, oilLife, oilPace } from '../shared/service'
 
 // A single step larger than this is the counter being reset or garbled rather
 // than the engine having run: even a whole night of idling stays under it.
@@ -194,8 +195,34 @@ export const emptyOilStatus = () => ({
   kmPerHour: null as number | null,
   clockGap: null as number | null,
   life: oilLife({ km: null, motorHours: null, months: null }),
-  pace: null as ReturnType<typeof oilPace>
+  pace: null as ReturnType<typeof oilPace>,
+  dayPlan: null as ReturnType<typeof oilDayPlan>
 })
+
+// План на сегодня считается от состояния на начало суток, а проехано — от
+// одометра с тех пор. Сутки, в которые пришлась замена, начинаются с неё: до неё
+// масло было другое, и её пробег — единственная точка отсчёта.
+async function oilDayPlanStatus(
+  database: Database,
+  vehicleId: number,
+  service: { performedAt: Date, mileage: number | null },
+  mileage: number | null,
+  now: Date
+) {
+  if (service.mileage == null || mileage == null) return null
+  const dayStart = moscowDayStart(now)
+  const serviceToday = service.performedAt.getTime() > dayStart.getTime()
+  const from = serviceToday ? service.performedAt : dayStart
+  const startMileage = serviceToday ? service.mileage : await currentMileage(database, vehicleId, dayStart)
+  // Нет показания до начала суток — не от чего считать, и выдумывать вчерашний
+  // одометр хуже, чем промолчать.
+  if (startMileage == null) return null
+  return oilDayPlan({
+    usedKmAtDayStart: Math.max(0, startMileage - service.mileage),
+    daysElapsedAtDayStart: (from.getTime() - service.performedAt.getTime()) / DAY_MS,
+    todayKm: Math.max(0, mileage - startMileage)
+  })
+}
 
 // Everything is counted from the recorded service rather than from the counter's
 // absolute value: the engine-hour counter can be reset, and the odometer reading
@@ -225,6 +252,7 @@ export async function oilStatus(database: Database, vehicleId: number, now = new
     life,
     // Доли пройденного говорят, сколько израсходовано, но не когда кончится:
     // это решает темп, с которым машина ездила с самой замены.
-    pace: oilPace(life, days, now)
+    pace: oilPace(life, days, now),
+    dayPlan: await oilDayPlanStatus(database, vehicleId, service, mileage, now)
   }
 }

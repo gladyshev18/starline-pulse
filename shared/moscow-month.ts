@@ -1,4 +1,5 @@
 const MOSCOW_OFFSET_MS = 3 * 60 * 60_000
+const DAY_MS = 24 * 60 * 60_000
 
 export interface MoscowMonthRange {
   month: string
@@ -10,6 +11,14 @@ export interface MoscowMonthRange {
 export function currentMoscowMonth(now = new Date()) {
   const shifted = new Date(now.getTime() + MOSCOW_OFFSET_MS)
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+// Полночь по Москве, с которой начались текущие сутки. Сдвиг в московское время,
+// округление вниз до суток и сдвиг обратно: Москва без перехода на летнее время,
+// поэтому смещение постоянно.
+export function moscowDayStart(now = new Date()) {
+  const shifted = now.getTime() + MOSCOW_OFFSET_MS
+  return new Date(Math.floor(shifted / DAY_MS) * DAY_MS - MOSCOW_OFFSET_MS)
 }
 
 export function moscowMonthRange(value: unknown, now = new Date()): MoscowMonthRange | null {

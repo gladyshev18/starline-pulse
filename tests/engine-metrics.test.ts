@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../db/client'
 import { engineSessions, serviceEvents, vehicleSnapshots, vehicles } from '../db/schema'
 import { engineMinutesBetween, engineSummary, oilStatus } from '../metrics/engine'
+import { OIL_INTERVAL_DAYS } from '../shared/service'
 
 const MINUTE = 60_000
 const start = new Date('2026-08-01T00:00:00.000Z')
@@ -251,6 +252,66 @@ describe('oilStatus', () => {
       expect(status.km).toBe(6000)
       expect(status.life.binding?.name).toBe('hours')
       expect(status.clockGap!).toBeGreaterThan(0)
+    } finally {
+      await database.$client.close()
+    }
+  })
+})
+
+describe('oilStatus day plan', () => {
+  // Замена в полдень по Москве 1 августа; «сейчас» — 13:00 по Москве 9 октября,
+  // сутки начались в 21:00 UTC накануне.
+  const serviceAt = new Date('2026-08-01T09:00:00.000Z')
+  const now = new Date('2026-10-09T10:00:00.000Z')
+  const snapshot = (vehicleId: number, ts: string, mileage: number) => ({
+    vehicleId, ts: new Date(ts), rawJson: '{}', motorMinutes: null, mileage
+  })
+
+  it('measures today from the odometer reading at Moscow midnight', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(serviceEvents).values({ vehicleId, kind: 'oil', performedAt: serviceAt, mileage: 18_000, motorMinutes: 0 })
+      await database.insert(vehicleSnapshots).values([
+        snapshot(vehicleId, '2026-10-08T20:00:00.000Z', 22_000),
+        // Это уже сегодня по Москве: ночной выезд после 00:00 входит в сутки.
+        snapshot(vehicleId, '2026-10-08T22:00:00.000Z', 22_010),
+        snapshot(vehicleId, '2026-10-09T09:00:00.000Z', 22_030)
+      ])
+      const { dayPlan } = await oilStatus(database, vehicleId, now)
+      expect(dayPlan?.todayKm).toBe(30)
+      // 4000 км и 68,5 суток к началу суток; лимит не зависит от того, что проехано.
+      expect(dayPlan?.allowanceKm).toBeCloseTo(6000 / (OIL_INTERVAL_DAYS - 68.5), 6)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('starts the day at the change itself when the oil was changed today', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(serviceEvents).values({
+        vehicleId, kind: 'oil', performedAt: new Date('2026-10-09T09:00:00.000Z'), mileage: 22_000, motorMinutes: 0
+      })
+      await database.insert(vehicleSnapshots).values([
+        snapshot(vehicleId, '2026-10-08T20:00:00.000Z', 21_900),
+        snapshot(vehicleId, '2026-10-09T09:30:00.000Z', 22_012)
+      ])
+      const { dayPlan } = await oilStatus(database, vehicleId, now)
+      // Вчерашние сто километров относятся к старому маслу и в сутки не входят.
+      expect(dayPlan?.todayKm).toBe(12)
+      expect(dayPlan?.allowanceKm).toBeCloseTo(10_000 / OIL_INTERVAL_DAYS, 6)
+    } finally {
+      await database.$client.close()
+    }
+  })
+
+  it('has no plan when there is no reading from before the day began', async () => {
+    const { database, vehicleId } = await setup()
+    try {
+      await database.insert(serviceEvents).values({ vehicleId, kind: 'oil', performedAt: serviceAt, mileage: 18_000, motorMinutes: 0 })
+      await database.insert(vehicleSnapshots).values([snapshot(vehicleId, '2026-10-09T09:00:00.000Z', 22_030)])
+      const { dayPlan } = await oilStatus(database, vehicleId, now)
+      expect(dayPlan).toBeNull()
     } finally {
       await database.$client.close()
     }

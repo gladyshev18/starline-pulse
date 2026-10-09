@@ -9,6 +9,7 @@ import {
   OIL_MOTOR_HOURS_PER_DAY,
   kmPerMotorHour,
   oilClockGap,
+  oilDayPlan,
   oilLife,
   oilPace,
   oilPaceExcess
@@ -180,5 +181,76 @@ describe('oilPace', () => {
     expect(parked.clocks.find(item => item.name === 'km')!.daysLeft).toBeNull()
     // Календарь идёт всегда, поэтому именно он и остаётся прогнозом.
     expect(parked.binding?.name).toBe('months')
+  })
+})
+
+describe('oilDayPlan', () => {
+  // Цифры со страницы: 4395 км за 72 дня, остаток 5605 км, лимит 19,1 км/сут.
+  const start = { usedKmAtDayStart: 4395, daysElapsedAtDayStart: 72 }
+
+  it('spreads the remaining kilometres over the days left to the calendar date', () => {
+    const plan = oilDayPlan({ ...start, todayKm: 0 })!
+    expect(plan.allowanceKm).toBeCloseTo(5605 / (OIL_INTERVAL_DAYS - 72), 6)
+    expect(plan.allowanceKm).toBeCloseTo(19.1, 1)
+  })
+
+  it('counts a day over the plan as bringing the service closer, in days of the plan', () => {
+    const plan = oilDayPlan({ ...start, todayKm: 60 })!
+    expect(plan.overKm).toBeCloseTo(60 - plan.allowanceKm, 6)
+    expect(plan.leftKm).toBe(0)
+    expect(plan.closerDays!).toBeCloseTo(60 / plan.allowanceKm - 1, 6)
+    expect(plan.closerDays!).toBeGreaterThan(0)
+  })
+
+  it('counts a day under the plan as pushing the service away', () => {
+    const plan = oilDayPlan({ ...start, todayKm: 5 })!
+    expect(plan.overKm).toBe(0)
+    expect(plan.leftKm).toBeCloseTo(plan.allowanceKm - 5, 6)
+    expect(plan.closerDays!).toBeLessThan(0)
+  })
+
+  it('treats exactly the allowance as no shift at all', () => {
+    const allowance = oilDayPlan({ ...start, todayKm: 0 })!.allowanceKm
+    const plan = oilDayPlan({ ...start, todayKm: allowance })!
+    expect(plan.closerDays!).toBeCloseTo(0, 9)
+    expect(plan.leftKm).toBeCloseTo(0, 9)
+  })
+
+  // Именно так сдвиг срока становится действием: недобор растёт в завтрашний
+  // лимит, перерасход вычитается из него, и к календарному сроку план сходится.
+  it('carries the unspent part into tomorrow and takes the overspend out of it', () => {
+    const calm = oilDayPlan({ ...start, todayKm: 0 })!
+    const spent = oilDayPlan({ ...start, todayKm: 60 })!
+    expect(calm.tomorrowAllowanceKm!).toBeGreaterThan(calm.allowanceKm)
+    expect(spent.tomorrowAllowanceKm!).toBeLessThan(spent.allowanceKm)
+    expect(calm.tomorrowAllowanceKm!).toBeCloseTo(5605 / (OIL_INTERVAL_DAYS - 73), 6)
+  })
+
+  it('keeps the allowance fixed however far the day has gone', () => {
+    // Остаток «сейчас» худел бы вместе с километрами; план — от начала суток.
+    expect(oilDayPlan({ ...start, todayKm: 0 })!.allowanceKm)
+      .toBe(oilDayPlan({ ...start, todayKm: 40 })!.allowanceKm)
+  })
+
+  it('has no plan once the calendar date has passed', () => {
+    expect(oilDayPlan({ usedKmAtDayStart: 500, daysElapsedAtDayStart: OIL_INTERVAL_DAYS + 3, todayKm: 10 })).toBeNull()
+  })
+
+  it('has nothing to measure a day against when no kilometres are left', () => {
+    const plan = oilDayPlan({ usedKmAtDayStart: OIL_INTERVAL_KM + 200, daysElapsedAtDayStart: 100, todayKm: 15 })!
+    expect(plan.allowanceKm).toBe(0)
+    expect(plan.overKm).toBe(15)
+    expect(plan.closerDays).toBeNull()
+    expect(plan.tomorrowAllowanceKm).toBe(0)
+  })
+
+  it('gives the last day the whole remainder instead of dividing by a fraction of a day', () => {
+    const plan = oilDayPlan({ usedKmAtDayStart: 9000, daysElapsedAtDayStart: OIL_INTERVAL_DAYS - 0.3, todayKm: 0 })!
+    expect(plan.allowanceKm).toBe(1000)
+    expect(plan.tomorrowAllowanceKm).toBeNull()
+  })
+
+  it('refuses garbage rather than showing a plan built on it', () => {
+    expect(oilDayPlan({ usedKmAtDayStart: Number.NaN, daysElapsedAtDayStart: 10, todayKm: 0 })).toBeNull()
   })
 })

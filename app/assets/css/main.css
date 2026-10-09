@@ -427,6 +427,8 @@ input[type='date'].control::-webkit-calendar-picker-indicator:hover { opacity: 1
 }
 .pace-row span { color: var(--muted); }
 .pace-row strong { font-weight: 620; }
+.pace-row--over strong { color: var(--danger); }
+.pace-row--ok strong { color: var(--accent-ink); }
 .card__top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .card__top .eyebrow { margin: 0; }
 .metric-label { margin: 0; color: var(--muted); font-size: .8rem; font-weight: 620; }

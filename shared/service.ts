@@ -182,3 +182,58 @@ export function oilPaceExcess(pace: OilPace | null, name: OilClockName) {
   const clock = pace?.clocks.find(item => item.name === name)
   return clock ? clock.ratio - 1 : null
 }
+
+export interface OilDayPlanInput {
+  // Сколько километров интервала было истрачено к началу суток — до того, как
+  // сегодня кто-то сел за руль. План нельзя считать от остатка «сейчас»: он
+  // сжимался бы по мере езды, и «уложились в план» значило бы разное утром и
+  // вечером.
+  usedKmAtDayStart: number
+  // Суток с замены к началу суток.
+  daysElapsedAtDayStart: number
+  // Проехано с начала суток.
+  todayKm: number
+}
+
+export interface OilDayPlan {
+  // Сколько можно проехать за сутки, чтобы километры дотянули до календарного
+  // срока: остаток на начало суток, поделённый на оставшиеся дни.
+  allowanceKm: number
+  todayKm: number
+  // Сколько ещё можно сегодня, и на сколько план превышен. Одно из двух всегда ноль.
+  leftKm: number
+  overKm: number
+  // На сколько суток сегодняшняя езда сдвинула срок километров относительно
+  // плана: перерасход в сутках плана. Плюс — срок приблизился, минус — отодвинулся.
+  // Null, когда плана нет и мерить не в чем (остаток километров уже нулевой).
+  closerDays: number | null
+  // Лимит на завтра при том, что сегодня уже проехано. Недобор переходит в него
+  // запасом, а перерасход вычитается — так сдвиг срока и становится действием.
+  tomorrowAllowanceKm: number | null
+}
+
+// План на сутки к календарному сроку. Null — плана нет: календарь вышел, и
+// дотягивать уже не до чего.
+export function oilDayPlan(input: OilDayPlanInput): OilDayPlan | null {
+  const { usedKmAtDayStart, daysElapsedAtDayStart } = input
+  if (![usedKmAtDayStart, daysElapsedAtDayStart, input.todayKm].every(Number.isFinite)) return null
+
+  const daysLeft = OIL_INTERVAL_DAYS - Math.max(0, daysElapsedAtDayStart)
+  if (!(daysLeft > 0)) return null
+
+  const todayKm = Math.max(0, input.todayKm)
+  const remaining = Math.max(0, OIL_INTERVAL_KM - Math.max(0, usedKmAtDayStart))
+  // Меньше суток до срока — весь остаток отпущен на сегодня, а не растянут на долю
+  // дня: иначе лимит в последние часы раздувался бы до абсурда.
+  const allowanceKm = remaining / Math.max(1, daysLeft)
+  const tomorrowDays = daysLeft - 1
+
+  return {
+    allowanceKm,
+    todayKm,
+    leftKm: Math.max(0, allowanceKm - todayKm),
+    overKm: Math.max(0, todayKm - allowanceKm),
+    closerDays: allowanceKm > 0 ? (todayKm - allowanceKm) / allowanceKm : null,
+    tomorrowAllowanceKm: tomorrowDays >= 1 ? Math.max(0, remaining - todayKm) / tomorrowDays : null
+  }
+}
