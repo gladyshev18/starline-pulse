@@ -171,6 +171,21 @@ describe('oilPace', () => {
     expect(pace.daysLeft).toBe(0)
   })
 
+  it('dates the service from the remaining kilometres at the norm pace', () => {
+    // Остаток шесть тысяч при норме 27,4 км в сутки — около 219 дней, и это раньше
+    // календаря, которому осталось 265.
+    const pace = oilPace(oilLife({ km: 4000, motorHours: 100, months: 100 / 30.437 }), 100, now)!
+    expect(pace.atNorm?.name).toBe('km')
+    expect(pace.atNorm!.daysLeft).toBeCloseTo(6000 / OIL_KM_PER_DAY, 6)
+    expect(pace.atNorm!.dueAt.getTime()).toBeCloseTo(now.getTime() + pace.atNorm!.daysLeft * 24 * 60 * 60_000, -4)
+  })
+
+  it('falls back to the calendar when the norm would not use the kilometres up in time', () => {
+    const pace = oilPace(oilLife({ km: 500, motorHours: 20, months: 6 }), 6 * 30.437, now)!
+    expect(pace.atNorm?.name).toBe('months')
+    expect(pace.atNorm!.daysLeft).toBeCloseTo(OIL_INTERVAL_DAYS - 6 * 30.437, 6)
+  })
+
   it('refuses to extrapolate from the first hours after a service', () => {
     expect(oilPace(oilLife({ km: 40, motorHours: 1, months: 0 }), 0.08, now)).toBeNull()
     expect(oilPace(oilLife({ km: null, motorHours: null, months: null }), 30, now)).toBeNull()

@@ -139,6 +139,17 @@ export interface OilPace {
   binding: OilPaceClock | null
   daysLeft: number | null
   dueAt: Date | null
+  // Срок, если с сегодняшнего дня ездить ровно по норме — 10 000 км за год. Темп
+  // выше нормы остаётся в прошлом, и этот срок показывает, к чему он привёл:
+  // перепробег не стирается, он просто растягивается на остаток года.
+  atNorm: OilPaceAtNorm | null
+}
+
+export interface OilPaceAtNorm {
+  // Шкала, на которой срок наступит первым: километры или календарь.
+  name: 'km' | 'months'
+  daysLeft: number
+  dueAt: Date
 }
 
 // Где машина окажется, если продолжит в том же духе. `oilLife` отвечает, сколько
@@ -171,8 +182,20 @@ export function oilPace(life: OilLife, days: number, now = new Date()): OilPace 
     clocks,
     binding,
     daysLeft: binding?.daysLeft ?? null,
-    dueAt: binding?.daysLeft == null ? null : new Date(now.getTime() + binding.daysLeft * DAY_MS)
+    dueAt: binding?.daysLeft == null ? null : new Date(now.getTime() + binding.daysLeft * DAY_MS),
+    atNorm: paceAtNorm(life, calendarDaysLeft, now)
   }
+}
+
+// Моточасы здесь не участвуют: норма — это километры в сутки, и вопрос звучит как
+// «когда замена, если ехать по 27 км в день», а не «сколько часов за рулём».
+function paceAtNorm(life: OilLife, calendarDaysLeft: number, now: Date): OilPaceAtNorm | null {
+  const km = life.clocks.find(item => item.name === 'km')
+  if (!km) return null
+  const kmDays = km.remaining / OIL_KM_PER_DAY
+  const name = kmDays <= calendarDaysLeft ? 'km' : 'months'
+  const daysLeft = Math.min(kmDays, calendarDaysLeft)
+  return { name, daysLeft, dueAt: new Date(now.getTime() + daysLeft * DAY_MS) }
 }
 
 // Насколько шкала обгоняет календарь — то же отношение, что и `ratio`, но

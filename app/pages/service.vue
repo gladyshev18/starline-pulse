@@ -144,6 +144,16 @@ const paceDue = computed(() => {
   return `${date(item.dueAt)} · через ${number(days)} ${plural(days, 'день', 'дня', 'дней')}, по строке «${clockLabels[item.binding.name]}»`
 })
 
+// Срок, если с сегодняшнего дня ездить по норме. Перепробег уже в одометре, так
+// что даже по норме замена придёт раньше года — и разница с темпом выше как раз
+// показывает, сколько стоит спокойная езда с этого дня.
+const normDue = computed(() => {
+  const item = pace.value?.atNorm
+  if (!item) return ''
+  const days = Math.round(item.daysLeft)
+  return `${date(item.dueAt)} · через ${number(days)} ${plural(days, 'день', 'дня', 'дней')}, по строке «${clockLabels[item.name]}»`
+})
+
 // Сколько можно проезжать в сутки, чтобы километры дотянули ровно до
 // календарного срока. Это уже не наблюдение, а норма на остаток интервала, и
 // считается она от начала суток, а не от остатка «сейчас»: иначе лимит худел бы
@@ -454,6 +464,17 @@ const batteryMetric = computed<MetricCardProps>(() => ({
           <p v-if="paceDue" class="pace-row">
             <span>При этом темпе замена</span>
             <strong>{{ paceDue }}</strong>
+          </p>
+        </div>
+        <div v-if="pace?.atNorm" class="pace-list">
+          <p class="pace-caption">Если ехать по норме</p>
+          <p class="pace-row">
+            <span>Норма на {{ number(OIL_INTERVAL_KM) }} км за год</span>
+            <strong>{{ number(OIL_KM_PER_DAY, 1) }} км/сут · {{ number(OIL_KM_PER_DAY * 30.437) }} км/мес</strong>
+          </p>
+          <p class="pace-row">
+            <span>Тогда замена</span>
+            <strong>{{ normDue }}</strong>
           </p>
         </div>
         <div v-if="dayPlan && dayPlanVerdict" class="pace-list">
