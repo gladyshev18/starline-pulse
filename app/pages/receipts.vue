@@ -258,13 +258,13 @@ const refuelOptions = computed(() => (refuelsData.value?.items || []).map(refuel
     </div>
 
     <p v-if="status === 'pending'" class="muted">Загрузка…</p>
-    <section v-else-if="!data?.items.length" class="card card--wide refuels-empty">
+    <AppCard v-else-if="!data?.items.length" size="wide" class="refuels-empty">
       <p class="metric-label">Инбокс чеков</p>
       <p class="muted">Чеков нет. Они появятся здесь после импорта из почты, из Telegram или после ручного добавления.</p>
-    </section>
+    </AppCard>
 
     <div v-else class="refuel-list">
-      <article v-for="receipt in data.items" :key="receipt.id" class="card receipt-card">
+      <AppCard v-for="receipt in data.items" :key="receipt.id" as="article" class="receipt-card">
         <div class="receipt-card__main">
           <div class="refuel-card__top">
             <p class="eyebrow">{{ date(receipt.purchasedAt) }}</p>
@@ -329,7 +329,7 @@ const refuelOptions = computed(() => (refuelsData.value?.items || []).map(refuel
           </div>
           <AppAlert v-if="rowError[receipt.id]">{{ rowError[receipt.id] }}</AppAlert>
         </div>
-      </article>
+      </AppCard>
     </div>
 
     <AppModal

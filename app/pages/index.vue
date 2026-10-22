@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { fuelToFull } from '~~/shared/fuel'
+import type { MetricCardProps } from '~/components/ui/MetricCard.vue'
 
 const { data, status } = await useFetch('/api/dashboard')
 
@@ -134,6 +135,97 @@ function duration(minutes: number | null | undefined) {
   const rest = rounded % 60
   return hours ? `${hours} ч ${rest} мин` : `${rest} мин`
 }
+// Строка «данные на …» краснеет, когда показание отстало от последней связи.
+function freshness(value: string | Date | null | undefined) {
+  return { text: updated(value), tone: isStale(value) ? 'stale' as const : undefined }
+}
+const statusMetrics = computed<MetricCardProps[]>(() => {
+  const snapshot = data.value?.snapshot
+  const forecast = data.value?.forecast
+  const fuelState = `${snapshot?.fuelPercent == null ? '' : `${number(snapshot.fuelPercent)}% · `}${snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : ''}`
+  return [
+    {
+      title: 'Пробег',
+      variant: 'metric',
+      badge: dailyChange(data.value?.today.distance, '+', 'км'),
+      value: number(snapshot?.mileage, 1),
+      unit: 'км',
+      meta: [freshness(snapshot?.mileageTs)]
+    },
+    {
+      title: 'Топливо',
+      variant: 'metric',
+      badge: dailyChange(data.value?.today.fuelUsed, '−', 'л'),
+      value: number(snapshot?.fuel, 1),
+      unit: 'л',
+      footer: true,
+      meta: [
+        { text: `До полного бака: ${number(litresToFull.value, 1)} л`, tone: 'primary' },
+        forecast?.km != null && `Хватит на ${number(forecast.km, 0)} км${rangeInDays.value ? ` · ${rangeInDays.value}` : ''}`,
+        { text: `${fuelState}${updated(snapshot?.fuelTs)}`, tone: isStale(snapshot?.fuelTs) ? 'stale' : undefined }
+      ]
+    },
+    {
+      title: 'Аккумулятор',
+      variant: 'metric',
+      value: number(snapshot?.battery, 1),
+      unit: batteryUnit(snapshot?.batteryType),
+      meta: [freshness(snapshot?.commonTs)]
+    }
+  ]
+})
+const monthMetrics = computed<MetricCardProps[]>(() => {
+  const month = data.value?.month
+  const idle = data.value?.idle
+  const refuels = data.value?.refuels
+  const lastRefuel = refuels?.recent[0]
+  return [
+    {
+      title: 'За месяц',
+      size: 'half',
+      value: number(month?.distance, 1),
+      unit: 'км',
+      note: `${number(month?.trips)} поездок · ${number(month?.fuelUsed, 1)} л · ${number(month?.consumption, 1)} л/100 км`
+    },
+    {
+      title: 'Затраты на бензин',
+      size: 'half',
+      compact: true,
+      value: money(data.value?.fuelCost.amount),
+      note: `За месяц · ${fuelCostNote.value}`
+    },
+    {
+      title: 'Прогревы',
+      size: 'half',
+      compact: true,
+      badge: idle?.rate.source === 'measured' ? 'по замерам' : '',
+      value: idleHeadline.value,
+      footer: true,
+      note: idleSummaryNote.value,
+      meta: [idleBasis.value]
+    },
+    {
+      title: 'Заправки',
+      size: 'half',
+      value: number(refuels?.litres, 1),
+      unit: 'л',
+      note: `${number(refuels?.count)} за месяц${lastRefuel ? ` · последняя ${date(lastRefuel.detectedAt)}` : ''}`
+    }
+  ]
+})
+const activitySummary = computed(() => {
+  const daily = data.value?.daily ?? []
+  return `${number(daily.reduce((sum, item) => sum + item.distance, 0), 1)} км · ${number(daily.reduce((sum, item) => sum + item.trips, 0))} поездок`
+})
+const vehicleStatus = computed(() => {
+  const snapshot = data.value?.snapshot
+  return {
+    eyebrow: 'Состояние',
+    title: vehicleState.value,
+    note: `Последняя связь: ${date(snapshot?.activityTs)}`,
+    status: snapshot?.online === false ? 'offline' as const : snapshot?.online && snapshot?.ignition ? 'on' as const : 'unknown' as const
+  }
+})
 </script>
 
 <template>
@@ -141,21 +233,13 @@ function duration(minutes: number | null | undefined) {
     <header class="page-heading">
       <div><p class="eyebrow">Обзор</p><h1 class="page-title">{{ data?.vehicle?.alias || 'Автомобиль' }}</h1></div>
     </header>
-    <div v-if="status === 'pending'" class="card skeleton">Загрузка…</div>
+    <AppCard v-if="status === 'pending'" as="div" skeleton>Загрузка…</AppCard>
     <div v-else class="grid">
       <div class="status-overview" aria-label="Состояние автомобиля">
-        <section class="card state-card">
-          <div class="card__top"><p class="eyebrow">Состояние</p></div>
-          <div class="state-card__body">
-            <div><h2><span class="status-dot" :class="{ 'status-dot--on': data?.snapshot?.online && data?.snapshot?.ignition, 'status-dot--offline': data?.snapshot?.online === false }" />{{ vehicleState }}</h2><p class="muted">Последняя связь: {{ date(data?.snapshot?.activityTs) }}</p></div>
-          </div>
-        </section>
-        <section class="card metric-card"><div class="card__top"><p class="metric-label">Пробег</p><span class="metric-badge">{{ dailyChange(data?.today.distance, '+', 'км') }}</span></div><p class="metric">{{ number(data?.snapshot?.mileage, 1) }} <small>км</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.mileageTs) }">{{ updated(data?.snapshot?.mileageTs) }}</p></section>
-        <section class="card metric-card"><div class="card__top"><p class="metric-label">Топливо</p><span class="metric-badge">{{ dailyChange(data?.today.fuelUsed, '−', 'л') }}</span></div><p class="metric">{{ number(data?.snapshot?.fuel, 1) }} <small>л</small></p><div class="metric-card__footer"><p class="metric-meta metric-meta--primary">До полного бака: {{ number(litresToFull, 1) }} л</p><p v-if="data?.forecast.km != null" class="metric-meta">Хватит на {{ number(data.forecast.km, 0) }} км<template v-if="rangeInDays"> · {{ rangeInDays }}</template></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.fuelTs) }">{{ data?.snapshot?.fuelPercent == null ? '' : `${number(data.snapshot.fuelPercent)}% · ` }}{{ data?.snapshot?.fuelSource === 'converted' ? 'пересчёт API · ' : '' }}{{ updated(data?.snapshot?.fuelTs) }}</p></div></section>
-        <section class="card metric-card"><div class="card__top"><p class="metric-label">Аккумулятор</p></div><p class="metric">{{ number(data?.snapshot?.battery, 1) }} <small>{{ batteryUnit(data?.snapshot?.batteryType) }}</small></p><p class="metric-meta" :class="{ 'metric-meta--stale': isStale(data?.snapshot?.commonTs) }">{{ updated(data?.snapshot?.commonTs) }}</p></section>
+        <StateCard v-bind="vehicleStatus" />
+        <MetricCard v-for="card in statusMetrics" :key="card.title" v-bind="card" />
       </div>
-      <section class="card card--wide activity-card">
-        <div class="card__top"><div><p class="metric-label">Пробег за 14 дней</p><p class="muted">{{ number(data?.daily.reduce((sum, item) => sum + item.distance, 0), 1) }} км · {{ number(data?.daily.reduce((sum, item) => sum + item.trips, 0)) }} поездок</p></div></div>
+      <AppCard size="wide" class="activity-card" title="Пробег за 14 дней" :subtitle="activitySummary">
         <div class="daily-chart" aria-label="Дневной пробег за последние 14 дней">
           <NuxtLink
             v-for="item in data?.daily"
@@ -170,24 +254,16 @@ function duration(minutes: number | null | undefined) {
             <span class="daily-chart__day">{{ dayNumber(item.day) }}<span class="daily-chart__day-month">{{ dayMonth(item.day) }}</span></span>
           </NuxtLink>
         </div>
-      </section>
-      <section class="card card--half"><div class="card__top"><p class="metric-label">За месяц</p></div><p class="metric">{{ number(data?.month.distance, 1) }} <small>км</small></p><p class="muted">{{ number(data?.month.trips) }} поездок · {{ number(data?.month.fuelUsed, 1) }} л · {{ number(data?.month.consumption, 1) }} л/100 км</p></section>
-      <section class="card card--half"><div class="card__top"><p class="metric-label">Затраты на бензин</p></div><p class="metric metric--compact">{{ money(data?.fuelCost.amount) }}</p><p class="muted">За месяц · {{ fuelCostNote }}</p></section>
-      <section class="card card--half">
-        <div class="card__top"><p class="metric-label">Прогревы</p><span v-if="data?.idle.rate.source === 'measured'" class="metric-badge">по замерам</span></div>
-        <p class="metric metric--compact">{{ idleHeadline }}</p>
-        <div class="metric-card__footer"><p class="muted">{{ idleSummaryNote }}</p><p class="metric-meta">{{ idleBasis }}</p></div>
-      </section>
-      <section class="card card--half"><div class="card__top"><p class="metric-label">Заправки</p></div><p class="metric">{{ number(data?.refuels.litres, 1) }} <small>л</small></p><p class="muted">{{ number(data?.refuels.count) }} за месяц<span v-if="data?.refuels.recent[0]"> · последняя {{ date(data.refuels.recent[0].detectedAt) }}</span></p></section>
-      <section class="card card--wide battery-card">
-        <div class="card__top"><div><p class="metric-label">АКБ за 7 дней</p><p class="muted">Дневные минимумы, средние и максимумы</p></div></div>
+      </AppCard>
+      <MetricCard v-for="card in monthMetrics" :key="card.title" v-bind="card" />
+      <AppCard size="wide" class="battery-card" title="АКБ за 7 дней" subtitle="Дневные минимумы, средние и максимумы">
         <div v-if="data?.batteryTrend.length" class="battery-trend">
           <div v-for="item in data.batteryTrend" :key="item.day" class="battery-trend__row">
             <span>{{ shortDay(item.day) }}</span><strong>{{ number(item.min, 2) }} В</strong><span>{{ number(item.average, 2) }} В среднее</span><span>{{ number(item.max, 2) }} В максимум</span>
           </div>
         </div>
         <p v-else class="muted empty-note">Пока недостаточно данных для тренда.</p>
-      </section>
+      </AppCard>
     </div>
   </div>
 </template>

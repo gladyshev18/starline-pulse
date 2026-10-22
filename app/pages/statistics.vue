@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { MetricCardProps } from '~/components/ui/MetricCard.vue'
 import { MONTHLY_METRICS, monthlyMetric, type MonthlyMetricValue } from '~~/shared/monthly-metrics'
 import { currentMoscowMonth, monthTitle as formatMonthTitle, moscowMonthRange, shiftMonth } from '~~/shared/moscow-month'
 import { operatingDeviation } from '~~/shared/operating'
@@ -392,6 +393,114 @@ onMounted(() => {
 
   onBeforeUnmount(() => observer.disconnect())
 })
+
+const chartSubtitle = computed(() => {
+  if (chartMode.value === 'daily') return 'Столбцы — километры, линия — литры по завершённым поездкам'
+  const distance = odometerDistance.value != null ? ` · +${number(odometerDistance.value)} км` : ''
+  return `Показания одометра: ${number(odometerStart.value)} → ${number(odometerEnd.value)} км${distance}`
+})
+const tyresSubtitle = computed(() => `Около ${degrees(SWITCH_CELSIUS)} сцепление летней и зимней резины сравнивается: ниже этой черты летняя дубеет, выше — зимняя плывёт. Считают по среднесуточной, устойчиво за ${SUSTAINED_DAYS} суток`)
+const coldMeta = computed(() => {
+  const verdict = coldVerdict.value
+  if (verdict) {
+    const frost = verdict.frost ? ' в мороз' : ''
+    const average = `В среднем ${number(verdict.kmPerStart, 0)} км на пуск · `
+    return verdict.severe
+      ? `${average}меньше ${number(verdict.thresholdKm, 0)} км${frost}: по регламенту ТО это тяжёлые условия, масло лучше менять чаще`
+      : `${average}это норма: поездки длиннее ${number(verdict.thresholdKm, 0)} км${frost}, двигатель успевает прогреться и выпарить из масла конденсат`
+  }
+  return cold.value?.sessions ? 'Холодных пусков за месяц не было' : 'За этот месяц двигатель не заводили'
+})
+const monthMetrics = computed<MetricCardProps[]>(() => {
+  const totals = data.value?.totals
+  const ambient = data.value?.ambient
+  const idle = data.value?.idle
+  const ownership = data.value?.ownership
+  const operating = data.value?.operating.total
+  const coldStarts = cold.value
+  return [
+    {
+      title: 'Пробег за месяц',
+      variant: 'metric',
+      value: number(totals?.distance),
+      unit: 'км',
+      meta: [`${number(totals?.trips, 0)} поездок`]
+    },
+    {
+      title: 'Израсходовано',
+      variant: 'metric',
+      value: number(totals?.fuelUsed),
+      unit: 'л',
+      meta: [fuelExplanation.value]
+    },
+    {
+      title: 'Средний расход',
+      variant: 'metric',
+      value: number(totals?.consumption),
+      unit: 'л/100 км',
+      meta: [
+        consumptionExplanation.value,
+        consumptionCoverage.value,
+        ambient?.average != null
+          ? `Ночью за месяц ${celsius(ambient.average)} · от ${celsius(ambient.min)} до ${celsius(ambient.max)}`
+          : 'За выбранный месяц'
+      ]
+    },
+    {
+      title: 'Затраты на бензин',
+      variant: 'metric',
+      compact: true,
+      value: money(data.value?.fuelSpend.amount, 0),
+      meta: [fuelSpendNote.value, coverageNote.value]
+    },
+    {
+      title: 'Стояли заведёнными',
+      variant: 'metric',
+      compact: true,
+      value: money(idle?.cost, 0),
+      meta: [idle?.minutes
+        ? `${duration(idle.minutes)} работы двигателя без единого километра · ${number(idle.litres)} л${idleShare.value ? ` · это ${number(idleShare.value * 100, 0)}% всех денег на бензин` : ''}`
+        : 'За этот месяц машина заведённой не стояла']
+    },
+    {
+      title: 'Холодные пуски',
+      variant: 'metric',
+      value: number(coldStarts?.cold, 0),
+      unit: 'раз',
+      meta: [
+        coldMeta.value,
+        coldStarts?.neverWarm ? `В ${number(coldStarts.neverWarm, 0)} ${plural(coldStarts.neverWarm, 'поездке', 'поездках', 'поездках')} из ${number(coldStarts.cold, 0)} двигатель так и не прогрелся — ${number(coldStarts.neverWarmDistance, 1)} км на холодном масле; вот они и вредны` : null
+      ]
+    },
+    {
+      title: 'Километр стоит',
+      variant: 'metric',
+      value: money(ownership?.variablePerKm ?? totals?.costPerKm),
+      meta: [ownership?.servicePerKm != null
+        ? `Топливо ${money(ownership.fuelPerKm)} + обслуживание ${money(ownership.servicePerKm)}`
+        : totals?.pricePerLitre != null
+          ? `Топливо по ${money(totals.pricePerLitre)}/л · ${number(totals.fuelUsed)} л на ${number(totals.distance)} км`
+          : 'Нет чеков — цена литра неизвестна']
+    },
+    {
+      title: 'С учётом владения',
+      variant: 'metric',
+      value: money(ownership?.totalPerKm),
+      meta: [ownership?.fixedPerKm != null
+        ? `${fixedCostLabels.value} — ${money(ownership.fixedAmount, 0)} за месяц, это ${money(ownership.fixedPerKm)} на километр`
+        : 'Постоянные расходы не заведены — добавить можно на странице обслуживания']
+    },
+    {
+      title: 'Километры на моточас',
+      variant: 'metric',
+      value: number(operating?.kmPerHour),
+      unit: 'км/ч работы',
+      meta: [operating?.band
+        ? `${operating.band.label} · двигатель работал ${number(operating.motorHours)} ч`
+        : 'Двигатель работал меньше часа']
+    }
+  ]
+})
 </script>
 
 <template>
@@ -420,7 +529,7 @@ onMounted(() => {
       </nav>
     </header>
 
-    <div v-if="status === 'pending'" class="card card--wide skeleton">Загрузка истории…</div>
+    <AppCard v-if="status === 'pending'" as="div" size="wide" skeleton>Загрузка истории…</AppCard>
     <div v-else class="history-body">
       <nav class="section-nav" aria-label="Разделы статистики">
         <a
@@ -436,120 +545,22 @@ onMounted(() => {
       <section id="month" class="stats-section" aria-labelledby="month-title">
         <h2 id="month-title" class="stats-section__title">Итоги месяца</h2>
         <div class="grid">
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Пробег за месяц</p></div>
-            <p class="metric">{{ number(data?.totals.distance) }} <small>км</small></p>
-            <p class="metric-meta">{{ number(data?.totals.trips, 0) }} поездок</p>
-          </section>
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Израсходовано</p></div>
-            <p class="metric">{{ number(data?.totals.fuelUsed) }} <small>л</small></p>
-            <p class="metric-meta">{{ fuelExplanation }}</p>
-          </section>
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Средний расход</p></div>
-            <p class="metric">{{ number(data?.totals.consumption) }} <small>л/100 км</small></p>
-            <p class="metric-meta">{{ consumptionExplanation }}</p>
-            <p v-if="consumptionCoverage" class="metric-meta">{{ consumptionCoverage }}</p>
-            <p class="metric-meta">
-              <span v-if="data?.ambient.average != null">Ночью за месяц {{ celsius(data.ambient.average) }} · от {{ celsius(data.ambient.min) }} до {{ celsius(data.ambient.max) }}</span>
-              <span v-else>За выбранный месяц</span>
-            </p>
-          </section>
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Затраты на бензин</p></div>
-            <p class="metric metric--compact">{{ money(data?.fuelSpend.amount, 0) }}</p>
-            <p class="metric-meta">{{ fuelSpendNote }}</p>
-            <p v-if="coverageNote" class="metric-meta">{{ coverageNote }}</p>
-          </section>
-
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Стояли заведёнными</p></div>
-            <p class="metric metric--compact">{{ money(data?.idle.cost, 0) }}</p>
-            <p class="metric-meta">
-              <template v-if="data?.idle.minutes">
-                {{ duration(data.idle.minutes) }} работы двигателя без единого километра · {{ number(data.idle.litres) }} л
-                <template v-if="idleShare"> · это {{ number(idleShare * 100, 0) }}% всех денег на бензин</template>
-              </template>
-              <template v-else>За этот месяц машина заведённой не стояла</template>
-            </p>
-          </section>
-
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Холодные пуски</p></div>
-            <p class="metric">{{ number(cold?.cold, 0) }} <small>раз</small></p>
-            <p class="metric-meta">
-              <template v-if="coldVerdict">
-                В среднем {{ number(coldVerdict.kmPerStart, 0) }} км на пуск ·
-                <template v-if="coldVerdict.severe">
-                  меньше {{ number(coldVerdict.thresholdKm, 0) }} км{{ coldVerdict.frost ? ' в мороз' : '' }}:
-                  по регламенту ТО это тяжёлые условия, масло лучше менять чаще
-                </template>
-                <template v-else>
-                  это норма: поездки длиннее {{ number(coldVerdict.thresholdKm, 0) }} км{{ coldVerdict.frost ? ' в мороз' : '' }},
-                  двигатель успевает прогреться и выпарить из масла конденсат
-                </template>
-              </template>
-              <template v-else-if="cold?.sessions">Холодных пусков за месяц не было</template>
-              <template v-else>За этот месяц двигатель не заводили</template>
-            </p>
-            <p v-if="cold?.neverWarm" class="metric-meta">
-              В {{ number(cold.neverWarm, 0) }} {{ plural(cold.neverWarm, 'поездке', 'поездках', 'поездках') }}
-              из {{ number(cold.cold, 0) }} двигатель так и не прогрелся —
-              {{ number(cold.neverWarmDistance, 1) }} км на холодном масле; вот они и вредны
-            </p>
-          </section>
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Километр стоит</p></div>
-            <p class="metric">{{ money(data?.ownership.variablePerKm ?? data?.totals.costPerKm) }}</p>
-            <p class="metric-meta">
-              <span v-if="data?.ownership.servicePerKm != null">
-                Топливо {{ money(data.ownership.fuelPerKm) }} + обслуживание {{ money(data.ownership.servicePerKm) }}
-              </span>
-              <span v-else-if="data?.totals.pricePerLitre != null">Топливо по {{ money(data.totals.pricePerLitre) }}/л · {{ number(data.totals.fuelUsed) }} л на {{ number(data.totals.distance) }} км</span>
-              <span v-else>Нет чеков — цена литра неизвестна</span>
-            </p>
-          </section>
-
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">С учётом владения</p></div>
-            <p class="metric">{{ money(data?.ownership.totalPerKm) }}</p>
-            <p class="metric-meta">
-              <span v-if="data?.ownership.fixedPerKm != null">
-                {{ fixedCostLabels }} — {{ money(data.ownership.fixedAmount, 0) }} за месяц, это {{ money(data.ownership.fixedPerKm) }} на километр
-              </span>
-              <span v-else>Постоянные расходы не заведены — добавить можно на странице обслуживания</span>
-            </p>
-          </section>
-
-          <section class="card metric-card history-metric">
-            <div class="card__top"><p class="metric-label">Километры на моточас</p></div>
-            <p class="metric">{{ number(data?.operating.total.kmPerHour) }} <small>км/ч работы</small></p>
-            <p class="metric-meta">
-              <span v-if="data?.operating.total.band">
-                {{ data.operating.total.band.label }} · двигатель работал {{ number(data.operating.total.motorHours) }} ч
-              </span>
-              <span v-else>Двигатель работал меньше часа</span>
-            </p>
-          </section>
+          <MetricCard v-for="card in monthMetrics" :key="card.title" v-bind="card" class="history-metric" />
         </div>
       </section>
 
       <section id="trends" class="stats-section" aria-labelledby="trends-title">
         <h2 id="trends-title" class="stats-section__title">Динамика и деньги</h2>
         <div class="grid">
-          <section class="card card--wide history-chart-card">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">{{ chartMode === 'daily' ? 'Пробег и топливо по дням' : 'Общий пробег за месяц' }}</p>
-                <p v-if="chartMode === 'daily'" class="muted">Столбцы — километры, линия — литры по завершённым поездкам</p>
-                <p v-else class="muted">
-                  Показания одометра: {{ number(odometerStart) }} → {{ number(odometerEnd) }} км
-                  <span v-if="odometerDistance != null"> · +{{ number(odometerDistance) }} км</span>
-                </p>
-              </div>
-              <AppSegmented v-model="chartMode" :options="chartModes" label="Вид графика" tabs />
-            </div>
+          <AppCard
+            v-model:switch="chartMode"
+            size="wide"
+            variant="chart"
+            :title="chartMode === 'daily' ? 'Пробег и топливо по дням' : 'Общий пробег за месяц'"
+            :subtitle="chartSubtitle"
+            :switch-options="chartModes"
+            switch-label="Вид графика"
+          >
             <HistoryChart
               v-if="data?.daily.length && (chartMode === 'daily' || hasOdometerData)"
               :items="data.daily"
@@ -558,16 +569,18 @@ onMounted(() => {
             />
             <p v-if="chartMode === 'daily' && !hasData" class="muted history-empty">За этот месяц завершённых поездок пока нет.</p>
             <p v-if="chartMode === 'odometer' && !hasOdometerData" class="muted history-empty">За этот месяц недостаточно показаний одометра.</p>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide history-chart-card monthly-card">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">{{ trend.title }}</p>
-                <p class="muted">{{ trend.hint }}</p>
-              </div>
-              <AppSegmented v-model="trendMetric" :options="trendOptions" label="Параметр помесячно" tabs />
-            </div>
+          <AppCard
+            v-model:switch="trendMetric"
+            size="wide"
+            variant="chart"
+            class="monthly-card"
+            :title="trend.title"
+            :subtitle="trend.hint"
+            :switch-options="trendOptions"
+            switch-label="Параметр помесячно"
+          >
             <MonthlyChart
               v-if="hasMonthlyData"
               :items="monthlyRows"
@@ -586,18 +599,9 @@ onMounted(() => {
                 · месяц ещё не кончился, и сравнивать его с полным можно только с поправкой на это
               </template>
             </p>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide history-chart-card">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Год целиком</p>
-                <p class="muted">
-                  Сколько уже проехано с начала наблюдений этого года, к чему год придёт к декабрю при нынешней езде
-                  и чем он отличается от прошлого — по одним и тем же месяцам, а не по календарю
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" variant="chart" title="Год целиком" subtitle="Сколько уже проехано с начала наблюдений этого года, к чему год придёт к декабрю при нынешней езде и чем он отличается от прошлого — по одним и тем же месяцам, а не по календарю">
             <p v-if="!yearAhead" class="muted empty-note">Год ещё не начался — данных за него нет.</p>
             <template v-else>
               <YearPaceChart v-if="pace" :pace="pace" />
@@ -659,18 +663,9 @@ onMounted(() => {
                 </div>
               </template>
             </template>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Что происходит с ценой литра</p>
-                <p class="muted">
-                  Своя инфляция — по собственным чекам, а не по объявленной. Рядом переплата: во что обошлось то,
-                  что заправлялись не у самой дешёвой из сетей, куда машина и так заезжает
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Что происходит с ценой литра" subtitle="Своя инфляция — по собственным чекам, а не по объявленной. Рядом переплата: во что обошлось то, что заправлялись не у самой дешёвой из сетей, куда машина и так заезжает">
             <p v-if="!inflation" class="muted empty-note">Чеков с ценой пока нет — считать нечего.</p>
             <template v-else>
               <div class="pace-list">
@@ -731,24 +726,14 @@ onMounted(() => {
                 </template>
               </p>
             </template>
-          </section>
+          </AppCard>
         </div>
       </section>
 
       <section id="tyres" class="stats-section" aria-labelledby="tyres-title">
         <h2 id="tyres-title" class="stats-section__title">Погода и шины</h2>
         <div class="grid">
-          <section class="card card--wide history-chart-card">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Среднесуточная температура</p>
-                <p class="muted">
-                  Термометра на улицу в машине нет — есть двигатель, простоявший несколько часов: остыв, он показывает
-                  воздух. Средняя считается по часам, а не по замерам, и поправлена по архиву погоды. Сутки, часть которых
-                  машина провела в разъездах, восстановлены по суточному ходу соседних — подсказка говорит, какие именно
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" variant="chart" title="Среднесуточная температура" subtitle="Термометра на улицу в машине нет — есть двигатель, простоявший несколько часов: остыв, он показывает воздух. Средняя считается по часам, а не по замерам, и поправлена по архиву погоды. Сутки, часть которых машина провела в разъездах, восстановлены по суточному ходу соседних — подсказка говорит, какие именно">
             <AmbientChart v-if="ambient.length > 1 && tyres" :items="ambient" :watch="tyres" />
             <p v-else class="muted history-empty">
               Погода появится, когда наберётся вторые сутки, которые машина провела в основном на приколе.
@@ -762,18 +747,9 @@ onMounted(() => {
                 Прямая по последним двум неделям пока не пробилась сквозь погоду, поэтому даты смены нет.
               </template>
             </p>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Когда переобуваться</p>
-                <p class="muted">
-                  Около {{ degrees(SWITCH_CELSIUS) }} сцепление летней и зимней резины сравнивается: ниже этой черты летняя
-                  дубеет, выше — зимняя плывёт. Считают по среднесуточной, устойчиво за {{ SUSTAINED_DAYS }} суток
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Когда переобуваться" :subtitle="tyresSubtitle">
             <p v-if="!tyres || tyres.status === 'unknown'" class="muted empty-note">
               Пока не набралось {{ SUSTAINED_DAYS }} суток погоды подряд — судить о смене не по чему.
             </p>
@@ -807,23 +783,14 @@ onMounted(() => {
                 <template v-if="tyres.season === 'summer'">Пока они возвращаются, зимняя резина остаётся на месте.</template>
               </p>
             </template>
-          </section>
+          </AppCard>
         </div>
       </section>
 
       <section id="engine" class="stats-section" aria-labelledby="engine-title">
         <h2 id="engine-title" class="stats-section__title">Двигатель и холод</h2>
         <div class="grid">
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Во что обходится холод</p>
-                <p class="muted">
-                  Расход месяца против его ночной температуры. Сравнивать месяцы напрямую нельзя — холодный месяц обычно
-                  и ездит иначе, — поэтому считается наклон: сколько литров на сотню добавляет каждый градус
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Во что обходится холод" subtitle="Расход месяца против его ночной температуры. Сравнивать месяцы напрямую нельзя — холодный месяц обычно и ездит иначе, — поэтому считается наклон: сколько литров на сотню добавляет каждый градус">
             <p v-if="!seasonality || !seasonality.months" class="muted empty-note">
               Нужен хотя бы месяц с расходом и ночными температурами.
             </p>
@@ -853,17 +820,9 @@ onMounted(() => {
               {{ plural(seasonality.months, 'месяц', 'месяца', 'месяцев') }} наблюдений от {{ celsius(seasonality.coldest) }}
               до {{ celsius(seasonality.warmest) }} — этого мало, чтобы отделить погоду от того, как ездили.
             </p>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Сколько греется двигатель</p>
-                <p class="muted">
-                  По пускам после ночной стоянки видно, на сколько холод удлиняет прогрев
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Сколько греется двигатель" subtitle="По пускам после ночной стоянки видно, на сколько холод удлиняет прогрев">
             <p v-if="!warmup || !warmup.samples" class="muted empty-note">
               Пусков после долгой стоянки, по которым можно судить о прогреве, пока нет.
             </p>
@@ -899,18 +858,9 @@ onMounted(() => {
                 всех пусков, и на наклон это не влияет.
               </p>
             </template>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Чем заводится машина</p>
-                <p class="muted">
-                  Времени прокрутки стартера в данных нет: журнал присылает «зажигание» и «двигатель запущен» с разницей
-                  в секунду. Зато видно напряжение перед пуском — именно оно предсказывает утро, когда машина не заведётся
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Чем заводится машина" subtitle="Времени прокрутки стартера в данных нет: журнал присылает «зажигание» и «двигатель запущен» с разницей в секунду. Зато видно напряжение перед пуском — именно оно предсказывает утро, когда машина не заведётся">
             <p v-if="!starts || !starts.starts" class="muted empty-note">Пусков в журнале сигнализации пока нет.</p>
             <template v-else>
               <div class="pace-list">
@@ -957,18 +907,9 @@ onMounted(() => {
                 </template>
               </p>
             </template>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Как работал двигатель</p>
-                <p class="muted">
-                  Километры за час работы двигателя по неделям. В знаменателе всё время, что мотор крутился, —
-                  прогревы и стояние тоже, поэтому число говорит не о скорости, а о том, сколько из работы двигателя досталось дороге
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Как работал двигатель" subtitle="Километры за час работы двигателя по неделям. В знаменателе всё время, что мотор крутился, — прогревы и стояние тоже, поэтому число говорит не о скорости, а о том, сколько из работы двигателя досталось дороге">
             <p v-if="!operatingWeeks.length" class="muted empty-note">За этот месяц двигатель работал слишком мало, чтобы делить.</p>
             <div v-else class="speed-rows">
               <div v-for="week in operatingWeeks" :key="week.bucket" class="speed-row">
@@ -987,20 +928,14 @@ onMounted(() => {
               {{ weekTitle(weakestWeek.week) }}: двигатель наработал столько же, а километров вышло на
               {{ number(Math.abs(weakestWeek.deviation) * 100, 0) }}% меньше обычного — эти часы машина простояла заведённой.
             </p>
-          </section>
+          </AppCard>
         </div>
       </section>
 
       <section id="driving" class="stats-section" aria-labelledby="driving-title">
         <h2 id="driving-title" class="stats-section__title">Как ездим</h2>
         <div class="grid">
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">За рулём</p>
-                <p class="muted">Пробег и деньги по водителям — по тем поездкам, на которые ответили в боте, поэтому в сумме они меньше израсходованного за месяц</p>
-              </div>
-            </div>
+          <AppCard size="wide" title="За рулём" subtitle="Пробег и деньги по водителям — по тем поездкам, на которые ответили в боте, поэтому в сумме они меньше израсходованного за месяц">
             <p v-if="!hasDrivers" class="muted empty-note">За этот месяц никто не отметился за рулём.</p>
             <div v-else class="speed-rows">
               <div v-for="row in driverRows" :key="row.driver || 'unknown'" class="speed-row">
@@ -1026,15 +961,9 @@ onMounted(() => {
               ({{ number(data?.driverCoverage.answered, 0) }} из {{ number(data?.driverCoverage.trips, 0) }} поездок) —
               сравнивать имена между собой можно только внутри этой доли.
             </p>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Когда ездим</p>
-                <p class="muted">Поездки по часам и дням недели: клетка тем темнее, чем больше в ней километров</p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Когда ездим" subtitle="Поездки по часам и дням недели: клетка тем темнее, чем больше в ней километров">
             <p v-if="!usage || !usage.trips" class="muted empty-note">За этот месяц завершённых поездок нет.</p>
             <template v-else>
               <div class="heatmap" :style="{ '--hours': usageHours.length }">
@@ -1062,23 +991,14 @@ onMounted(() => {
                 {{ number(usage.standstill.idleDays, 0) }} из {{ number(usage.standstill.daysCovered, 0) }} дней.
               </p>
             </template>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">От бака до бака</p>
-                <p class="muted">
-                  Между двумя полными баками через двигатель прошло ровно столько, сколько долили во второй раз, — это
-                  написано в чеке. Датчик сюда не входит вовсе, и это самый точный расход, какой в этих данных есть.
-                  Литры второй заправки — мерка, а не топливо: ехали на том, чем бак наполнили в начале перегона, его
-                  марка и сеть и указаны
-                </p>
-              </div>
-              <p v-if="tank?.overall.consumption != null" class="card__total">
-                {{ number(tank.overall.consumption) }} <small>л/100 км</small>
-              </p>
-            </div>
+          <AppCard
+            size="wide"
+            title="От бака до бака"
+            :total="tank?.overall.consumption != null ? number(tank.overall.consumption) : ''"
+            total-unit="л/100 км"
+            subtitle="Между двумя полными баками через двигатель прошло ровно столько, сколько долили во второй раз, — это написано в чеке. Датчик сюда не входит вовсе, и это самый точный расход, какой в этих данных есть. Литры второй заправки — мерка, а не топливо: ехали на том, чем бак наполнили в начале перегона, его марка и сеть и указаны">
             <p v-if="!tankRows.length" class="muted empty-note">Двух заправок с известным объёмом ещё не набралось.</p>
             <template v-else>
               <p class="deviation-legend">
@@ -1126,15 +1046,9 @@ onMounted(() => {
                 Разброс баков шире их погрешности — это разная дорога, а не разное измерение.
               </p>
             </template>
-          </section>
+          </AppCard>
 
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Куда уходит бензин</p>
-                <p class="muted">Расход по средней скорости поездки — единственное, что в данных отличает пробку от трассы. Деньги посчитаны по литрам самой корзины</p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Куда уходит бензин" subtitle="Расход по средней скорости поездки — единственное, что в данных отличает пробку от трассы. Деньги посчитаны по литрам самой корзины">
             <p v-if="!speedRows.length" class="muted empty-note">За этот месяц нет поездок с известным расходом.</p>
             <div v-else class="speed-rows">
               <div v-for="(item, index) in speedRows" :key="item.name" class="speed-row">
@@ -1157,23 +1071,14 @@ onMounted(() => {
             <p v-if="speedSpread" class="metric-meta">
               Километр в пробке обходится в {{ number(speedSpread) }} раза дороже, чем на трассе.
             </p>
-          </section>
+          </AppCard>
         </div>
       </section>
 
       <section id="quality" class="stats-section" aria-labelledby="quality-title">
         <h2 id="quality-title" class="stats-section__title">Качество данных</h2>
         <div class="grid">
-          <section class="card card--wide">
-            <div class="card__top">
-              <div>
-                <p class="metric-label">Насколько измерен расход</p>
-                <p class="muted">
-                  Литры поездки — это разность двух показаний датчика, а он различает только целые проценты бака, то есть пол-литра.
-                  На коротком выезде такая ступенька и есть весь расход, поэтому сравнивать между собой можно не все поездки
-                </p>
-              </div>
-            </div>
+          <AppCard size="wide" title="Насколько измерен расход" subtitle="Литры поездки — это разность двух показаний датчика, а он различает только целые проценты бака, то есть пол-литра. На коротком выезде такая ступенька и есть весь расход, поэтому сравнивать между собой можно не все поездки">
             <p v-if="!data?.quality.total" class="muted empty-note">За этот месяц завершённых поездок нет.</p>
             <template v-else>
               <p class="quality-line">
@@ -1200,7 +1105,7 @@ onMounted(() => {
               </div>
               <p v-else class="muted empty-note">Поездок, выбивающихся из своей корзины скорости, за месяц нет.</p>
             </template>
-          </section>
+          </AppCard>
         </div>
       </section>
     </div>

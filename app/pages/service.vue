@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS, OIL_KM_PER_DAY, OIL_MOTOR_HOURS_PER_DAY } from '~~/shared/service'
+import type { MetricCardProps } from '~/components/ui/MetricCard.vue'
 
 const { data, status, refresh } = await useFetch('/api/service')
 const { data: documents, refresh: refreshDocuments } = await useFetch('/api/service-documents')
@@ -375,6 +376,37 @@ async function remove(id: number) {
     pending.value = false
   }
 }
+
+const engineMetrics = computed<MetricCardProps[]>(() => [
+  {
+    title: 'Моточасы',
+    size: 'half',
+    value: hours(data.value?.motorMinutes),
+    note: `Счётчик охранного комплекса${data.value?.mileage ? ` · пробег ${number(data.value.mileage)} км` : ''}`
+  },
+  {
+    title: 'Двигатель за месяц',
+    size: 'half',
+    compact: true,
+    value: duration(data.value?.engine.counterMinutes),
+    note: `По счётчику · сессиями учтено ${duration(data.value?.engine.sessionMinutes)}`,
+    meta: counterIncomplete.value
+      ? ['Счётчик заполнен не на весь месяц, поэтому сравнивать его с сессиями пока не с чем.']
+      : untrackedNote.value
+        ? [untrackedNote.value, ...untrackedTrips.value.map(item => `${item.label} · ${item.detail}`)]
+        : []
+  }
+])
+const batteryMetric = computed<MetricCardProps>(() => ({
+  title: 'Аккумулятор',
+  size: 'wide',
+  compact: true,
+  badge: battery.value?.confident && (battery.value.slopePerMonth || 0) < 0 ? 'снижается' : '',
+  badgeTone: 'warn',
+  value: batteryHeadline.value,
+  note: batteryNote.value,
+  meta: [battery.value?.ambientAdjusted && 'Поправка на уличную температуру учтена: холод сам по себе роняет напряжение покоя, и без неё зима выглядела бы деградацией.']
+}))
 </script>
 
 <template>
@@ -383,16 +415,17 @@ async function remove(id: number) {
       <div><p class="eyebrow">Автомобиль</p><h1 class="page-title">Обслуживание</h1></div>
     </header>
 
-    <div v-if="status === 'pending'" class="card skeleton">Загрузка…</div>
+    <AppCard v-if="status === 'pending'" as="div" skeleton>Загрузка…</AppCard>
     <div v-else class="grid">
-      <section class="card card--wide">
-        <div class="card__top">
-          <p class="metric-label">Моторное масло</p>
-          <span v-if="oil?.life.overdue" class="metric-badge metric-badge--warn">просрочено</span>
-        </div>
-        <p class="metric metric--compact">{{ oilHeadline }}</p>
-        <p class="muted">{{ oilNote }}</p>
-
+      <MetricCard
+        size="wide"
+        title="Моторное масло"
+        compact
+        :badge="oil?.life.overdue ? 'просрочено' : ''"
+        badge-tone="warn"
+        :value="oilHeadline"
+        :note="oilNote"
+      >
         <div v-if="oil?.life.clocks.length" class="oil-clocks">
           <div v-for="item in oil.life.clocks" :key="item.name" class="oil-clock" :class="{ 'oil-clock--binding': item.name === oil.life.binding?.name }">
             <p class="oil-clock__label">{{ clockLabels[item.name] }}</p>
@@ -450,51 +483,17 @@ async function remove(id: number) {
           Интервал в моточасах взят не из пробега, а из ресурса масла: синтетика держит 250–300 моточасов в обычных условиях
           и 200–250 в тяжёлых — зимой, в пробках, на турбомоторе.
         </p>
-      </section>
+      </MetricCard>
 
-      <section class="card card--half">
-        <div class="card__top"><p class="metric-label">Моточасы</p></div>
-        <p class="metric">{{ hours(data?.motorMinutes) }}</p>
-        <p class="muted">Счётчик охранного комплекса<span v-if="data?.mileage"> · пробег {{ number(data.mileage) }} км</span></p>
-      </section>
+      <MetricCard v-for="card in engineMetrics" :key="card.title" v-bind="card" />
 
-      <section class="card card--half">
-        <div class="card__top"><p class="metric-label">Двигатель за месяц</p></div>
-        <p class="metric metric--compact">{{ duration(data?.engine.counterMinutes) }}</p>
-        <p class="muted">По счётчику · сессиями учтено {{ duration(data?.engine.sessionMinutes) }}</p>
-        <p v-if="counterIncomplete" class="metric-meta">
-          Счётчик заполнен не на весь месяц, поэтому сравнивать его с сессиями пока не с чем.
-        </p>
-        <template v-else-if="untrackedNote">
-          <p class="metric-meta">{{ untrackedNote }}</p>
-          <p v-for="item in untrackedTrips" :key="item.key" class="metric-meta">
-            {{ item.label }} · {{ item.detail }}
-          </p>
-        </template>
-      </section>
+      <MetricCard v-bind="batteryMetric" />
 
-      <section class="card card--wide">
-        <div class="card__top">
-          <p class="metric-label">Аккумулятор</p>
-          <span v-if="battery?.confident && (battery.slopePerMonth || 0) < 0" class="metric-badge metric-badge--warn">снижается</span>
-        </div>
-        <p class="metric metric--compact">{{ batteryHeadline }}</p>
-        <p class="muted">{{ batteryNote }}</p>
-        <p v-if="battery?.ambientAdjusted" class="metric-meta">
-          Поправка на уличную температуру учтена: холод сам по себе роняет напряжение покоя, и без неё зима выглядела бы деградацией.
-        </p>
-      </section>
-
-      <section class="card card--wide card--table">
-        <div class="card__top">
-          <div>
-            <p class="metric-label">Документы по ТО</p>
-            <p class="muted">
-              Пришлите акт боту — он сохранит его здесь и распознает.
-              Отправляйте <b>как файл</b>: обычное фото Telegram сжимает до 1280 px, и мелкий текст в таблице теряется.
-            </p>
-          </div>
-        </div>
+      <AppCard
+        size="table"
+        title="Документы по ТО"
+        subtitle="Пришлите акт боту — он сохранит его здесь и распознает. Отправляйте как файл: обычное фото Telegram сжимает до 1280 px, и мелкий текст в таблице теряется."
+      >
         <p v-if="!documents?.items.length" class="muted">Документов пока нет.</p>
         <div v-else class="table-wrap">
           <table role="table">
@@ -514,10 +513,9 @@ async function remove(id: number) {
             </tbody>
           </table>
         </div>
-      </section>
+      </AppCard>
 
-      <section class="card card--wide card--table">
-        <div class="card__top"><p class="metric-label">Журнал замен</p></div>
+      <AppCard size="table" title="Журнал замен">
         <p v-if="!data?.events.length" class="muted">Записей пока нет.</p>
         <div v-else class="table-wrap">
           <table role="table">
@@ -533,18 +531,13 @@ async function remove(id: number) {
             </tbody>
           </table>
         </div>
-      </section>
+      </AppCard>
 
-      <section class="card card--wide card--table">
-        <div class="card__top">
-          <div>
-            <p class="metric-label">Постоянные расходы</p>
-            <p class="muted">
-              Страховка, налог и прочее, оплаченное за период целиком. В стоимость километра они входят теми днями,
-              которыми пересеклись с месяцем, — годовой полис не ложится в август целиком
-            </p>
-          </div>
-        </div>
+      <AppCard
+        size="table"
+        title="Постоянные расходы"
+        subtitle="Страховка, налог и прочее, оплаченное за период целиком. В стоимость километра они входят теми днями, которыми пересеклись с месяцем, — годовой полис не ложится в август целиком"
+      >
         <p v-if="!data?.fixedCosts.length" class="muted">
           Записей пока нет. Километр считается только по топливу и заказ-нарядам.
         </p>
@@ -580,7 +573,7 @@ async function remove(id: number) {
             <AppButton type="submit" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Добавить расход' }}</AppButton>
           </div>
         </AppForm>
-      </section>
+      </AppCard>
     </div>
 
     <AppModal

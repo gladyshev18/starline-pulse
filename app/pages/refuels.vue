@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { MetricCardProps } from '~/components/ui/MetricCard.vue'
 import { FUEL_TYPES } from '~~/shared/fuel-grades'
 import { STATIONS } from '~~/shared/stations'
 import { plural } from '~~/shared/plural'
@@ -231,6 +232,29 @@ async function uploadReceipt(refuelId: number, file: File) {
     uploading[refuelId] = false
   }
 }
+
+const driftMetric = computed<MetricCardProps>(() => ({
+  title: 'Точность датчика',
+  size: 'wide',
+  compact: true,
+  badge: data.value?.drift.systematic ? 'систематическое' : '',
+  value: driftHeadline.value,
+  note: driftNote.value,
+  meta: [driftTrendNote.value]
+}))
+const standstillMetric = computed<MetricCardProps>(() => {
+  const standstill = data.value?.standstill
+  return {
+    title: 'Убыль на стоянке',
+    subtitle: 'Уровень в момент остановки двигателя и в момент следующего запуска. Датчик округляет до пол-литра, поэтому считаются не литры, а стороны: сколько стоянок кончились падением и сколько ростом',
+    size: 'wide',
+    compact: true,
+    badge: standstill?.systematic ? 'систематическое' : '',
+    value: standstillHeadline.value,
+    note: standstillNote.value,
+    meta: [standstill?.systematic && `Всего ${number(standstill.total, 1)} л за всю историю. Через двигатель они не прошли, но в расход записаны: баланс бака считает израсходованным всё, чего в баке не стало. Похоже на остывание топлива — холодный бензин занимает меньше места, — и тогда днём объём возвращается.`]
+  }
+})
 </script>
 
 <template>
@@ -244,29 +268,26 @@ async function uploadReceipt(refuelId: number, file: File) {
     </header>
 
     <p v-if="status === 'pending'" class="muted">Загрузка…</p>
-    <section v-else-if="!data?.items.length" class="card card--wide refuels-empty">
+    <AppCard v-else-if="!data?.items.length" size="wide" class="refuels-empty">
       <p class="metric-label">История заправок</p>
       <p class="muted">Заправки пока не обнаружены. Они появятся здесь после увеличения уровня топлива.</p>
-    </section>
+    </AppCard>
     <div v-else class="refuel-list">
-      <section v-if="data.drift.samples || data.drift.saturated" class="card card--wide">
-        <div class="card__top">
-          <p class="metric-label">Точность датчика</p>
-          <span v-if="data.drift.systematic" class="metric-badge">систематическое</span>
-        </div>
-        <p class="metric metric--compact">{{ driftHeadline }}</p>
-        <p class="muted">{{ driftNote }}</p>
-        <p v-if="driftTrendNote" class="metric-meta">{{ driftTrendNote }}</p>
-      </section>
+      <MetricCard
+        v-if="data.drift.samples || data.drift.saturated"
+        v-bind="driftMetric"
+      />
 
-      <section v-if="priceRows.length" class="card card--wide price-card">
-        <div class="card__top">
-          <div>
-            <p class="metric-label">Цена литра</p>
-            <p class="muted">По чекам. Виды топлива не смешиваются: разница между ними больше, чем движение цены</p>
-          </div>
-          <AppSegmented v-if="fuelOptions.length > 1" v-model="priceFuel" :options="fuelOptions" label="Вид топлива" tabs />
-        </div>
+      <AppCard
+        v-if="priceRows.length"
+        size="wide"
+        class="price-card"
+        v-model:switch="priceFuel"
+        title="Цена литра"
+        :switch-options="fuelOptions.length > 1 ? fuelOptions : []"
+        switch-label="Вид топлива"
+        subtitle="По чекам. Виды топлива не смешиваются: разница между ними больше, чем движение цены"
+      >
         <template v-if="priceRow">
           <!-- Строка над графиком: где цена сейчас и куда она сдвинулась. -->
           <p class="price-summary">
@@ -295,28 +316,13 @@ async function uploadReceipt(refuelId: number, file: File) {
           Тот же бензин у {{ stationLabel(overpay.cheapest.station, overpay.cheapest.stationName) }} обошёлся бы
           на {{ money(overpay.amount) }} дешевле — столько стоило то, что заправлялись не только там.
         </p>
-      </section>
+      </AppCard>
 
-      <section v-if="data.standstill.samples" class="card card--wide">
-        <div class="card__top">
-          <div>
-            <p class="metric-label">Убыль на стоянке</p>
-            <p class="muted">
-              Уровень в момент остановки двигателя и в момент следующего запуска. Датчик округляет до пол-литра,
-              поэтому считаются не литры, а стороны: сколько стоянок кончились падением и сколько ростом
-            </p>
-          </div>
-          <span v-if="data.standstill.systematic" class="metric-badge">систематическое</span>
-        </div>
-        <p class="metric metric--compact">{{ standstillHeadline }}</p>
-        <p class="muted">{{ standstillNote }}</p>
-        <p v-if="data.standstill.systematic" class="metric-meta">
-          Всего {{ number(data.standstill.total, 1) }} л за всю историю. Через двигатель они не прошли, но в расход
-          записаны: баланс бака считает израсходованным всё, чего в баке не стало. Похоже на остывание топлива —
-          холодный бензин занимает меньше места, — и тогда днём объём возвращается.
-        </p>
-      </section>
-      <article v-for="refuel in data.items" :key="refuel.id" class="card refuel-card">
+      <MetricCard
+        v-if="data.standstill.samples"
+        v-bind="standstillMetric"
+      />
+      <AppCard v-for="refuel in data.items" :key="refuel.id" as="article" class="refuel-card">
         <div class="refuel-card__summary">
           <div>
             <div class="refuel-card__top">
@@ -384,7 +390,7 @@ async function uploadReceipt(refuelId: number, file: File) {
             </li>
           </ul>
         </div>
-      </article>
+      </AppCard>
     </div>
 
     <AppModal

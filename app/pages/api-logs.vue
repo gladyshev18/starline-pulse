@@ -116,13 +116,16 @@ onBeforeUnmount(() => {
       <AppButton variant="secondary" :disabled="status === 'pending'" @click="refresh()">Обновить</AppButton>
     </header>
 
-    <section class="card api-limit">
-      <div class="card__top"><p class="metric-label">Лимит API на сегодня</p></div>
-      <p class="metric metric--compact">{{ number(data?.limit.remaining) }} <small>доступно</small></p>
-      <p class="muted">{{ number(data?.limit.used) }} из 1000 использовано</p>
-    </section>
+    <MetricCard
+      class="api-limit"
+      title="Лимит API на сегодня"
+      compact
+      :value="number(data?.limit.remaining)"
+      unit="доступно"
+      :note="`${number(data?.limit.used)} из 1000 использовано`"
+    />
 
-    <section class="card card--table">
+    <AppCard size="table">
       <div class="log-filters">
         <AppField label="Поиск по адресу"><AppInput v-model="search" type="search" placeholder="/json/v3/device…" /></AppField>
         <AppField label="Результат"><AppSelect v-model="statusFilter" :options="statusOptions" /></AppField>
@@ -151,7 +154,7 @@ onBeforeUnmount(() => {
         <span class="muted">{{ page }} / {{ data.pages }} · записей: {{ data.total }}</span>
         <AppButton variant="secondary" :disabled="page >= data.pages" @click="page++">Дальше</AppButton>
       </nav>
-    </section>
+    </AppCard>
 
     <AppModal
       v-if="selected"

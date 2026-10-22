@@ -603,7 +603,7 @@ td { font-size: .86rem; }
 tbody tr { transition: background-color .16s ease; }
 tbody tr:hover { background: var(--surface-subtle); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
-.trips-filter-note { margin: 5px 0 0; font-size: .75rem; }
+.trips-card .card__top .muted { margin: 5px 0 0; font-size: .75rem; }
 .trip-consumption { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
 /* Отметка выброса. Их за месяц единицы, и это единственное место в журнале, где
    строку нужно заметить, не читая, — поэтому она не приглушена, в отличие от

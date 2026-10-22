@@ -121,6 +121,13 @@ async function saveComment() {
     commentPending.value = false
   }
 }
+// Пояснение про стоимость стоит один раз, а не в каждой строке: основание у всех
+// поездок одно, и повторённое двадцать раз оно только распирало таблицу и мешало
+// читать.
+const notes = computed(() => [
+  selectedDay.value && `За ${day(selectedDay.value)}`,
+  'Стоимость — километры поездки по цене километра за её месяц'
+])
 </script>
 
 <template>
@@ -128,18 +135,7 @@ async function saveComment() {
     <header class="page-heading">
       <div><p class="eyebrow">История</p><h1 class="page-title">Поездки</h1></div>
     </header>
-    <section class="card card--table">
-      <div class="card__top">
-        <div>
-          <p class="metric-label">Журнал поездок</p>
-          <p v-if="selectedDay" class="muted trips-filter-note">За {{ day(selectedDay) }}</p>
-          <!-- Пояснение стоит один раз, а не в каждой строке: основание у всех
-               поездок одно, и повторённое двадцать раз оно только распирало
-               таблицу и мешало читать. -->
-          <p class="muted trips-filter-note">Стоимость — километры поездки по цене километра за её месяц</p>
-        </div>
-        <AppButton v-if="selectedDay" variant="secondary" to="/trips">Все поездки</AppButton>
-      </div>
+    <AppCard size="table" class="trips-card" title="Журнал поездок" :subtitle="notes" :action="selectedDay ? { label: 'Все поездки', to: '/trips' } : null">
       <p v-if="status === 'pending'">Загрузка…</p>
       <div v-else-if="!data?.items.length" class="muted">{{ selectedDay ? 'За выбранный день завершённых поездок нет.' : 'Завершённых поездок пока нет.' }}</div>
       <div v-else class="table-wrap">
@@ -197,7 +193,7 @@ async function saveComment() {
         <span class="muted">{{ page }} / {{ data.pages }}</span>
         <AppButton variant="secondary" :style="{ visibility: page < data.pages ? 'visible' : 'hidden' }" :to="pageLink(page + 1)">Дальше</AppButton>
       </nav>
-    </section>
+    </AppCard>
 
     <AppModal
       :model-value="Boolean(editingDriver)"
