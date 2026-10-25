@@ -275,6 +275,10 @@ export async function processNextJob(database: Database) {
     if (failed && job.type === 'telegram:tyre_watch') await scheduleTyreWatch(database, parseTyreNoticeState(parseJobPayload(job.payload)))
     if (failed && job.type === 'receipts:imap_poll') await scheduleMailPoll(database)
     if (failed && job.type === 'starline:events') await scheduleEvents(database)
+    // Опрос — единственная цепочка, которая сама себя не вернёт: следующий заход
+    // ставит только успешный предыдущий. Без этого пятиминутная недоступность
+    // StarLine останавливала сбор данных до ручного перезапуска воркера.
+    if (failed && job.type === 'starline:poll') await schedulePoll(database, 5 * 60_000)
     console.error(`Job ${job.id} (${job.type}) failed`, error)
   }
   return true
