@@ -1,4 +1,7 @@
+import { and, desc, eq, gte, isNotNull, lt } from 'drizzle-orm'
+import { InlineKeyboard, type Bot } from 'grammy'
 import type { Database } from '../../db/client'
+import { serviceEvents, vehicleSnapshots } from '../../db/schema'
 import { emptyTyreOutlook, tyreOutlook } from '../../metrics/tyres'
 import { plural } from '../../shared/plural'
 import { degrees, FROST_WINDOW_DAYS, MARGIN_CELSIUS, SUSTAINED_DAYS, SWITCH_CELSIUS, tyreEdgeNote, type TyreSeason, type TyreStatus, type TyreWatch } from '../../shared/tyres'
@@ -136,6 +139,76 @@ export function tyreNotice(watch: TyreWatch, previous: TyreNoticeState): TyreNot
     status: watch.status,
     text: lines.filter(Boolean).join('\n')
   }
+}
+
+// Кнопка «Переобулся» нужна там, где сообщение говорит «менять»: на ночном
+// «ещё рано» её нажатие означало бы запись смены, которой не было.
+export function tyreNoticeKeyboard(notice: Pick<TyreNotice, 'season' | 'status'>) {
+  if (notice.status === 'edge') return null
+  const target = notice.season === 'winter' ? 'зимнюю' : 'летнюю'
+  return new InlineKeyboard().text(`✅ Переобулся на ${target}`, `tyre:changed:${notice.season}`)
+}
+
+// Повторное нажатие или то же уведомление, пришедшее двум получателям, не
+// должны плодить смены: две записи за день ломают пробег сезона на ноль
+// километров между ними.
+const DUPLICATE_WINDOW_MS = 3 * 24 * 60 * 60_000
+
+// Записывает смену резины на сегодня. Показание одометра берётся так же, как
+// при записи со страницы, — последнее известное на этот момент.
+export async function recordTyreChange(database: Database, season: TyreSeason, now = new Date()) {
+  const vehicle = await database.query.vehicles.findFirst()
+  if (!vehicle) return { status: 'no-vehicle' as const }
+
+  const recent = await database.query.serviceEvents.findFirst({
+    where: and(
+      eq(serviceEvents.vehicleId, vehicle.id),
+      eq(serviceEvents.kind, 'tyres'),
+      eq(serviceEvents.season, season),
+      gte(serviceEvents.performedAt, new Date(now.getTime() - DUPLICATE_WINDOW_MS))
+    )
+  })
+  if (recent) return { status: 'duplicate' as const, event: recent }
+
+  const reading = await database.query.vehicleSnapshots.findFirst({
+    columns: { mileage: true, motorMinutes: true },
+    where: and(
+      eq(vehicleSnapshots.vehicleId, vehicle.id),
+      isNotNull(vehicleSnapshots.mileage),
+      lt(vehicleSnapshots.ts, new Date(now.getTime() + 24 * 60 * 60_000))
+    ),
+    orderBy: desc(vehicleSnapshots.ts)
+  })
+  const [created] = await database.insert(serviceEvents).values({
+    vehicleId: vehicle.id,
+    kind: 'tyres',
+    season,
+    performedAt: now,
+    mileage: reading?.mileage ?? null,
+    motorMinutes: reading?.motorMinutes ?? null
+  }).returning()
+  return { status: 'recorded' as const, event: created! }
+}
+
+export function registerTyreHandlers(bot: Bot, database: Database) {
+  bot.callbackQuery(/^tyre:changed:(winter|summer)$/, async (context) => {
+    const season = (context.match as RegExpMatchArray)[1] as TyreSeason
+    const result = await recordTyreChange(database, season)
+    if (result.status === 'no-vehicle') return context.answerCallbackQuery('Автомобиль не найден')
+
+    // Кнопка своё отработала: оставить её значило бы дать записать смену ещё
+    // раз, а ответ на повторное нажатие всё равно один и тот же.
+    try {
+      await context.editMessageReplyMarkup()
+    } catch {
+      // Сообщение могло уже лишиться кнопки — сам ответ от этого не меняется.
+    }
+    if (result.status === 'duplicate') return context.answerCallbackQuery('Эта смена уже записана')
+
+    await context.answerCallbackQuery('Записал')
+    const target = season === 'winter' ? 'зимнюю' : 'летнюю'
+    await context.reply(`🛞 Записал: переобулись на ${target}, ${dateOnly.format(result.event.performedAt)}. Пробег сезона считается с этого дня. Сумму шиномонтажа можно указать на странице «Обслуживание».`)
+  })
 }
 
 export async function buildTyreNotice(database: Database, previous: TyreNoticeState, now = new Date()): Promise<TyreNotice | null> {

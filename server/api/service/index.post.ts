@@ -10,6 +10,15 @@ function optionalNumber(value: unknown, field: string, maximum: number) {
   return Math.round(result * 10) / 10
 }
 
+function optionalAmount(value: unknown) {
+  if (value == null || value === '') return null
+  const result = typeof value === 'number' ? value : Number(String(value).replace(',', '.').replace(/\s/g, ''))
+  if (!Number.isFinite(result) || result <= 0 || result > 10_000_000) {
+    throw createError({ statusCode: 400, statusMessage: 'Укажите корректную сумму' })
+  }
+  return Math.round(result * 100) / 100
+}
+
 function performedAt(value: unknown) {
   if (value == null || value === '') return new Date()
   const result = new Date(String(value))
@@ -21,7 +30,12 @@ function performedAt(value: unknown) {
 }
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ performedAt?: unknown, mileage?: unknown, note?: unknown }>(event)
+  const body = await readBody<{ kind?: unknown, season?: unknown, amount?: unknown, performedAt?: unknown, mileage?: unknown, note?: unknown }>(event)
+  const kind = body?.kind === 'tyres' ? 'tyres' : 'oil'
+  // На какую резину переобулись, обязательно знать: без этого отрезок до
+  // следующей смены некому приписать.
+  const season = body?.season === 'winter' || body?.season === 'summer' ? body.season : null
+  if (kind === 'tyres' && !season) throw createError({ statusCode: 400, statusMessage: 'Укажите, на какую резину переобулись' })
   const when = performedAt(body?.performedAt)
   const note = typeof body?.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 200) : null
 
@@ -44,10 +58,12 @@ export default defineEventHandler(async (event) => {
 
   const [created] = await database.insert(serviceEvents).values({
     vehicleId: vehicle.id,
-    kind: 'oil',
+    kind,
     performedAt: when,
     mileage,
     motorMinutes: reading?.motorMinutes ?? null,
+    season: kind === 'tyres' ? season : null,
+    amount: kind === 'tyres' ? optionalAmount(body?.amount) : null,
     note
   }).returning()
   return created

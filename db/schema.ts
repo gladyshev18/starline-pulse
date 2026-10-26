@@ -288,10 +288,16 @@ export const refuelReceipts = sqliteTable('refuel_receipts', {
 export const serviceEvents = sqliteTable('service_events', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   vehicleId: integer('vehicle_id').notNull().references(() => vehicles.id),
-  kind: text('kind', { enum: ['oil'] }).notNull().default('oil'),
+  kind: text('kind', { enum: ['oil', 'tyres'] }).notNull().default('oil'),
   performedAt: integer('performed_at', { mode: 'timestamp_ms' }).notNull(),
   mileage: real('mileage'),
   motorMinutes: integer('motor_minutes'),
+  // Только для смены резины: на какую поставили. Пробег сезона — это разность
+  // одометра между двумя сменами, и сама смена должна помнить, чья она.
+  season: text('season', { enum: ['winter', 'summer'] }),
+  // Стоимость шиномонтажа за эту смену. У масла сумма приходит из заказ-наряда,
+  // а шиномонтаж часто оплачивают без акта, поэтому она живёт в самой записи.
+  amount: real('amount'),
   note: text('note'),
   ...timestamps
 }, table => [index('service_events_vehicle_kind_idx').on(table.vehicleId, table.kind, table.performedAt)])

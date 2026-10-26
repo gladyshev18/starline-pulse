@@ -13,7 +13,10 @@ async function servicePoints(database: Database, vehicleId: number) {
     amount: sql<number | null>`sum(${serviceDocuments.totalAmount})`
   }).from(serviceEvents)
     .leftJoin(serviceDocuments, eq(serviceDocuments.serviceEventId, serviceEvents.id))
-    .where(eq(serviceEvents.vehicleId, vehicleId))
+    // Смена резины в стоимость километра не входит: это отдельная статья со
+    // своей страницей, и вносить её в цену километра молча значило бы менять
+    // главную цифру месяца, о чём её никто не просил.
+    .where(and(eq(serviceEvents.vehicleId, vehicleId), eq(serviceEvents.kind, 'oil')))
     .groupBy(serviceEvents.id)
 
   return rows.map(row => ({

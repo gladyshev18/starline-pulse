@@ -7,6 +7,7 @@ import { registerCommands } from './commands'
 import { registerReceiptHandlers } from './receipts'
 import { allowedRecipients } from './recipients'
 import { registerTripDriverHandlers } from './trip-driver'
+import { registerTyreHandlers } from './tyre-watch'
 import { createTelegramProxyFetch } from './proxy'
 
 let bot: Bot | null = null
@@ -37,6 +38,7 @@ export function createTelegramBot(database: Database) {
   registerCommands(bot, database)
   registerReceiptHandlers(bot, database)
   registerTripDriverHandlers(bot, database)
+  registerTyreHandlers(bot, database)
   bot.catch(error => console.error('Telegram bot error', error.error))
   return bot
 }

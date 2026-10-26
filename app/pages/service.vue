@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { OIL_EQUIVALENT_SPEED_KMH, OIL_INTERVAL_KM, OIL_INTERVAL_MONTHS, OIL_INTERVAL_MOTOR_HOURS, OIL_KM_PER_DAY, OIL_MOTOR_HOURS_PER_DAY } from '~~/shared/service'
+import { tyreSeasonLabel } from '~~/shared/tyre-mileage'
+import { tyreSeason, type TyreSeason } from '~~/shared/tyres'
 import type { MetricCardProps } from '~/components/ui/MetricCard.vue'
 
 const { data, status, refresh } = await useFetch('/api/service')
@@ -387,6 +389,95 @@ async function remove(id: number) {
   }
 }
 
+const oilEvents = computed(() => (data.value?.events || []).filter(item => item.kind === 'oil'))
+
+const tyres = computed(() => data.value?.tyres)
+const tyreSeasonOptions = [
+  { value: 'winter', label: 'На зимнюю' },
+  { value: 'summer', label: 'На летнюю' }
+] as const
+const seasonAdjective: Record<TyreSeason, string> = { winter: 'Зимняя', summer: 'Летняя' }
+
+function moscowToday() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(new Date())
+}
+// По умолчанию предлагается та смена, которую ждёт календарь: осенью на зимнюю,
+// весной на летнюю. Исправить её одним нажатием — дешевле, чем выбирать каждый раз.
+const tyreForm = reactive<{ season: TyreSeason, performedAt: string, amount: string }>({
+  season: tyreSeason(),
+  performedAt: moscowToday(),
+  amount: ''
+})
+const tyreError = ref('')
+
+async function addTyreChange() {
+  if (pending.value) return
+  pending.value = true
+  tyreError.value = ''
+  try {
+    await $fetch('/api/service', {
+      method: 'POST',
+      // Полдень по Москве, как у акта: дата остаётся той же в любом часовом поясе.
+      body: { kind: 'tyres', season: tyreForm.season, performedAt: `${tyreForm.performedAt}T12:00:00+03:00`, amount: tyreForm.amount }
+    })
+    tyreForm.amount = ''
+    await refresh()
+  } catch (error) {
+    tyreError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+
+const tyreAmountEditing = ref<{ id: number, label: string } | null>(null)
+const tyreAmount = ref('')
+function openTyreAmount(item: { id: number, season: TyreSeason, from: string | Date, amount: number | null }) {
+  tyreAmountEditing.value = { id: item.id, label: `${tyreSeasonLabel(item.season, new Date(item.from))} · ${date(item.from)}` }
+  tyreAmount.value = item.amount == null ? '' : String(item.amount)
+  tyreError.value = ''
+}
+async function saveTyreAmount() {
+  if (pending.value || !tyreAmountEditing.value) return
+  pending.value = true
+  tyreError.value = ''
+  try {
+    await $fetch(`/api/service/${tyreAmountEditing.value.id}`, { method: 'PATCH', body: { amount: tyreAmount.value } })
+    tyreAmountEditing.value = null
+    await refresh()
+  } catch (error) {
+    tyreError.value = errorMessage(error)
+  } finally {
+    pending.value = false
+  }
+}
+
+// Идущий отрезок — это резина, на которой машина стоит сейчас, и именно про неё
+// спрашивают в первую очередь.
+const currentTyres = computed(() => tyres.value?.segments.find(item => item.current) ?? null)
+const tyreSegments = computed(() => [...(tyres.value?.segments || [])].reverse())
+const tyreHeadline = computed(() => {
+  const current = currentTyres.value
+  if (!current) return 'нет данных'
+  return `${seasonAdjective[current.season]} · ${current.km == null ? '—' : `${number(current.km)} км`}`
+})
+const tyreNote = computed(() => {
+  const current = currentTyres.value
+  if (!current) return 'Внесите последнюю смену резины ниже — пробег по сезонам считается от неё. Что было раньше, журнал не знает.'
+  return `Стоит с ${date(current.from)}${current.startKm != null ? `, с ${number(current.startKm)} км` : ''}`
+})
+const tyreMeta = computed(() => {
+  const total = tyres.value
+  if (!total?.changes) return []
+  const lines = [
+    `На зимней всего ${number(total.totals.winter.km)} км, на летней — ${number(total.totals.summer.km)} км`
+  ]
+  if (total.priced) {
+    const average = total.spent / total.priced
+    lines.push(`Шиномонтаж: ${money(total.spent)} за ${total.priced} ${plural(total.priced, 'смену', 'смены', 'смен')}, в среднем ${money(average)}${total.priced < total.changes ? ', у остальных сумма не указана' : ''}`)
+  }
+  return lines
+})
+
 const engineMetrics = computed<MetricCardProps[]>(() => [
   {
     title: 'Моточасы',
@@ -537,12 +628,12 @@ const batteryMetric = computed<MetricCardProps>(() => ({
       </AppCard>
 
       <AppCard size="table" title="Журнал замен">
-        <p v-if="!data?.events.length" class="muted">Записей пока нет.</p>
+        <p v-if="!oilEvents.length" class="muted">Записей пока нет.</p>
         <div v-else class="table-wrap">
           <table role="table">
             <thead role="rowgroup"><tr role="row"><th role="columnheader">Дата</th><th role="columnheader">Пробег</th><th role="columnheader">Моточасы</th><th role="columnheader">Заметка</th><th role="columnheader" /></tr></thead>
             <tbody role="rowgroup">
-              <tr v-for="item in data.events" :key="item.id" role="row">
+              <tr v-for="item in oilEvents" :key="item.id" role="row">
                 <td role="cell" data-label="Дата">{{ date(item.performedAt) }}</td>
                 <td role="cell" data-label="Пробег">{{ number(item.mileage) }} км</td>
                 <td role="cell" data-label="Моточасы">{{ hours(item.motorMinutes) }}</td>
@@ -552,6 +643,53 @@ const batteryMetric = computed<MetricCardProps>(() => ({
             </tbody>
           </table>
         </div>
+      </AppCard>
+
+      <MetricCard
+        size="wide"
+        title="Резина"
+        subtitle="Пробег считается по одометру: от одной смены до следующей, последний отрезок — до сегодняшнего показания"
+        compact
+        :value="tyreHeadline"
+        :note="tyreNote"
+        :meta="tyreMeta"
+      />
+
+      <AppCard size="table" title="Смены резины" subtitle="Шиномонтаж обычно дважды в год: каждая смена — одна запись со своей суммой">
+        <p v-if="!tyreSegments.length" class="muted">Записей пока нет.</p>
+        <div v-else class="table-wrap">
+          <table role="table">
+            <thead role="rowgroup"><tr role="row"><th role="columnheader">Сезон</th><th role="columnheader">Поставили</th><th role="columnheader">Одометр</th><th role="columnheader">Проехали</th><th role="columnheader">Шиномонтаж</th><th role="columnheader" /></tr></thead>
+            <tbody role="rowgroup">
+              <tr v-for="item in tyreSegments" :key="item.id" role="row">
+                <td role="cell" data-label="Сезон">{{ tyreSeasonLabel(item.season, new Date(item.from)) }}</td>
+                <td role="cell" data-label="Поставили">{{ date(item.from) }}</td>
+                <td role="cell" data-label="Одометр">{{ item.startKm == null ? '—' : `${number(item.startKm)} км` }}</td>
+                <td role="cell" data-label="Проехали">{{ item.km == null ? '—' : `${number(item.km)} км` }}<span v-if="item.current" class="muted"> · идёт</span></td>
+                <td role="cell" data-label="Шиномонтаж">{{ item.amount == null ? '—' : money(item.amount) }}</td>
+                <td role="cell" class="document-actions">
+                  <AppButton size="small" variant="secondary" :disabled="pending" @click="openTyreAmount(item)">{{ item.amount == null ? 'Указать сумму' : 'Изменить сумму' }}</AppButton>
+                  <AppButton size="small" variant="secondary" :disabled="pending" @click="remove(item.id)">Удалить</AppButton>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <AppForm id="tyre-form" class="fixed-cost-form" @submit="addTyreChange">
+          <div class="form-wide">
+            <AppSegmented v-model="tyreForm.season" :options="tyreSeasonOptions" label="На какую резину переобулись" />
+          </div>
+          <AppField label="Дата">
+            <AppInput v-model="tyreForm.performedAt" type="date" :disabled="pending" required />
+          </AppField>
+          <AppField label="Шиномонтаж, ₽" hint="Можно указать позже">
+            <AppInput v-model="tyreForm.amount" inputmode="decimal" :disabled="pending" />
+          </AppField>
+          <AppAlert v-if="tyreError && !tyreAmountEditing" class="form-wide">{{ tyreError }}</AppAlert>
+          <div class="form-wide">
+            <AppButton type="submit" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Записать смену' }}</AppButton>
+          </div>
+        </AppForm>
       </AppCard>
 
       <AppCard
@@ -634,6 +772,26 @@ const batteryMetric = computed<MetricCardProps>(() => ({
         <AppButton variant="secondary" :disabled="pending" @click="reparseDocument">Распознать заново</AppButton>
         <AppButton variant="secondary" :disabled="pending" @click="editing = null">Отмена</AppButton>
         <AppButton type="submit" form="document-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Подтвердить' }}</AppButton>
+      </template>
+    </AppModal>
+
+    <AppModal
+      :model-value="Boolean(tyreAmountEditing)"
+      title="Сумма шиномонтажа"
+      :eyebrow="tyreAmountEditing?.label || ''"
+      :close-on-backdrop="!pending"
+      :close-on-escape="!pending"
+      @update:model-value="value => { if (!value && !pending) tyreAmountEditing = null }"
+    >
+      <AppForm id="tyre-amount-form" @submit="saveTyreAmount">
+        <AppField label="Сумма, ₽" hint="Пусто — сумма не указана">
+          <AppInput v-model="tyreAmount" inputmode="decimal" :disabled="pending" />
+        </AppField>
+        <AppAlert v-if="tyreError" wide>{{ tyreError }}</AppAlert>
+      </AppForm>
+      <template #footer>
+        <AppButton variant="secondary" :disabled="pending" @click="tyreAmountEditing = null">Отмена</AppButton>
+        <AppButton type="submit" form="tyre-amount-form" :disabled="pending">{{ pending ? 'Сохраняем…' : 'Сохранить' }}</AppButton>
       </template>
     </AppModal>
   </div>

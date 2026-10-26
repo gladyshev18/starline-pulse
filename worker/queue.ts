@@ -9,7 +9,7 @@ import { buildReport, nextReportRun, type ReportPeriod } from './bot/reports'
 import { config, receiptsMailConfig } from './config'
 import { buildReceiptImportNotice } from './bot/receipt-notices'
 import { askAboutClosedTrips, buildDriverKeyboard, resolveTrip } from './bot/trip-driver'
-import { buildTyreNotice, nextTyreWatchRun, parseTyreNoticeState, type TyreNoticeState } from './bot/tyre-watch'
+import { buildTyreNotice, nextTyreWatchRun, parseTyreNoticeState, tyreNoticeKeyboard, type TyreNoticeState } from './bot/tyre-watch'
 import { aggregateSnapshot } from './starline/aggregates'
 import { getDailyUsage } from './starline/budget'
 import { applyEventBoundaries, syncEvents } from './starline/events'
@@ -218,7 +218,7 @@ async function execute(database: Database, job: typeof jobs.$inferSelect): Promi
     const announced = parseTyreNoticeState(payload)
     const notice = await buildTyreNotice(database, announced)
     if (!notice) return { nextTyreWatch: announced }
-    await notifyAllowedChats(notice.text, { html: true, sound: true })
+    await notifyAllowedChats(notice.text, { html: true, sound: true, keyboard: tyreNoticeKeyboard(notice) ?? undefined })
     return { nextTyreWatch: { season: notice.season, status: notice.status } }
   }
   if (job.type === 'service:parse_act') {

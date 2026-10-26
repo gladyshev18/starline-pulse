@@ -3,6 +3,7 @@ import { fixedCosts, serviceEvents, vehicleSnapshots } from '../../../db/schema'
 import { batteryHealth } from '../../../metrics/battery'
 import { emptyOilStatus, engineSummary, oilStatus } from '../../../metrics/engine'
 import { currentMoscowMonth, moscowMonthRange } from '../../../shared/moscow-month'
+import { tyreMileage, type TyreChange } from '../../../shared/tyre-mileage'
 
 export default defineEventHandler(async () => {
   const database = useAppDatabase()
@@ -23,6 +24,7 @@ export default defineEventHandler(async () => {
       motorMinutes: null,
       mileage: null,
       events: [],
+      tyres: tyreMileage([], null),
       fixedCosts: [] as Array<typeof fixedCosts.$inferSelect>
     }
   }
@@ -44,6 +46,13 @@ export default defineEventHandler(async () => {
     })
   ])
 
+  const events = await database.select().from(serviceEvents)
+    .where(eq(serviceEvents.vehicleId, vehicle.id))
+    .orderBy(desc(serviceEvents.performedAt))
+  const tyreChanges = events
+    .filter((item): item is typeof item & { season: NonNullable<typeof item.season> } => item.kind === 'tyres' && item.season != null)
+    .map((item): TyreChange => ({ id: item.id, performedAt: item.performedAt, mileage: item.mileage, season: item.season, amount: item.amount }))
+
   return {
     vehicle,
     oil: await oilStatus(database, vehicle.id, now),
@@ -53,9 +62,10 @@ export default defineEventHandler(async () => {
     battery: await batteryHealth(database, vehicle.id, new Date(0), now),
     motorMinutes: counter?.motorMinutes ?? null,
     mileage: odometer?.mileage ?? null,
-    events: await database.select().from(serviceEvents)
-      .where(eq(serviceEvents.vehicleId, vehicle.id))
-      .orderBy(desc(serviceEvents.performedAt)),
+    events,
+    // Пробег на сезонной резине считается от одометра на момент каждой смены до
+    // следующей, а последняя тянется до сегодняшнего показания.
+    tyres: tyreMileage(tyreChanges, odometer?.mileage ?? null),
     // Страховка и налог живут рядом с обслуживанием: и то и другое — деньги за
     // машину, которые никак не следуют из телеметрии и вводятся руками.
     fixedCosts: await database.select().from(fixedCosts)
