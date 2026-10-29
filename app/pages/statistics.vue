@@ -31,17 +31,16 @@ const odometerDistance = computed(() => {
 
 const monthTitle = computed(() => formatMonthTitle(month.value))
 
-// Помесячные графики живут отдельным запросом: окно у них своё — вся история до
-// текущего месяца, — поэтому переключение месяцев их не перезагружает.
-const { data: monthly } = await useFetch('/api/statistics/monthly')
-// Тем же окном живут зависимости и тренды: темп цены, сезонность, напряжение
-// перед пуском. Месяц для них — одна точка, и переключать их вместе с месяцем
-// было бы нечем.
+// Помесячные графики, зависимости и тренды — темп цены, сезонность, напряжение
+// перед пуском — живут отдельным запросом: окно у них своё, вся история до
+// текущего месяца, поэтому переключение месяцев их не перезагружает. Ряд по
+// месяцам приходит в том же ответе: insights и так считает его для сезонности,
+// и отдельный запрос за ним считал бы то же самое во второй раз.
 const { data: insights } = await useFetch('/api/statistics/insights')
 const trendMetric = ref<MonthlyMetricValue>('distance')
 const trendOptions = MONTHLY_METRICS.map(item => ({ value: item.value, label: item.label }))
 const trend = computed(() => monthlyMetric(trendMetric.value))
-const monthlyRows = computed(() => monthly.value?.months || [])
+const monthlyRows = computed(() => insights.value?.months || [])
 // Один месяц — это не график, а то же самое число, что и на карточках выше.
 const hasMonthlyData = computed(() => monthlyRows.value.length > 1)
 
