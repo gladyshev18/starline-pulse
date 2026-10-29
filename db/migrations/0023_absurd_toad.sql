@@ -1,0 +1,1 @@
+CREATE INDEX `snapshots_metrics_idx` ON `vehicle_snapshots` (`vehicle_id`,`ts`,`ignition`,`armed`,`engine_temp`,`battery`,`battery_type`,`fuel`,`mileage`,`motor_minutes`);

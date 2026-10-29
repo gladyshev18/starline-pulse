@@ -40,7 +40,19 @@ export async function measureVehicleIdleRate(database: Database, vehicleId: numb
 // is already off — but a remote start is precisely the warm-up that ends in a trip.
 async function armedIdleMinutes(database: Database, vehicleId: number, start: Date, end: Date) {
   const rows = await database.all<{ minutes: number }>(sql`
-    with steps as (
+    with moving as materialized (
+      -- Only the sessions that touch the window, read once. Without
+      -- "materialized" SQLite inlines this as a subquery and runs it again for
+      -- every snapshot, which on a month of polling is thousands of searches.
+      select ${engineSessions.startedAt} as started_at, ${engineSessions.endedAt} as ended_at
+      from ${engineSessions}
+      where ${engineSessions.vehicleId} = ${vehicleId}
+        and ${engineSessions.isOpen} = 0
+        and ${engineSessions.isStationary} = 0
+        and ${engineSessions.endedAt} >= ${start.getTime()}
+        and ${engineSessions.startedAt} < ${end.getTime()}
+    ),
+    steps as (
       select
         ${vehicleSnapshots.ts} as ts,
         ${vehicleSnapshots.ignition} as ignition,
@@ -55,12 +67,9 @@ async function armedIdleMinutes(database: Database, vehicleId: number, start: Da
         -- Sessions that never moved are counted whole from the session table, so
         -- taking their armed minutes here as well would bill them twice.
         and exists (
-          select 1 from ${engineSessions}
-          where ${engineSessions.vehicleId} = ${vehicleId}
-            and ${engineSessions.isOpen} = 0
-            and ${engineSessions.isStationary} = 0
-            and ${vehicleSnapshots.ts} >= ${engineSessions.startedAt}
-            and ${vehicleSnapshots.ts} <= ${engineSessions.endedAt}
+          select 1 from moving
+          where ${vehicleSnapshots.ts} >= moving.started_at
+            and ${vehicleSnapshots.ts} <= moving.ended_at
         )
     )
     -- Both ends of the interval must be armed and running. The poll that finds

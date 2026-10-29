@@ -102,7 +102,27 @@ export const vehicleSnapshots = sqliteTable('vehicle_snapshots', {
   // the engine actually ran — and the clock oil ages by.
   motorMinutes: integer('motor_minutes'),
   rawJson: text('raw_json').notNull()
-}, table => [index('snapshots_vehicle_ts_idx').on(table.vehicleId, table.ts)])
+}, table => [
+  index('snapshots_vehicle_ts_idx').on(table.vehicleId, table.ts),
+  // Строка снимка весит около 4 КБ из-за raw_json, и любой расчёт по истории,
+  // которому нужны два-три числа, поднимает с диска по странице на снимок. В
+  // покрывающем индексе есть все числовые колонки, по которым считаются метрики,
+  // поэтому такие запросы читают индекс в несколько мегабайт и в таблицу не
+  // заходят. Новая метрика с колонкой вне списка работает как раньше, только
+  // медленнее — тогда её стоит добавить сюда.
+  index('snapshots_metrics_idx').on(
+    table.vehicleId,
+    table.ts,
+    table.ignition,
+    table.armed,
+    table.engineTemp,
+    table.battery,
+    table.batteryType,
+    table.fuel,
+    table.mileage,
+    table.motorMinutes
+  )
+])
 
 export const trips = sqliteTable('trips', {
   id: integer('id').primaryKey({ autoIncrement: true }),
